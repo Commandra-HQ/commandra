@@ -31,36 +31,18 @@ authRoutes.get('/me', async (c) => {
 	const clerkUser = await getClerkUser(c);
 	if (!clerkUser) return c.json({ error: 'Unauthorized' }, 401);
 
-	const [dbUser] = await db.select().from(users).where(eq(users.clerkId, clerkUser.id)).limit(1);
+	const email = clerkUser.emailAddresses[0]?.emailAddress ?? '';
 
-	return c.json({
-		id: dbUser?.id,
-		clerkId: clerkUser.id,
-		email: clerkUser.emailAddresses[0]?.emailAddress,
-	});
-});
-
-authRoutes.post('/sync', async (c) => {
-	const clerkUser = await getClerkUser(c);
-	if (!clerkUser) return c.json({ error: 'Unauthorized' }, 401);
-
-	const email = clerkUser.emailAddresses[0]?.emailAddress;
-	if (!email) return c.json({ error: 'No email on Clerk account' }, 400);
-
-	const [existing] = await db
-		.select()
-		.from(users)
-		.where(eq(users.clerkId, clerkUser.id))
-		.limit(1);
-
-	if (existing) {
-		return c.json({ id: existing.id, email: existing.email, created: false });
-	}
-
-	const [newUser] = await db
+	// Auto-upsert: create user on first auth, no separate sync needed
+	const [dbUser] = await db
 		.insert(users)
 		.values({ clerkId: clerkUser.id, email })
+		.onConflictDoUpdate({ target: users.clerkId, set: { email } })
 		.returning();
 
-	return c.json({ id: newUser.id, email: newUser.email, created: true });
+	return c.json({
+		id: dbUser.id,
+		clerkId: clerkUser.id,
+		email,
+	});
 });
