@@ -2,27 +2,45 @@ import { indexPage } from './indexer.js';
 
 /**
  * Content script — runs on every page.
- * 1. Indexes the page (extracts interactive elements)
- * 2. Listens for action requests from the backend (via background script)
- * 3. Executes actions on the DOM
+ * Indexes interactive elements and responds to messages from background/side panel.
  */
 
-// Auto-index on page load
-const pageIndex = indexPage();
-console.log(`[AFE] Indexed ${pageIndex.elements.length} elements on ${window.location.href}`);
+let cachedIndex = indexPage();
+console.log(`[AFE] Indexed ${cachedIndex.elements.length} elements on ${window.location.href}`);
+
+// Re-index when the page changes (SPA navigation)
+let lastUrl = window.location.href;
+
+const observer = new MutationObserver(() => {
+	if (window.location.href !== lastUrl) {
+		lastUrl = window.location.href;
+		cachedIndex = indexPage();
+		console.log(`[AFE] Re-indexed ${cachedIndex.elements.length} elements on ${lastUrl}`);
+	}
+});
+
+observer.observe(document.body, { childList: true, subtree: true });
+
+// Also catch popstate (back/forward navigation)
+window.addEventListener('popstate', () => {
+	cachedIndex = indexPage();
+});
 
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 	switch (message.type) {
+		case 'INDEX_PAGE':
+			cachedIndex = indexPage();
+			sendResponse({ pageIndex: cachedIndex });
+			break;
 		case 'get_page_state':
-			sendResponse({ pageIndex });
+			sendResponse({ pageIndex: cachedIndex });
 			break;
 		case 'action_request':
-			// TODO: Execute action on DOM
 			sendResponse({ status: 'not_implemented' });
 			break;
 	}
-	return true; // Keep message channel open for async response
+	return true;
 });
 
 // Kill switch — Escape key halts all agent activity

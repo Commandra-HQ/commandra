@@ -24,3 +24,29 @@ export interface WsMessage {
 }
 
 export type AgentStatus = 'idle' | 'planning' | 'executing' | 'waiting_approval' | 'error';
+
+/** Messages sent between content script, background, and side panel */
+export type ExtMessageType =
+	| 'INDEX_PAGE'
+	| 'INDEX_PAGE_RESULT'
+	| 'CRAWL_START'
+	| 'CRAWL_PROGRESS'
+	| 'CRAWL_COMPLETE'
+	| 'CRAWL_STOP'
+	| 'GET_CRAWL_STATUS'
+	| 'get_page_state'
+	| 'action_request'
+	| 'kill';
+
+export interface CrawlProgress {
+	domain: string;
+	pagesIndexed: number;
+	pagesDiscovered: number;
+	currentUrl: string | null;
+	status: 'idle' | 'crawling' | 'complete' | 'stopped';
+}
+
+export interface ExtMessage {
+	type: ExtMessageType;
+	payload?: unknown;
+}
