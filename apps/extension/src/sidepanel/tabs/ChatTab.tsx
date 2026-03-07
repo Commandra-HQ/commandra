@@ -12,6 +12,15 @@ interface ChatMessage {
 	content: string;
 }
 
+interface ActivityItem {
+	requestId: string;
+	action: string;
+	label?: string;
+	status: 'pending' | 'executing' | 'done' | 'failed';
+	error?: string;
+	timestamp: number;
+}
+
 interface SiteData {
 	site: StoredSite | null;
 	pages: StoredPage[];
@@ -31,6 +40,8 @@ export function ChatTab() {
 	const [isStreaming, setIsStreaming] = useState(false);
 	const [conversationId, setConversationId] = useState<string | null>(null);
 	const [showContext, setShowContext] = useState(false);
+	const [wsConnected, setWsConnected] = useState(false);
+	const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
 	const loadSiteData = useCallback((d: string) => {
@@ -85,6 +96,11 @@ export function ChatTab() {
 	}, [updateCurrentTab]);
 
 	useEffect(() => {
+		// Check WS connection status
+		chrome.runtime.sendMessage({ type: 'GET_WS_STATUS' }, (res) => {
+			if (res) setWsConnected(res.connected);
+		});
+
 		function handleMessage(message: { type: string; payload?: unknown }) {
 			if (message.type === 'CRAWL_PROGRESS') {
 				const progress = message.payload as CrawlProgress;
@@ -95,6 +111,17 @@ export function ChatTab() {
 				} else {
 					setMode('crawling');
 				}
+			} else if (message.type === 'ACTION_STATUS') {
+				const status = message.payload as ActivityItem;
+				setActivityItems((prev) => {
+					const existing = prev.findIndex((i) => i.requestId === status.requestId);
+					if (existing >= 0) {
+						const updated = [...prev];
+						updated[existing] = status;
+						return updated;
+					}
+					return [...prev, status];
+				});
 			}
 		}
 		chrome.runtime.onMessage.addListener(handleMessage);
@@ -263,6 +290,7 @@ export function ChatTab() {
 	function handleNewConversation() {
 		setChatMessages([]);
 		setConversationId(null);
+		setActivityItems([]);
 	}
 
 	if (!domain) {
@@ -306,7 +334,7 @@ export function ChatTab() {
 				className="px-4 py-2 border-b border-border flex items-center justify-between hover:bg-secondary/30"
 			>
 				<span className="text-xs text-muted-foreground">
-					{domain} · {siteData.site?.totalPages ?? 0} pages · {siteData.site?.totalElements ?? 0} elements
+					{domain} · {siteData.site?.totalPages ?? 0} pages · {wsConnected ? 'connected' : 'chat only'}
 				</span>
 				<span className="text-xs text-muted-foreground">{showContext ? '▲' : '▼'}</span>
 			</button>
@@ -322,6 +350,27 @@ export function ChatTab() {
 				</div>
 			)}
 
+			{/* Activity Feed */}
+			{activityItems.length > 0 && (
+				<div className="border-b border-border px-4 py-2 space-y-1 max-h-32 overflow-y-auto">
+					<p className="text-xs font-medium text-muted-foreground">Activity</p>
+					{activityItems.slice(-5).map((item) => (
+						<div key={item.requestId} className="flex items-center gap-2 text-xs">
+							<span className={
+								item.status === 'done' ? 'text-green-500' :
+								item.status === 'failed' ? 'text-red-500' :
+								'text-yellow-500 animate-pulse'
+							}>
+								{item.status === 'done' ? '✓' : item.status === 'failed' ? '✗' : '●'}
+							</span>
+							<span className="text-muted-foreground truncate">
+								{item.action}{item.label ? ` → ${item.label}` : ''}
+							</span>
+						</div>
+					))}
+				</div>
+			)}
+
 			{/* Messages */}
 			<div className="flex-1 overflow-y-auto p-4 space-y-4">
 				{chatMessages.length === 0 && (
@@ -330,7 +379,7 @@ export function ChatTab() {
 							Ask anything about this page or site.
 						</p>
 						<p className="text-xs text-muted-foreground mt-1">
-							"What can I do here?" · "How do I create an issue?" · "Describe this page"
+							"What can I do here?" · "Click the login button" · "Type hello in the search box"
 						</p>
 					</div>
 				)}

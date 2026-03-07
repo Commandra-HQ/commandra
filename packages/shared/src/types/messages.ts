@@ -9,8 +9,12 @@ export interface ChatMessage {
 
 /** Messages sent over WebSocket between extension and backend */
 export type WsMessageType =
+	| 'connected'
+	| 'auth'
+	| 'auth_result'
 	| 'action_request'
 	| 'action_result'
+	| 'action_status'
 	| 'page_state'
 	| 'chat_message'
 	| 'agent_status'
@@ -18,8 +22,36 @@ export type WsMessageType =
 
 export interface WsMessage {
 	type: WsMessageType;
+	requestId?: string;
 	payload: unknown;
-	connectionId: string;
+	connectionId?: string;
+	timestamp: number;
+}
+
+/** Action request sent from backend to extension */
+export interface ActionRequest {
+	requestId: string;
+	action: string;
+	selector?: string;
+	value?: string;
+	url?: string;
+}
+
+/** Action result sent from extension to backend */
+export interface ActionResultPayload {
+	requestId: string;
+	success: boolean;
+	data?: unknown;
+	error?: string;
+}
+
+/** Status update broadcast to side panel */
+export interface ActionStatusUpdate {
+	requestId: string;
+	action: string;
+	label?: string;
+	status: 'pending' | 'executing' | 'done' | 'failed';
+	error?: string;
 	timestamp: number;
 }
 

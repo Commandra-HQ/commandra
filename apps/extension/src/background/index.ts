@@ -1,5 +1,6 @@
 import { startCrawl, stopCrawl } from './crawler.js';
 import { db, getOrCreateSite, storePage, clearSite } from '../storage/db.js';
+import { connectWebSocket, disconnectWebSocket, isConnected } from './ws-client.js';
 
 // Open side panel when extension icon is clicked
 chrome.sidePanel
@@ -14,7 +15,11 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 chrome.runtime.onInstalled.addListener(() => {
 	console.log('Agents for Everyone extension installed');
+	connectWebSocket();
 });
+
+// Also connect on startup (extension reload, browser restart)
+connectWebSocket();
 
 // Handle messages from side panel and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -60,6 +65,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			const { domain } = message.payload as { domain: string };
 			clearSite(domain).then(() => sendResponse({ ok: true }));
 			return true; // async
+		}
+
+		case 'GET_WS_STATUS': {
+			sendResponse({ connected: isConnected() });
+			break;
 		}
 
 		case 'kill': {

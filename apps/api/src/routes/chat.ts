@@ -5,6 +5,8 @@ import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';
 import { eq, asc } from 'drizzle-orm';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
+import { browserTools, executeBrowserTool } from '../mcp/browser-bridge.js';
+import { getConnectionByUser } from '../ws/handler.js';
 
 const getClient = (() => {
 	let client: Anthropic | null = null;
@@ -53,7 +55,6 @@ chatRoutes.post('/', async (c) => {
 		.where(eq(messages.conversationId, convId))
 		.orderBy(asc(messages.createdAt));
 
-	// Build Claude messages (skip the one we just inserted, it's the current user msg)
 	const claudeMessages: Anthropic.MessageParam[] = history.map((m) => ({
 		role: m.role as 'user' | 'assistant',
 		content: m.content,
@@ -61,28 +62,30 @@ chatRoutes.post('/', async (c) => {
 
 	const systemPrompt = buildSystemPrompt(pageIndex);
 
+	// Check if extension is connected — determines if we can use tools
+	const connectionId = getConnectionByUser(user.id);
+	const canAct = !!connectionId;
+
 	// Stream response
 	return stream(c, async (s) => {
 		let fullResponse = '';
 
 		try {
-			const response = await getClient().messages.create({
-				model: 'claude-sonnet-4-20250514',
-				max_tokens: 2048,
-				system: systemPrompt,
-				messages: claudeMessages,
-				stream: true,
-			});
-
-			for await (const event of response) {
-				if (
-					event.type === 'content_block_delta' &&
-					event.delta.type === 'text_delta'
-				) {
-					const text = event.delta.text;
-					fullResponse += text;
-					await s.write(text);
-				}
+			if (canAct) {
+				// Agentic loop — tool use enabled
+				fullResponse = await runAgentLoop(
+					systemPrompt,
+					claudeMessages,
+					connectionId!,
+					async (text) => { await s.write(text); },
+				);
+			} else {
+				// Simple chat — no tools, just streaming text
+				fullResponse = await runSimpleChat(
+					systemPrompt,
+					claudeMessages,
+					async (text) => { await s.write(text); },
+				);
 			}
 
 			// Store assistant response
@@ -92,14 +95,123 @@ chatRoutes.post('/', async (c) => {
 				content: fullResponse,
 			});
 
-			// Send conversation ID as final metadata (newline-separated)
+			// Send conversation ID as final metadata
 			await s.write(`\n\n<!--conv:${convId}-->`);
 		} catch (err) {
-			console.error('Claude API error:', err);
+			console.error('Chat error:', err);
 			await s.write('\n\nSorry, something went wrong. Please try again.');
 		}
 	});
 });
+
+/**
+ * Simple chat — no tool use, just streaming text response.
+ */
+async function runSimpleChat(
+	systemPrompt: string,
+	messages: Anthropic.MessageParam[],
+	onText: (text: string) => Promise<void>,
+): Promise<string> {
+	let fullResponse = '';
+
+	const response = await getClient().messages.create({
+		model: 'claude-sonnet-4-20250514',
+		max_tokens: 2048,
+		system: systemPrompt,
+		messages,
+		stream: true,
+	});
+
+	for await (const event of response) {
+		if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+			fullResponse += event.delta.text;
+			await onText(event.delta.text);
+		}
+	}
+
+	return fullResponse;
+}
+
+/**
+ * Agentic loop — Claude can call browser tools, observe results, and continue.
+ * Runs until Claude stops requesting tools (max 10 iterations to prevent runaway).
+ */
+async function runAgentLoop(
+	systemPrompt: string,
+	chatMessages: Anthropic.MessageParam[],
+	connectionId: string,
+	onText: (text: string) => Promise<void>,
+	maxIterations = 10,
+): Promise<string> {
+	let fullResponse = '';
+	let currentMessages = [...chatMessages];
+	let iterations = 0;
+
+	while (iterations < maxIterations) {
+		iterations++;
+
+		const response = await getClient().messages.create({
+			model: 'claude-sonnet-4-20250514',
+			max_tokens: 4096,
+			system: systemPrompt + '\n\nYou have access to browser action tools. When the user asks you to DO something on the page, use the tools. When they ask to KNOW something, just respond with text. After using a tool, observe the result and decide if you need to take more actions or if the task is complete.',
+			messages: currentMessages,
+			tools: browserTools,
+		});
+
+		// Process response content blocks
+		const toolUseBlocks: Anthropic.ContentBlockParam[] = [];
+		const toolResults: Anthropic.ToolResultBlockParam[] = [];
+		let hasToolUse = false;
+
+		for (const block of response.content) {
+			if (block.type === 'text') {
+				fullResponse += block.text;
+				await onText(block.text);
+			} else if (block.type === 'tool_use') {
+				hasToolUse = true;
+				toolUseBlocks.push(block);
+
+				// Stream a status message to the user
+				const toolArgs = block.input as Record<string, unknown>;
+				const statusMsg = `\n[Action: ${block.name}${toolArgs.selector ? ` on "${toolArgs.selector}"` : ''}${toolArgs.url ? ` to ${toolArgs.url}` : ''}]\n`;
+				fullResponse += statusMsg;
+				await onText(statusMsg);
+
+				// Execute the tool
+				try {
+					const result = await executeBrowserTool(connectionId, block.name, toolArgs);
+					toolResults.push({
+						type: 'tool_result',
+						tool_use_id: block.id,
+						content: JSON.stringify(result),
+					});
+				} catch (err) {
+					const errorMsg = err instanceof Error ? err.message : String(err);
+					toolResults.push({
+						type: 'tool_result',
+						tool_use_id: block.id,
+						content: JSON.stringify({ success: false, error: errorMsg }),
+						is_error: true,
+					});
+				}
+			}
+		}
+
+		if (!hasToolUse || response.stop_reason === 'end_turn') {
+			// No more tools to call — we're done
+			break;
+		}
+
+		// Add assistant response and tool results to messages for next iteration
+		currentMessages = [
+			...currentMessages,
+			{ role: 'assistant', content: response.content },
+			{ role: 'user', content: toolResults },
+		];
+	}
+
+	return fullResponse;
+}
 
 function buildSystemPrompt(pageIndex?: unknown): string {
 	const base = `You are an AI assistant embedded in a Chrome extension called "Agents for Everyone." You help users understand and interact with web applications.
@@ -112,7 +224,11 @@ When the user asks about the page:
 - Suggest step-by-step plans when the user wants to accomplish something
 - Be concise and practical
 
-You cannot execute actions yet — only describe and suggest. When suggesting steps, be specific about which elements to interact with.
+When the user asks you to DO something (click, type, navigate):
+- Use your browser tools to execute the actions
+- After each action, use get_page_state to see the updated page if needed
+- Confirm what you did after completing the task
+- If something fails, explain what happened and suggest alternatives
 
 If the user asks about data or content you can't see (like table values, text content, or images), let them know you can only see the page structure, not the actual data.`;
 
@@ -178,7 +294,7 @@ function formatElements(
 		lines.push(`### ${type}s (${els.length})`);
 		// Show up to 30 per type to keep context manageable
 		for (const el of els.slice(0, 30)) {
-			lines.push(`  - "${el.label}"`);
+			lines.push(`  - "${el.label}" [selector: ${el.selector}]`);
 		}
 		if (els.length > 30) {
 			lines.push(`  - ...and ${els.length - 30} more`);

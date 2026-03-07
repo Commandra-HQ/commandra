@@ -1,8 +1,9 @@
 import { indexPage } from './indexer.js';
+import { executeAction, type ActionPayload } from './actions.js';
 
 /**
  * Content script — runs on every page.
- * Indexes interactive elements and responds to messages from background/side panel.
+ * Indexes interactive elements, executes agent actions, responds to messages.
  */
 
 let cachedIndex = indexPage();
@@ -36,9 +37,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 		case 'get_page_state':
 			sendResponse({ pageIndex: cachedIndex });
 			break;
-		case 'action_request':
-			sendResponse({ status: 'not_implemented' });
+		case 'EXECUTE_ACTION': {
+			const payload = message.payload as ActionPayload;
+			console.log(`[AFE] Executing action: ${payload.action}`, payload);
+			const result = executeAction(payload);
+			console.log(`[AFE] Action result:`, result);
+			sendResponse(result);
 			break;
+		}
 	}
 	return true;
 });

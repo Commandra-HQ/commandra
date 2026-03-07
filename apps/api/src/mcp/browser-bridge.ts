@@ -1,38 +1,102 @@
 /**
  * MCP Browser Bridge
  *
- * Exposes browser actions as MCP tools that the Agent SDK can call.
+ * Defines browser action tools that the agentic loop can call.
  * Each tool call gets forwarded to the Chrome extension via WebSocket.
- *
- * Tools:
- * - click_element: Click an element by selector
- * - type_text: Type text into an input field
- * - navigate: Go to a URL
- * - extract_table: Extract table data from the page
- * - get_page_state: Get current page structure
- * - screenshot: Capture visible page
  */
 
-import type { ActionType } from '@afe/shared';
-import { sendToExtension } from '../ws/handler.js';
+import type Anthropic from '@anthropic-ai/sdk';
+import { sendActionRequest } from '../ws/handler.js';
 
-export interface McpToolCall {
-	tool: ActionType;
-	args: Record<string, unknown>;
-	connectionId: string;
-}
+/** Tool definitions for Claude's tool_use */
+export const browserTools: Anthropic.Tool[] = [
+	{
+		name: 'click_element',
+		description: 'Click an interactive element on the page (button, link, checkbox, etc). Use the CSS selector from the page index.',
+		input_schema: {
+			type: 'object' as const,
+			properties: {
+				selector: {
+					type: 'string',
+					description: 'CSS selector of the element to click',
+				},
+				description: {
+					type: 'string',
+					description: 'Human-readable description of what is being clicked (e.g. "the Submit button")',
+				},
+			},
+			required: ['selector'],
+		},
+	},
+	{
+		name: 'type_text',
+		description: 'Type text into an input field or textarea. Clears existing content first.',
+		input_schema: {
+			type: 'object' as const,
+			properties: {
+				selector: {
+					type: 'string',
+					description: 'CSS selector of the input element',
+				},
+				text: {
+					type: 'string',
+					description: 'Text to type into the field',
+				},
+			},
+			required: ['selector', 'text'],
+		},
+	},
+	{
+		name: 'select_option',
+		description: 'Select an option from a dropdown/select element.',
+		input_schema: {
+			type: 'object' as const,
+			properties: {
+				selector: {
+					type: 'string',
+					description: 'CSS selector of the select element',
+				},
+				value: {
+					type: 'string',
+					description: 'Value of the option to select',
+				},
+			},
+			required: ['selector', 'value'],
+		},
+	},
+	{
+		name: 'navigate',
+		description: 'Navigate the browser to a specific URL.',
+		input_schema: {
+			type: 'object' as const,
+			properties: {
+				url: {
+					type: 'string',
+					description: 'The URL to navigate to',
+				},
+			},
+			required: ['url'],
+		},
+	},
+	{
+		name: 'get_page_state',
+		description: 'Get the current page structure including all interactive elements, their labels, and selectors. Use this after navigating or clicking to see the updated page.',
+		input_schema: {
+			type: 'object' as const,
+			properties: {},
+			required: [],
+		},
+	},
+];
 
-export async function executeBrowserTool(call: McpToolCall): Promise<unknown> {
-	const { tool, args, connectionId } = call;
-
-	// Send action request to extension via WebSocket
-	sendToExtension(connectionId, {
-		type: 'action_request',
-		payload: { action: tool, ...args },
-		timestamp: Date.now(),
-	});
-
-	// In the real implementation, we'll await the action_result message
-	// from the extension. For now, return a placeholder.
-	return { status: 'sent', tool, args };
+/**
+ * Execute a browser tool by forwarding it to the extension via WebSocket.
+ */
+export async function executeBrowserTool(
+	connectionId: string,
+	toolName: string,
+	args: Record<string, unknown>,
+): Promise<unknown> {
+	const result = await sendActionRequest(connectionId, toolName, args);
+	return result;
 }
