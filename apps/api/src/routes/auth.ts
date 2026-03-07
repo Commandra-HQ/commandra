@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { createClerkClient } from '@clerk/backend';
+import { createClerkClient, verifyToken } from '@clerk/backend';
 
 const clerk = createClerkClient({
 	secretKey: process.env.CLERK_SECRET_KEY!,
@@ -16,8 +16,10 @@ authRoutes.get('/me', async (c) => {
 	}
 
 	try {
-		const { sub: userId } = await clerk.verifyToken(token);
-		const user = await clerk.users.getUser(userId!);
+		const payload = await verifyToken(token, {
+			secretKey: process.env.CLERK_SECRET_KEY!,
+		});
+		const user = await clerk.users.getUser(payload.sub);
 		return c.json({ id: user.id, email: user.emailAddresses[0]?.emailAddress });
 	} catch {
 		return c.json({ error: 'Invalid token' }, 401);
