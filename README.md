@@ -46,9 +46,10 @@ The agent understands the app because it has already indexed it — every button
 
 ## Docs
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — system design and how the pieces fit together
-- [FEATURES.md](./FEATURES.md) — user flows, capabilities, and product thinking
-- [TECH_STACK.md](./TECH_STACK.md) — technology choices and why
+- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) — system design and how the pieces fit together
+- [FEATURES.md](./docs/FEATURES.md) — user flows, capabilities, and product thinking
+- [TECH_STACK.md](./docs/TECH_STACK.md) — technology choices and why
+- [USER_FLOW.md](./docs/USER_FLOW.md) — onboarding and daily UX flows
 
 ## License
 

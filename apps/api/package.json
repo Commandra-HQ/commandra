@@ -1,0 +1,33 @@
+{
+  "name": "@afe/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@afe/shared": "workspace:*",
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@hono/node-server": "^1.13.7",
+    "drizzle-orm": "^0.38.3",
+    "hono": "^4.6.16",
+    "inngest": "^3.29.1",
+    "@clerk/backend": "^1.21.1",
+    "postgres": "^3.4.5",
+    "ws": "^8.18.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/ws": "^8.5.13",
+    "drizzle-kit": "^0.30.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

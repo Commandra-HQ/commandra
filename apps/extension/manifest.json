@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Agents for Everyone",
+  "version": "0.0.1",
+  "description": "Chat with any web application. Automate what you do every day.",
+  "permissions": ["activeTab", "sidePanel", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Agents for Everyone"
+  },
+  "icons": {}
+}

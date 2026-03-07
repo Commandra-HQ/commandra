@@ -29,6 +29,7 @@
 | **Claude Agent SDK** | Core brain — agentic loop, subagents, hooks, MCP, sessions |
 | **Custom MCP Server (browser-bridge)** | Exposes browser actions as MCP tools for the Agent SDK |
 | **Drizzle ORM** | Type-safe Postgres access, good migration story |
+| **Clerk** | Auth, sessions, SSO — no custom auth to build or maintain |
 | **ws** | WebSocket server for extension ↔ backend communication |
 | **Inngest** | Durable workflows for scheduled agents and crawl orchestration |
 | **Docker** | Containerized deployment, self-hosted story |
@@ -87,24 +88,25 @@ pgvector handles our embedding search needs. One fewer provider to manage. We're
 
 Temporal is powerful but overkill — needs its own infrastructure cluster. Inngest is serverless-native, has a generous free tier, and handles everything we need: scheduled runs, retries, fan-out.
 
-### JWT Auth Over Clerk/WorkOS (For Now)
+### Clerk for Auth
 
-Simple bcrypt + JWT is enough to start. We'll add Clerk or WorkOS when enterprise customers need SAML/SCIM. No point paying for auth infra before we have paying users.
+Clerk gives us auth out of the box — sign-up, login, session management, SSO/SAML when enterprise customers need it. Free tier covers early users. Avoids building custom bcrypt + JWT plumbing that we'd eventually replace anyway.
 
 ---
 
 ## Provider Summary
 
-Only 4 external providers. Everything else is self-hosted.
+5 external providers. Everything else is self-hosted.
 
 | Provider | Purpose | Monthly Cost (Early) |
 |----------|---------|---------------------|
 | **Anthropic** | Claude API (via Agent SDK) | $50-200 |
+| **Clerk** | Auth, session management, SSO | Free → $25 |
 | **Voyage AI** | Embeddings (optional, local fallback) | <$5 |
 | **Neon** | Managed Postgres (cloud version only) | Free → $19 |
 | **Inngest** | Workflow scheduling | Free → $25 |
 
-**Total:** ~$75-250/month. Self-hosted version needs only Anthropic ($50+).
+**Total:** ~$75-275/month. Self-hosted version needs only Anthropic ($50+) + Clerk (free tier).
 
 ---
 

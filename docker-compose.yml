@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "3001:3001"
+      - "3002:3002"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: afe
+      POSTGRES_PASSWORD: afe_dev
+      POSTGRES_DB: afe
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U afe"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  inngest:
+    image: inngest/inngest:latest
+    ports:
+      - "8288:8288"
+    environment:
+      INNGEST_EVENT_API_HOST: http://api:3001
+
+volumes:
+  pgdata:

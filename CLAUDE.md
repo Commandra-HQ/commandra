@@ -58,7 +58,7 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, and 
 - Don't add Cloudflare Workers, Vercel, or serverless runtimes — we use Docker
 - Don't add Redis — in-memory cache is fine for now
 - Don't add a separate vector database — pgvector handles it
-- Don't add Clerk, Auth0, or WorkOS — JWT auth for now
+- Don't add Auth0 or WorkOS — we use Clerk for auth
 - Don't add PostHog, Amplitude, or analytics — console logs + Sentry for now
 - Don't add features that aren't being built in the current phase
 - Don't over-engineer. If three lines of code work, don't create an abstraction
