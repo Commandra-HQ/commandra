@@ -83,7 +83,7 @@ function scheduleReconnect() {
 async function handleActionRequest(message: { requestId: string; payload: Record<string, unknown> }) {
 	const { requestId, payload } = message;
 
-	// Get the active tab to send the action to
+	// Get the active tab
 	const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
 	const tab = tabs[0];
 
@@ -93,7 +93,16 @@ async function handleActionRequest(message: { requestId: string; payload: Record
 	}
 
 	try {
-		// Send action to content script for execution
+		// Navigate is handled in background (content script can't survive page unload)
+		if (payload.action === 'navigate' && payload.url) {
+			await chrome.tabs.update(tab.id, { url: payload.url as string });
+			// Wait for page to load before responding
+			await waitForTabLoad(tab.id);
+			sendResult(requestId, { success: true, data: { navigatedTo: payload.url } });
+			return;
+		}
+
+		// All other actions go to content script
 		const result = await chrome.tabs.sendMessage(tab.id, {
 			type: 'EXECUTE_ACTION',
 			payload,
@@ -101,11 +110,30 @@ async function handleActionRequest(message: { requestId: string; payload: Record
 
 		sendResult(requestId, result);
 	} catch (err) {
+		console.error('[AFE WS] Action failed:', err);
 		sendResult(requestId, {
 			success: false,
 			error: err instanceof Error ? err.message : String(err),
 		});
 	}
+}
+
+function waitForTabLoad(tabId: number): Promise<void> {
+	return new Promise((resolve) => {
+		const listener = (id: number, info: chrome.tabs.TabChangeInfo) => {
+			if (id === tabId && info.status === 'complete') {
+				chrome.tabs.onUpdated.removeListener(listener);
+				// Small delay for content script to initialize
+				setTimeout(resolve, 500);
+			}
+		};
+		chrome.tabs.onUpdated.addListener(listener);
+		// Safety timeout — don't wait forever
+		setTimeout(() => {
+			chrome.tabs.onUpdated.removeListener(listener);
+			resolve();
+		}, 8000);
+	});
 }
 
 function sendResult(requestId: string, result: unknown) {

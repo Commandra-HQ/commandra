@@ -28,8 +28,6 @@ export function executeAction(payload: ActionPayload): ActionResponse {
 				return typeText(payload.selector!, payload.text!);
 			case 'select_option':
 				return selectOption(payload.selector!, payload.value!);
-			case 'navigate':
-				return navigateTo(payload.url!);
 			case 'get_page_state':
 				return getPageState();
 			default:
@@ -85,11 +83,6 @@ function selectOption(selector: string, value: string): ActionResponse {
 	el.dispatchEvent(new Event('change', { bubbles: true }));
 
 	return { success: true, data: { selected: value, selector } };
-}
-
-function navigateTo(url: string): ActionResponse {
-	window.location.href = url;
-	return { success: true, data: { navigatedTo: url } };
 }
 
 function getPageState(): ActionResponse {

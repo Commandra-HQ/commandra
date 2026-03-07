@@ -52,7 +52,15 @@ export function handleWsConnection(ws: WebSocket) {
 					if (pending) {
 						clearTimeout(pending.timer);
 						pendingRequests.delete(requestId);
-						pending.resolve(message.payload);
+						const result = message.payload as { success?: boolean; error?: string } | null;
+						broadcastStatus(connectionId, {
+							requestId,
+							action: '',
+							status: result?.success ? 'done' : 'failed',
+							error: result?.error,
+							timestamp: Date.now(),
+						});
+						pending.resolve(result);
 					}
 					break;
 				}

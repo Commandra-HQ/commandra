@@ -5,8 +5,7 @@ import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';
 import { eq, asc } from 'drizzle-orm';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
-import { browserTools, executeBrowserTool } from '../mcp/browser-bridge.js';
-import { getConnectionByUser } from '../ws/handler.js';
+import { getConnectionByUser, sendActionRequest } from '../ws/handler.js';
 
 const getClient = (() => {
 	let client: Anthropic | null = null;
@@ -15,6 +14,64 @@ const getClient = (() => {
 		return client;
 	};
 })();
+
+const browserTools: Anthropic.Tool[] = [
+	{
+		name: 'click_element',
+		description: 'Click an interactive element on the page. Use the CSS selector from the page index.',
+		input_schema: {
+			type: 'object' as const,
+			properties: {
+				selector: { type: 'string', description: 'CSS selector of the element to click' },
+			},
+			required: ['selector'],
+		},
+	},
+	{
+		name: 'type_text',
+		description: 'Type text into an input field or textarea. Clears existing content first.',
+		input_schema: {
+			type: 'object' as const,
+			properties: {
+				selector: { type: 'string', description: 'CSS selector of the input element' },
+				text: { type: 'string', description: 'Text to type into the field' },
+			},
+			required: ['selector', 'text'],
+		},
+	},
+	{
+		name: 'select_option',
+		description: 'Select an option from a dropdown/select element.',
+		input_schema: {
+			type: 'object' as const,
+			properties: {
+				selector: { type: 'string', description: 'CSS selector of the select element' },
+				value: { type: 'string', description: 'Value of the option to select' },
+			},
+			required: ['selector', 'value'],
+		},
+	},
+	{
+		name: 'navigate',
+		description: 'Navigate the browser to a specific URL.',
+		input_schema: {
+			type: 'object' as const,
+			properties: {
+				url: { type: 'string', description: 'The URL to navigate to' },
+			},
+			required: ['url'],
+		},
+	},
+	{
+		name: 'get_page_state',
+		description: 'Get the current page structure including all interactive elements and selectors. Use after navigating or clicking to see the updated page.',
+		input_schema: {
+			type: 'object' as const,
+			properties: {},
+			required: [],
+		},
+	},
+];
 
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
@@ -177,9 +234,9 @@ async function runAgentLoop(
 				fullResponse += statusMsg;
 				await onText(statusMsg);
 
-				// Execute the tool
+				// Execute the tool via WebSocket
 				try {
-					const result = await executeBrowserTool(connectionId, block.name, toolArgs);
+					const result = await sendActionRequest(connectionId, block.name, toolArgs);
 					toolResults.push({
 						type: 'tool_result',
 						tool_use_id: block.id,
