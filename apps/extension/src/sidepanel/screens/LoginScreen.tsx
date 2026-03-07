@@ -21,7 +21,7 @@ export function LoginScreen() {
 		setError('');
 		try {
 			const result = await signIn.create({ identifier: email, password });
-			console.log('[Auth] Sign in result:', result.status);
+			console.log('[Auth] Sign in status:', result.status);
 			if (result.status === 'complete' && setSignInActive) {
 				await setSignInActive({ session: result.createdSessionId });
 			}
@@ -39,19 +39,16 @@ export function LoginScreen() {
 		setLoading(true);
 		setError('');
 		try {
-			const result = await signUp.create({ emailAddress: email, password });
-			console.log('[Auth] Sign up result:', result.status, result);
+			await signUp.create({ emailAddress: email, password });
+			console.log('[Auth] Sign up status:', signUp.status);
+			console.log('[Auth] Sign up unverified:', signUp.unverifiedFields);
 
-			if (result.status === 'complete' && setSignUpActive) {
-				await setSignUpActive({ session: result.createdSessionId });
+			if (signUp.status === 'complete') {
+				await setSignUpActive?.({ session: signUp.createdSessionId });
 				return;
 			}
 
-			// Email verification needed
-			if (
-				result.status === 'missing_requirements' &&
-				result.unverifiedFields?.includes('email_address')
-			) {
+			if (signUp.unverifiedFields?.includes('email_address')) {
 				console.log('[Auth] Preparing email verification...');
 				await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
 				console.log('[Auth] Verification email sent');
@@ -59,14 +56,14 @@ export function LoginScreen() {
 				return;
 			}
 
-			console.log('[Auth] Unexpected signup status:', result.status);
-			setError(`Unexpected status: ${result.status}`);
+			console.log('[Auth] Unexpected signup status:', signUp.status);
+			setError(`Unexpected status: ${signUp.status}`);
 		} catch (err: any) {
-			console.error('[Auth] Sign up error:', JSON.stringify(err.errors || err));
+			console.error('[Auth] Sign up error full:', err);
+			console.error('[Auth] Sign up error message:', err.message);
+			console.error('[Auth] Sign up error keys:', Object.keys(err));
 			const msg =
-				err.errors?.[0]?.longMessage || err.errors?.[0]?.message || 'Sign up failed';
-
-			// If the email is already taken, suggest sign in
+				err.errors?.[0]?.longMessage || err.errors?.[0]?.message || err.message || 'Sign up failed';
 			if (err.errors?.[0]?.code === 'form_identifier_exists') {
 				setError('That email is already registered. Try signing in instead.');
 			} else {
@@ -83,12 +80,12 @@ export function LoginScreen() {
 		setLoading(true);
 		setError('');
 		try {
-			const result = await signUp.attemptEmailAddressVerification({ code });
-			console.log('[Auth] Verify result:', result.status);
-			if (result.status === 'complete' && setSignUpActive) {
-				await setSignUpActive({ session: result.createdSessionId });
+			await signUp.attemptEmailAddressVerification({ code });
+			console.log('[Auth] Verify status:', signUp.status);
+			if (signUp.status === 'complete') {
+				await setSignUpActive?.({ session: signUp.createdSessionId });
 			} else {
-				setError(`Verification status: ${result.status}`);
+				setError(`Verification status: ${signUp.status}`);
 			}
 		} catch (err: any) {
 			console.error('[Auth] Verify error:', err);
@@ -116,9 +113,7 @@ export function LoginScreen() {
 						autoFocus
 						className="w-full text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring text-center tracking-widest"
 					/>
-
 					{error && <p className="text-xs text-destructive">{error}</p>}
-
 					<button
 						type="submit"
 						disabled={loading}
@@ -169,9 +164,7 @@ export function LoginScreen() {
 					required
 					className="w-full text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
 				/>
-
 				{error && <p className="text-xs text-destructive">{error}</p>}
-
 				<button
 					type="submit"
 					disabled={loading}
