@@ -1,8 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { CrawlProgress } from '@afe/shared';
 import type { StoredSite, StoredPage } from '../../storage/db.js';
 
-type IndexMode = 'onboarding' | 'indexing' | 'crawling' | 'viewing';
+const API_URL = process.env.API_URL || 'http://localhost:3001';
+
+type ViewMode = 'onboarding' | 'indexing' | 'crawling' | 'chat';
+
+interface ChatMessage {
+	id: string;
+	role: 'user' | 'assistant';
+	content: string;
+}
 
 interface SiteData {
 	site: StoredSite | null;
@@ -10,13 +18,20 @@ interface SiteData {
 }
 
 export function ChatTab() {
-	const [mode, setMode] = useState<IndexMode>('onboarding');
-	const [domain, setDomain] = useState<string>('');
-	const [pathScope, setPathScope] = useState<string>('');
+	const [mode, setMode] = useState<ViewMode>('onboarding');
+	const [domain, setDomain] = useState('');
+	const [pathScope, setPathScope] = useState('');
 	const [tabId, setTabId] = useState<number | null>(null);
 	const [siteData, setSiteData] = useState<SiteData>({ site: null, pages: [] });
 	const [crawlProgress, setCrawlProgress] = useState<CrawlProgress | null>(null);
-	const [expandedPage, setExpandedPage] = useState<string | null>(null);
+
+	// Chat state
+	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+	const [input, setInput] = useState('');
+	const [isStreaming, setIsStreaming] = useState(false);
+	const [conversationId, setConversationId] = useState<string | null>(null);
+	const [showContext, setShowContext] = useState(false);
+	const messagesEndRef = useRef<HTMLDivElement>(null);
 
 	const loadSiteData = useCallback((d: string) => {
 		chrome.runtime.sendMessage(
@@ -27,7 +42,7 @@ export function ChatTab() {
 					if (response.site.crawlStatus === 'crawling') {
 						setMode('crawling');
 					} else if (response.pages.length > 0) {
-						setMode('viewing');
+						setMode('chat');
 					}
 				}
 			},
@@ -35,7 +50,6 @@ export function ChatTab() {
 	}, []);
 
 	useEffect(() => {
-		// Get the current tab info
 		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
 			const tab = tabs[0];
 			if (tab?.url && tab.id) {
@@ -43,9 +57,12 @@ export function ChatTab() {
 					const parsed = new URL(tab.url);
 					setDomain(parsed.hostname);
 					const segments = parsed.pathname.split('/').filter(Boolean);
-					const scope = segments.length >= 2
-						? `/${segments[0]}/${segments[1]}`
-						: segments.length === 1 ? `/${segments[0]}` : '/';
+					const scope =
+						segments.length >= 2
+							? `/${segments[0]}/${segments[1]}`
+							: segments.length === 1
+								? `/${segments[0]}`
+								: '/';
 					setPathScope(scope);
 					setTabId(tab.id);
 					loadSiteData(parsed.hostname);
@@ -54,14 +71,13 @@ export function ChatTab() {
 		});
 	}, [loadSiteData]);
 
-	// Listen for crawl progress updates
 	useEffect(() => {
 		function handleMessage(message: { type: string; payload?: unknown }) {
 			if (message.type === 'CRAWL_PROGRESS') {
 				const progress = message.payload as CrawlProgress;
 				setCrawlProgress(progress);
 				if (progress.status === 'complete' || progress.status === 'stopped') {
-					setMode('viewing');
+					setMode('chat');
 					if (domain) loadSiteData(domain);
 				} else {
 					setMode('crawling');
@@ -72,6 +88,10 @@ export function ChatTab() {
 		return () => chrome.runtime.onMessage.removeListener(handleMessage);
 	}, [domain, loadSiteData]);
 
+	useEffect(() => {
+		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+	}, [chatMessages]);
+
 	function handleIndexPage() {
 		if (!tabId) return;
 		setMode('indexing');
@@ -79,7 +99,7 @@ export function ChatTab() {
 			{ type: 'INDEX_PAGE_SINGLE', payload: { tabId } },
 			(response) => {
 				if (response?.ok) {
-					setMode('viewing');
+					setMode('chat');
 					loadSiteData(domain);
 				} else {
 					setMode('onboarding');
@@ -93,7 +113,7 @@ export function ChatTab() {
 		setMode('crawling');
 		chrome.runtime.sendMessage({
 			type: 'CRAWL_START',
-			payload: { tabId, maxPages: 50 },
+			payload: { tabId, maxPages: 25 },
 		});
 	}
 
@@ -101,23 +121,126 @@ export function ChatTab() {
 		chrome.runtime.sendMessage({ type: 'CRAWL_STOP' });
 	}
 
-	function handleReindex() {
-		setMode('onboarding');
-		setSiteData({ site: null, pages: [] });
+	async function handleSend() {
+		if (!input.trim() || isStreaming) return;
+
+		const userMsg: ChatMessage = {
+			id: crypto.randomUUID(),
+			role: 'user',
+			content: input.trim(),
+		};
+		setChatMessages((prev) => [...prev, userMsg]);
+		setInput('');
+		setIsStreaming(true);
+
+		// Get current page index from content script
+		let pageIndex = null;
+		if (tabId) {
+			try {
+				const response = await new Promise<{ pageIndex?: unknown }>((resolve) => {
+					chrome.tabs.sendMessage(tabId, { type: 'get_page_state' }, (r) => {
+						resolve(r || {});
+					});
+				});
+				pageIndex = response.pageIndex;
+			} catch {}
+		}
+
+		// Get auth token
+		const stored = await chrome.storage.local.get(['authToken']);
+		const token = stored.authToken;
+
+		const assistantMsg: ChatMessage = {
+			id: crypto.randomUUID(),
+			role: 'assistant',
+			content: '',
+		};
+		setChatMessages((prev) => [...prev, assistantMsg]);
+
+		try {
+			const res = await fetch(`${API_URL}/api/chat`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					message: userMsg.content,
+					pageIndex,
+					conversationId,
+				}),
+			});
+
+			if (!res.ok) {
+				throw new Error(`API error: ${res.status}`);
+			}
+
+			const reader = res.body?.getReader();
+			const decoder = new TextDecoder();
+
+			if (reader) {
+				let fullText = '';
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					const chunk = decoder.decode(value, { stream: true });
+					fullText += chunk;
+
+					// Extract conversation ID if present
+					const convMatch = fullText.match(/<!--conv:(.+?)-->/);
+					if (convMatch) {
+						setConversationId(convMatch[1]);
+						// Remove the marker from displayed text
+						const displayText = fullText.replace(/\n\n<!--conv:.+?-->/, '');
+						setChatMessages((prev) =>
+							prev.map((m) =>
+								m.id === assistantMsg.id ? { ...m, content: displayText } : m,
+							),
+						);
+					} else {
+						setChatMessages((prev) =>
+							prev.map((m) =>
+								m.id === assistantMsg.id ? { ...m, content: fullText } : m,
+							),
+						);
+					}
+				}
+			}
+		} catch (err) {
+			setChatMessages((prev) =>
+				prev.map((m) =>
+					m.id === assistantMsg.id
+						? { ...m, content: 'Failed to get a response. Make sure the API is running.' }
+						: m,
+				),
+			);
+		} finally {
+			setIsStreaming(false);
+		}
+	}
+
+	function handleNewConversation() {
+		setChatMessages([]);
+		setConversationId(null);
 	}
 
 	if (!domain) {
 		return (
 			<div className="p-4">
-				<p className="text-sm text-muted-foreground">
-					Navigate to a web app to get started.
-				</p>
+				<p className="text-sm text-muted-foreground">Navigate to a web app to get started.</p>
 			</div>
 		);
 	}
 
 	if (mode === 'onboarding') {
-		return <OnboardingView domain={domain} pathScope={pathScope} onIndexPage={handleIndexPage} onIndexSite={handleIndexSite} />;
+		return (
+			<OnboardingView
+				domain={domain}
+				pathScope={pathScope}
+				onIndexPage={handleIndexPage}
+				onIndexSite={handleIndexSite}
+			/>
+		);
 	}
 
 	if (mode === 'indexing') {
@@ -133,17 +256,109 @@ export function ChatTab() {
 		return <CrawlingView progress={crawlProgress} domain={domain} onStop={handleStopCrawl} />;
 	}
 
+	// Chat mode
 	return (
-		<SiteIndexView
-			siteData={siteData}
-			domain={domain}
-			expandedPage={expandedPage}
-			onTogglePage={setExpandedPage}
-			onReindex={handleReindex}
-			onIndexSite={handleIndexSite}
-		/>
+		<div className="flex flex-col h-full">
+			{/* Context bar */}
+			<button
+				onClick={() => setShowContext(!showContext)}
+				className="px-4 py-2 border-b border-border flex items-center justify-between hover:bg-secondary/30"
+			>
+				<span className="text-xs text-muted-foreground">
+					{domain} · {siteData.site?.totalPages ?? 0} pages · {siteData.site?.totalElements ?? 0} elements
+				</span>
+				<span className="text-xs text-muted-foreground">{showContext ? '▲' : '▼'}</span>
+			</button>
+
+			{showContext && (
+				<div className="border-b border-border max-h-48 overflow-y-auto">
+					{siteData.pages.map((page) => (
+						<div key={page.url} className="px-4 py-1.5 border-b border-border/30">
+							<p className="text-xs text-foreground truncate">{page.title || page.urlPattern}</p>
+							<p className="text-xs text-muted-foreground">{page.elements.length} elements</p>
+						</div>
+					))}
+				</div>
+			)}
+
+			{/* Messages */}
+			<div className="flex-1 overflow-y-auto p-4 space-y-4">
+				{chatMessages.length === 0 && (
+					<div className="text-center py-8">
+						<p className="text-sm text-muted-foreground">
+							Ask anything about this page or site.
+						</p>
+						<p className="text-xs text-muted-foreground mt-1">
+							"What can I do here?" · "How do I create an issue?" · "Describe this page"
+						</p>
+					</div>
+				)}
+				{chatMessages.map((msg) => (
+					<div
+						key={msg.id}
+						className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+					>
+						<div
+							className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
+								msg.role === 'user'
+									? 'bg-primary text-primary-foreground'
+									: 'bg-secondary text-foreground'
+							}`}
+						>
+							{msg.content || (
+								<span className="inline-flex items-center gap-1">
+									<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse" />
+									<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse [animation-delay:0.2s]" />
+									<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse [animation-delay:0.4s]" />
+								</span>
+							)}
+						</div>
+					</div>
+				))}
+				<div ref={messagesEndRef} />
+			</div>
+
+			{/* Input */}
+			<div className="p-3 border-t border-border">
+				{chatMessages.length > 0 && (
+					<div className="flex justify-end mb-2">
+						<button
+							onClick={handleNewConversation}
+							className="text-xs text-muted-foreground hover:text-foreground"
+						>
+							New conversation
+						</button>
+					</div>
+				)}
+				<form
+					onSubmit={(e) => {
+						e.preventDefault();
+						handleSend();
+					}}
+					className="flex gap-2"
+				>
+					<input
+						type="text"
+						value={input}
+						onChange={(e) => setInput(e.target.value)}
+						placeholder="Ask about this page..."
+						disabled={isStreaming}
+						className="flex-1 text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+					/>
+					<button
+						type="submit"
+						disabled={isStreaming || !input.trim()}
+						className="px-3 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:opacity-90 disabled:opacity-50"
+					>
+						Send
+					</button>
+				</form>
+			</div>
+		</div>
 	);
 }
+
+// --- Sub-components (unchanged from Phase 2) ---
 
 function OnboardingView({
 	domain,
@@ -163,7 +378,8 @@ function OnboardingView({
 			<div>
 				<h3 className="text-sm font-semibold text-foreground">Teach the agent about this app</h3>
 				<p className="text-xs text-muted-foreground mt-1">
-					Index <span className="font-medium text-foreground">{scopeLabel}</span> so the agent can understand its pages, buttons, forms, and navigation.
+					Index <span className="font-medium text-foreground">{scopeLabel}</span> so the agent
+					can understand its pages, buttons, forms, and navigation.
 				</p>
 			</div>
 
@@ -249,169 +465,6 @@ function CrawlingView({
 			>
 				Stop Crawl
 			</button>
-		</div>
-	);
-}
-
-function SiteIndexView({
-	siteData,
-	domain,
-	expandedPage,
-	onTogglePage,
-	onReindex,
-	onIndexSite,
-}: {
-	siteData: SiteData;
-	domain: string;
-	expandedPage: string | null;
-	onTogglePage: (url: string | null) => void;
-	onReindex: () => void;
-	onIndexSite: () => void;
-}) {
-	const { site, pages } = siteData;
-
-	// Group pages by type
-	const grouped = pages.reduce(
-		(acc, page) => {
-			const type = page.pageType || 'other';
-			if (!acc[type]) acc[type] = [];
-			acc[type].push(page);
-			return acc;
-		},
-		{} as Record<string, StoredPage[]>,
-	);
-
-	const typeLabels: Record<string, string> = {
-		dashboard: 'Dashboards',
-		table: 'Tables / Lists',
-		form: 'Forms',
-		detail: 'Detail Pages',
-		settings: 'Settings',
-		other: 'Other',
-	};
-
-	return (
-		<div className="flex flex-col h-full">
-			{/* Header */}
-			<div className="p-4 border-b border-border">
-				<div className="flex items-center justify-between">
-					<h3 className="text-sm font-semibold text-foreground">{domain}</h3>
-					<span className="text-xs text-muted-foreground">
-						{site?.totalPages ?? 0} pages · {site?.totalElements ?? 0} elements
-					</span>
-				</div>
-				{site && (
-					<p className="text-xs text-muted-foreground mt-1">
-						Last indexed {new Date(site.lastIndexedAt).toLocaleString()}
-					</p>
-				)}
-			</div>
-
-			{/* Pages list */}
-			<div className="flex-1 overflow-y-auto">
-				{Object.entries(grouped).map(([type, typePages]) => (
-					<div key={type}>
-						<div className="px-4 py-2 bg-secondary/50">
-							<p className="text-xs font-medium text-muted-foreground">
-								{typeLabels[type] || type} ({typePages.length})
-							</p>
-						</div>
-						{typePages.map((page) => (
-							<PageRow
-								key={page.url}
-								page={page}
-								expanded={expandedPage === page.url}
-								onToggle={() =>
-									onTogglePage(expandedPage === page.url ? null : page.url)
-								}
-							/>
-						))}
-					</div>
-				))}
-			</div>
-
-			{/* Footer actions */}
-			<div className="p-3 border-t border-border flex gap-2">
-				{pages.length === 1 && (
-					<button
-						onClick={onIndexSite}
-						className="flex-1 py-1.5 text-xs font-medium text-primary-foreground bg-primary rounded-md hover:opacity-90"
-					>
-						Index Full Site
-					</button>
-				)}
-				<button
-					onClick={onReindex}
-					className="flex-1 py-1.5 text-xs text-muted-foreground border border-border rounded-md hover:bg-secondary"
-				>
-					Re-index
-				</button>
-			</div>
-		</div>
-	);
-}
-
-function PageRow({
-	page,
-	expanded,
-	onToggle,
-}: {
-	page: StoredPage;
-	expanded: boolean;
-	onToggle: () => void;
-}) {
-	const elementCounts = page.elements.reduce(
-		(acc, el) => {
-			acc[el.type] = (acc[el.type] || 0) + 1;
-			return acc;
-		},
-		{} as Record<string, number>,
-	);
-
-	return (
-		<div className="border-b border-border/50">
-			<button
-				onClick={onToggle}
-				className="w-full px-4 py-2.5 text-left hover:bg-secondary/30"
-			>
-				<p className="text-sm text-foreground truncate">{page.title || page.urlPattern}</p>
-				<p className="text-xs text-muted-foreground truncate">{page.urlPattern}</p>
-				<div className="flex gap-2 mt-1">
-					{Object.entries(elementCounts).map(([type, count]) => (
-						<span key={type} className="text-xs text-muted-foreground">
-							{count} {type}{count > 1 ? 's' : ''}
-						</span>
-					))}
-				</div>
-			</button>
-
-			{expanded && (
-				<div className="px-4 pb-3 space-y-1">
-					{page.elements.map((el) => (
-						<div
-							key={el.id}
-							className="flex items-center gap-2 py-1 px-2 rounded bg-secondary/30"
-						>
-							<span className="text-xs font-mono text-muted-foreground w-16 shrink-0">
-								{el.type}
-							</span>
-							<span className="text-xs text-foreground truncate">{el.label}</span>
-						</div>
-					))}
-					{page.navigationLinks.length > 0 && (
-						<div className="pt-2">
-							<p className="text-xs font-medium text-muted-foreground mb-1">
-								Navigation ({page.navigationLinks.length} links)
-							</p>
-							{page.navigationLinks.slice(0, 10).map((link, i) => (
-								<p key={i} className="text-xs text-muted-foreground truncate">
-									{link.href} — {link.label}
-								</p>
-							))}
-						</div>
-					)}
-				</div>
-			)}
 		</div>
 	);
 }
