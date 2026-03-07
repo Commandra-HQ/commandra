@@ -15,11 +15,16 @@ This avoids Chrome MV3 CSP issues with Clerk's prebuilt components (they require
 
 ## What Ships
 
-### Admin Dashboard (Next.js)
+### Admin Dashboard (`apps/web` — Next.js)
 - Clerk sign-in / sign-up at `/sign-in` and `/sign-up`
 - Dashboard page showing account info and "Connect Chrome Extension" section
+- Token generation with inline copy-to-clipboard (client component, no React Query needed — single fetch)
 - `GET /api/extension/token` — returns a Clerk session token for the authenticated user
-- Clerk middleware protects all routes except auth pages and the token endpoint
+- Clerk middleware protects all routes except auth pages
+
+### Tech Decisions
+- **No React Query / TanStack Query** — overkill for Phase 1. Simple `fetch` + `useState` is enough. Revisit if query complexity grows.
+- **No state management library** — React state is sufficient for now
 
 ### Extension (Side Panel)
 - Login screen with instructions: go to dashboard, sign in, generate token, paste it

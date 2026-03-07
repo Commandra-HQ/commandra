@@ -1,6 +1,7 @@
 import { UserButton } from '@clerk/nextjs';
 import { currentUser } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
+import { ExtensionToken } from './extension-token';
 
 export default async function Dashboard() {
 	const user = await currentUser();
@@ -16,7 +17,7 @@ export default async function Dashboard() {
 			<div className="bg-white rounded-lg border p-6 mb-6">
 				<h2 className="text-lg font-semibold mb-2">Connect Chrome Extension</h2>
 				<p className="text-sm text-gray-600 mb-4">
-					Click the button below to generate a token for the Chrome extension. Paste it in the extension settings.
+					Generate a token and paste it in the Chrome extension side panel.
 				</p>
 				<ExtensionToken />
 			</div>
@@ -26,18 +27,5 @@ export default async function Dashboard() {
 				<p className="text-sm text-gray-600">{user.emailAddresses[0]?.emailAddress}</p>
 			</div>
 		</div>
-	);
-}
-
-function ExtensionToken() {
-	return (
-		<form action="/api/extension/token" method="GET">
-			<button
-				type="submit"
-				className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-md hover:bg-gray-800"
-			>
-				Generate Extension Token
-			</button>
-		</form>
 	);
 }
