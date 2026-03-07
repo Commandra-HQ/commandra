@@ -31,6 +31,10 @@ dev-ext:
 	pnpm --filter @afe/shared build
 	pnpm --filter @afe/extension dev
 
+dev-web:
+	pnpm --filter @afe/shared build
+	pnpm --filter @afe/web dev
+
 # ---------- Database ----------
 db-generate:
 	pnpm --filter @afe/api db:generate
