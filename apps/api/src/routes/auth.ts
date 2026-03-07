@@ -1,48 +1,26 @@
 import { Hono } from 'hono';
-import { createClerkClient, verifyToken } from '@clerk/backend';
-import { db } from '../db/index.js';
-import { users } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
-
-let _clerk: ReturnType<typeof createClerkClient> | null = null;
-function getClerk() {
-	if (!_clerk) _clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
-	return _clerk;
-}
+import { jwtVerify } from 'jose';
 
 export const authRoutes = new Hono();
 
-async function getClerkUser(c: any) {
-	const token = c.req.header('Authorization')?.replace('Bearer ', '');
-	if (!token) return null;
-	try {
-		const payload = await verifyToken(token, {
-			secretKey: process.env.CLERK_SECRET_KEY!,
-			authorizedParties: ['http://localhost:3000'],
-		});
-		return await getClerk().users.getUser(payload.sub);
-	} catch (err) {
-		console.error('Token verification failed:', err);
-		return null;
-	}
-}
-
+/**
+ * Verify an extension JWT and return user info.
+ * Used by the extension on startup to check if the stored token is still valid.
+ */
 authRoutes.get('/me', async (c) => {
-	const clerkUser = await getClerkUser(c);
-	if (!clerkUser) return c.json({ error: 'Unauthorized' }, 401);
+	const token = c.req.header('Authorization')?.replace('Bearer ', '');
+	if (!token) return c.json({ error: 'Unauthorized' }, 401);
 
-	const email = clerkUser.emailAddresses[0]?.emailAddress ?? '';
+	try {
+		const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+		const { payload } = await jwtVerify(token, secret);
 
-	// Auto-upsert: create user on first auth, no separate sync needed
-	const [dbUser] = await db
-		.insert(users)
-		.values({ clerkId: clerkUser.id, email })
-		.onConflictDoUpdate({ target: users.clerkId, set: { email } })
-		.returning();
-
-	return c.json({
-		id: dbUser.id,
-		clerkId: clerkUser.id,
-		email,
-	});
+		return c.json({
+			id: payload.userId,
+			clerkId: payload.clerkId,
+			email: payload.email,
+		});
+	} catch {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
 });

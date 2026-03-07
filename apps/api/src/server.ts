@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import { authRoutes } from './routes/auth.js';
 import { chatRoutes } from './routes/chat.js';
 import { healthRoutes } from './routes/health.js';
+import { tokenRoutes } from './routes/token.js';
 import { handleWsConnection } from './ws/handler.js';
 
 const app = new Hono();
@@ -22,6 +23,7 @@ app.use(
 
 app.route('/health', healthRoutes);
 app.route('/api/auth', authRoutes);
+app.route('/api/token', tokenRoutes);
 app.route('/api/chat', chatRoutes);
 
 const PORT = Number(process.env.PORT) || 3001;

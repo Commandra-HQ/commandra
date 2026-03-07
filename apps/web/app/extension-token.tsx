@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
 export function ExtensionToken() {
 	const [token, setToken] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
@@ -10,12 +12,24 @@ export function ExtensionToken() {
 	async function generateToken() {
 		setLoading(true);
 		try {
-			const res = await fetch('/api/extension/token');
-			if (!res.ok) throw new Error('Failed to generate token');
-			const data = await res.json();
-			setToken(data.token);
+			// Get short-lived Clerk token
+			const clerkRes = await fetch('/api/extension/token');
+			if (!clerkRes.ok) throw new Error('Failed to get Clerk token');
+			const { token: clerkToken } = await clerkRes.json();
+
+			// Exchange for long-lived extension JWT
+			const exchangeRes = await fetch(`${API_URL}/api/token/exchange`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ clerkToken }),
+			});
+			if (!exchangeRes.ok) throw new Error('Failed to exchange token');
+			const { token: extensionToken } = await exchangeRes.json();
+
+			setToken(extensionToken);
 			setCopied(false);
-		} catch {
+		} catch (err) {
+			console.error('Token generation failed:', err);
 			setToken(null);
 		} finally {
 			setLoading(false);
@@ -55,7 +69,7 @@ export function ExtensionToken() {
 				</button>
 			</div>
 			<p className="text-xs text-gray-500">
-				Paste this token in the Chrome extension side panel. Tokens expire after 60 seconds — generate a new one if needed.
+				Paste this token in the Chrome extension side panel. Token is valid for 30 days.
 			</p>
 			<button
 				onClick={generateToken}
