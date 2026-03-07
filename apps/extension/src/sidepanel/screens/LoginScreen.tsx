@@ -1,190 +1,73 @@
-import { useSignIn, useSignUp } from '@clerk/chrome-extension';
 import { useState } from 'react';
 
-type Step = 'form' | 'verify';
+const API_URL = process.env.API_URL || 'http://localhost:3001';
 
 export function LoginScreen() {
-	const { signIn, setActive: setSignInActive } = useSignIn();
-	const { signUp, setActive: setSignUpActive } = useSignUp();
-	const [mode, setMode] = useState<'signin' | 'signup'>('signin');
-	const [step, setStep] = useState<Step>('form');
-	const [email, setEmail] = useState('');
-	const [password, setPassword] = useState('');
-	const [code, setCode] = useState('');
+	const [token, setToken] = useState('');
 	const [error, setError] = useState('');
 	const [loading, setLoading] = useState(false);
 
-	async function handleSignIn(e: React.FormEvent) {
+	async function handleConnect(e: React.FormEvent) {
 		e.preventDefault();
-		if (!signIn) return;
+		if (!token.trim()) return;
 		setLoading(true);
 		setError('');
 		try {
-			const result = await signIn.create({ identifier: email, password });
-			console.log('[Auth] Sign in status:', result.status);
-			if (result.status === 'complete' && setSignInActive) {
-				await setSignInActive({ session: result.createdSessionId });
-			}
-		} catch (err: any) {
-			console.error('[Auth] Sign in error:', err);
-			setError(err.errors?.[0]?.longMessage || err.errors?.[0]?.message || 'Sign in failed');
+			const res = await fetch(`${API_URL}/api/auth/me`, {
+				headers: { Authorization: `Bearer ${token.trim()}` },
+			});
+			if (!res.ok) throw new Error('Invalid token');
+			const user = await res.json();
+			// Store token and user in chrome.storage
+			await chrome.storage.local.set({
+				authToken: token.trim(),
+				user: { id: user.id, email: user.email, clerkId: user.clerkId },
+			});
+			// Trigger re-render in App
+			window.dispatchEvent(new Event('auth-changed'));
+		} catch {
+			setError('Invalid or expired token. Generate a new one from the dashboard.');
 		} finally {
 			setLoading(false);
 		}
-	}
-
-	async function handleSignUp(e: React.FormEvent) {
-		e.preventDefault();
-		if (!signUp) return;
-		setLoading(true);
-		setError('');
-		try {
-			await signUp.create({ emailAddress: email, password });
-			console.log('[Auth] Sign up status:', signUp.status);
-			console.log('[Auth] Sign up unverified:', signUp.unverifiedFields);
-
-			if (signUp.status === 'complete') {
-				await setSignUpActive?.({ session: signUp.createdSessionId });
-				return;
-			}
-
-			if (signUp.unverifiedFields?.includes('email_address')) {
-				console.log('[Auth] Preparing email verification...');
-				await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-				console.log('[Auth] Verification email sent');
-				setStep('verify');
-				return;
-			}
-
-			console.log('[Auth] Unexpected signup status:', signUp.status);
-			setError(`Unexpected status: ${signUp.status}`);
-		} catch (err: any) {
-			console.error('[Auth] Sign up error full:', err);
-			console.error('[Auth] Sign up error message:', err.message);
-			console.error('[Auth] Sign up error keys:', Object.keys(err));
-			const msg =
-				err.errors?.[0]?.longMessage || err.errors?.[0]?.message || err.message || 'Sign up failed';
-			if (err.errors?.[0]?.code === 'form_identifier_exists') {
-				setError('That email is already registered. Try signing in instead.');
-			} else {
-				setError(msg);
-			}
-		} finally {
-			setLoading(false);
-		}
-	}
-
-	async function handleVerify(e: React.FormEvent) {
-		e.preventDefault();
-		if (!signUp) return;
-		setLoading(true);
-		setError('');
-		try {
-			await signUp.attemptEmailAddressVerification({ code });
-			console.log('[Auth] Verify status:', signUp.status);
-			if (signUp.status === 'complete') {
-				await setSignUpActive?.({ session: signUp.createdSessionId });
-			} else {
-				setError(`Verification status: ${signUp.status}`);
-			}
-		} catch (err: any) {
-			console.error('[Auth] Verify error:', err);
-			setError(
-				err.errors?.[0]?.longMessage || err.errors?.[0]?.message || 'Verification failed',
-			);
-		} finally {
-			setLoading(false);
-		}
-	}
-
-	if (step === 'verify') {
-		return (
-			<div className="flex flex-col items-center justify-center h-screen p-6">
-				<h1 className="text-lg font-semibold text-foreground mb-1">Check your email</h1>
-				<p className="text-xs text-muted-foreground mb-6">We sent a code to {email}</p>
-
-				<form onSubmit={handleVerify} className="w-full max-w-xs space-y-3">
-					<input
-						type="text"
-						value={code}
-						onChange={(e) => setCode(e.target.value)}
-						placeholder="Verification code"
-						required
-						autoFocus
-						className="w-full text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring text-center tracking-widest"
-					/>
-					{error && <p className="text-xs text-destructive">{error}</p>}
-					<button
-						type="submit"
-						disabled={loading}
-						className="w-full py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:opacity-90 disabled:opacity-50"
-					>
-						{loading ? '...' : 'Verify'}
-					</button>
-				</form>
-
-				<button
-					onClick={() => {
-						setStep('form');
-						setError('');
-						setCode('');
-					}}
-					className="mt-4 text-xs text-muted-foreground hover:underline"
-				>
-					Back
-				</button>
-			</div>
-		);
 	}
 
 	return (
 		<div className="flex flex-col items-center justify-center h-screen p-6">
 			<h1 className="text-lg font-semibold text-foreground mb-1">Agents for Everyone</h1>
-			<p className="text-xs text-muted-foreground mb-6">
-				{mode === 'signin' ? 'Sign in to your account' : 'Create your account'}
+			<p className="text-xs text-muted-foreground mb-4">
+				Connect your extension to get started
 			</p>
 
-			<form
-				onSubmit={mode === 'signin' ? handleSignIn : handleSignUp}
-				className="w-full max-w-xs space-y-3"
-			>
-				<input
-					type="email"
-					value={email}
-					onChange={(e) => setEmail(e.target.value)}
-					placeholder="Email"
-					required
-					className="w-full text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-				/>
+			<div className="w-full max-w-xs mb-6 p-3 bg-secondary rounded-md">
+				<p className="text-xs text-muted-foreground">
+					1. Go to{' '}
+					<span className="font-medium text-foreground">localhost:3000</span>
+				</p>
+				<p className="text-xs text-muted-foreground">2. Sign in and generate a token</p>
+				<p className="text-xs text-muted-foreground">3. Paste it below</p>
+			</div>
+
+			<form onSubmit={handleConnect} className="w-full max-w-xs space-y-3">
 				<input
 					type="password"
-					value={password}
-					onChange={(e) => setPassword(e.target.value)}
-					placeholder="Password"
+					value={token}
+					onChange={(e) => setToken(e.target.value)}
+					placeholder="Paste your token"
 					required
 					className="w-full text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
 				/>
+
 				{error && <p className="text-xs text-destructive">{error}</p>}
+
 				<button
 					type="submit"
 					disabled={loading}
 					className="w-full py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:opacity-90 disabled:opacity-50"
 				>
-					{loading ? '...' : mode === 'signin' ? 'Sign in' : 'Sign up'}
+					{loading ? '...' : 'Connect'}
 				</button>
 			</form>
-
-			<button
-				onClick={() => {
-					setMode(mode === 'signin' ? 'signup' : 'signin');
-					setError('');
-				}}
-				className="mt-4 text-xs text-muted-foreground hover:underline"
-			>
-				{mode === 'signin'
-					? "Don't have an account? Sign up"
-					: 'Already have an account? Sign in'}
-			</button>
 		</div>
 	);
 }

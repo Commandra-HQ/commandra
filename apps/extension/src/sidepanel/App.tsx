@@ -1,4 +1,3 @@
-import { useAuth, useUser, ClerkLoaded, ClerkLoading } from '@clerk/chrome-extension';
 import { useState, useEffect } from 'react';
 import { LoginScreen } from './screens/LoginScreen.js';
 import { ChatTab } from './tabs/ChatTab.js';
@@ -7,28 +6,14 @@ import { SettingsTab } from './tabs/SettingsTab.js';
 
 type Tab = 'chat' | 'flows' | 'settings';
 
-const API_URL = process.env.API_URL || 'http://localhost:3001';
+interface StoredUser {
+	id: string;
+	email: string;
+	clerkId: string;
+}
 
-function AuthenticatedApp() {
+function AuthenticatedApp({ user }: { user: StoredUser }) {
 	const [activeTab, setActiveTab] = useState<Tab>('chat');
-	const { getToken } = useAuth();
-
-	useEffect(() => {
-		syncUser();
-	}, []);
-
-	async function syncUser() {
-		try {
-			const token = await getToken();
-			if (!token) return;
-			await fetch(`${API_URL}/api/auth/sync`, {
-				method: 'POST',
-				headers: { Authorization: `Bearer ${token}` },
-			});
-		} catch {
-			// Sync will retry on next load
-		}
-	}
 
 	const tabs: { id: Tab; label: string }[] = [
 		{ id: 'chat', label: 'Chat' },
@@ -38,19 +23,19 @@ function AuthenticatedApp() {
 
 	return (
 		<>
-			<header className="px-4 py-3 border-b border-gray-200">
-				<h1 className="text-sm font-semibold text-gray-900">Agents for Everyone</h1>
+			<header className="px-4 py-3 border-b border-border">
+				<h1 className="text-sm font-semibold text-foreground">Agents for Everyone</h1>
 			</header>
 
-			<nav className="flex border-b border-gray-200">
+			<nav className="flex border-b border-border">
 				{tabs.map((tab) => (
 					<button
 						key={tab.id}
 						onClick={() => setActiveTab(tab.id)}
 						className={`flex-1 py-2 text-xs font-medium text-center ${
 							activeTab === tab.id
-								? 'text-blue-600 border-b-2 border-blue-600'
-								: 'text-gray-500 hover:text-gray-700'
+								? 'text-foreground border-b-2 border-foreground'
+								: 'text-muted-foreground hover:text-foreground'
 						}`}
 					>
 						{tab.label}
@@ -61,33 +46,49 @@ function AuthenticatedApp() {
 			<div className="flex-1 overflow-y-auto">
 				{activeTab === 'chat' && <ChatTab />}
 				{activeTab === 'flows' && <FlowsTab />}
-				{activeTab === 'settings' && <SettingsTab />}
+				{activeTab === 'settings' && <SettingsTab user={user} />}
 			</div>
 		</>
 	);
 }
 
-function AppRouter() {
-	const { isSignedIn } = useAuth();
+export function App() {
+	const [user, setUser] = useState<StoredUser | null>(null);
+	const [loading, setLoading] = useState(true);
 
-	if (!isSignedIn) {
-		return <LoginScreen />;
+	useEffect(() => {
+		loadUser();
+		const handler = () => loadUser();
+		window.addEventListener('auth-changed', handler);
+		return () => window.removeEventListener('auth-changed', handler);
+	}, []);
+
+	async function loadUser() {
+		try {
+			const result = await chrome.storage.local.get(['user', 'authToken']);
+			if (result.user && result.authToken) {
+				setUser(result.user);
+			} else {
+				setUser(null);
+			}
+		} catch {
+			setUser(null);
+		} finally {
+			setLoading(false);
+		}
 	}
 
-	return <AuthenticatedApp />;
-}
+	if (loading) {
+		return (
+			<div className="flex items-center justify-center h-screen">
+				<p className="text-sm text-muted-foreground">Loading...</p>
+			</div>
+		);
+	}
 
-export function App() {
 	return (
-		<div className="flex flex-col h-screen bg-white">
-			<ClerkLoading>
-				<div className="flex items-center justify-center h-screen">
-					<p className="text-sm text-gray-400">Loading...</p>
-				</div>
-			</ClerkLoading>
-			<ClerkLoaded>
-				<AppRouter />
-			</ClerkLoaded>
+		<div className="flex flex-col h-screen bg-background">
+			{user ? <AuthenticatedApp user={user} /> : <LoginScreen />}
 		</div>
 	);
 }
