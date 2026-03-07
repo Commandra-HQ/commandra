@@ -3,7 +3,8 @@ import type { PageIndex } from '@afe/shared';
 import type { CrawlProgress } from '@afe/shared';
 
 const CRAWL_DELAY_MS = 1500;
-const MAX_PAGES_DEFAULT = 50;
+const MAX_PAGES_DEFAULT = 25;
+const MAX_DEPTH_DEFAULT = 2;
 
 let crawlTabId: number | null = null;
 let isCrawling = false;
@@ -192,12 +193,50 @@ export async function indexCurrentPage(tabId: number): Promise<PageIndex | null>
 	}
 }
 
-export async function startCrawl(startTabId: number, maxPages = MAX_PAGES_DEFAULT) {
+/**
+ * Compute the path prefix scope for crawling.
+ * e.g. /AVIVASHISHTA29/agents-for-everyone/settings → /AVIVASHISHTA29/agents-for-everyone
+ * For root paths (/ or /dashboard), scope is just /
+ */
+function getPathScope(pathname: string): string {
+	const segments = pathname.split('/').filter(Boolean);
+	// If 2+ segments, use first 2 as scope (covers org/repo, app/section patterns)
+	if (segments.length >= 2) return `/${segments[0]}/${segments[1]}`;
+	// If 1 segment, use it
+	if (segments.length === 1) return `/${segments[0]}`;
+	// Root
+	return '/';
+}
+
+function isInScope(url: string, origin: string, pathScope: string): boolean {
+	try {
+		const parsed = new URL(url);
+		if (parsed.origin !== new URL(origin).origin) return false;
+		// Root scope means everything on this domain is in scope
+		if (pathScope === '/') return true;
+		return parsed.pathname === pathScope || parsed.pathname.startsWith(`${pathScope}/`);
+	} catch {
+		return false;
+	}
+}
+
+interface QueueEntry {
+	url: string;
+	depth: number;
+}
+
+export async function startCrawl(
+	startTabId: number,
+	maxPages = MAX_PAGES_DEFAULT,
+	maxDepth = MAX_DEPTH_DEFAULT,
+) {
 	const tab = await chrome.tabs.get(startTabId);
 	if (!tab.url) return;
 
 	const origin = new URL(tab.url).origin;
 	const domain = getDomain(tab.url);
+	const startPath = new URL(tab.url).pathname;
+	const pathScope = getPathScope(startPath);
 
 	if (isCrawling) {
 		console.log('[AFE Crawler] Already crawling, ignoring');
@@ -205,19 +244,20 @@ export async function startCrawl(startTabId: number, maxPages = MAX_PAGES_DEFAUL
 	}
 
 	isCrawling = true;
+	console.log(`[AFE Crawler] Starting crawl of ${domain} scoped to ${pathScope} (max ${maxPages} pages, depth ${maxDepth})`);
 
 	// Initialize site
-	const site = await getOrCreateSite(domain);
+	await getOrCreateSite(domain);
 	const visitedPatterns = new Set<string>();
-	const visited = new Set<string>(site.crawlVisited);
-	const queue: string[] = site.crawlQueue.length > 0 ? [...site.crawlQueue] : [tab.url];
+	const visited = new Set<string>();
+	const queue: QueueEntry[] = [{ url: tab.url, depth: 0 }];
 
 	await db.sites.update(domain, { crawlStatus: 'crawling' });
 
 	broadcastProgress({
 		domain,
-		pagesIndexed: visited.size,
-		pagesDiscovered: queue.length + visited.size,
+		pagesIndexed: 0,
+		pagesDiscovered: 1,
 		currentUrl: null,
 		status: 'crawling',
 	});
@@ -228,9 +268,16 @@ export async function startCrawl(startTabId: number, maxPages = MAX_PAGES_DEFAUL
 
 	try {
 		while (queue.length > 0 && visited.size < maxPages && isCrawling) {
-			const url = queue.shift()!;
+			const entry = queue.shift()!;
+			const { url, depth } = entry;
 
 			if (visited.has(url)) continue;
+
+			// Check scope
+			if (!isInScope(url, origin, pathScope)) {
+				visited.add(url);
+				continue;
+			}
 
 			const pattern = toUrlPattern(new URL(url).pathname);
 			if (visitedPatterns.has(pattern)) {
@@ -249,31 +296,28 @@ export async function startCrawl(startTabId: number, maxPages = MAX_PAGES_DEFAUL
 				status: 'crawling',
 			});
 
-			// Save crawl state for resume
-			await db.sites.update(domain, {
-				crawlQueue: [...queue],
-				crawlVisited: [...visited],
-			});
-
 			// Navigate the background tab
 			try {
 				await chrome.tabs.update(crawlTabId, { url });
-				// Wait for page load
 				await waitForTabLoad(crawlTabId);
-				// Small extra delay for SPA rendering
 				await sleep(500);
 
-				// Index the page
 				const pageIndex = await indexTabPage(crawlTabId);
 
 				if (pageIndex) {
 					await storePage(domain, pageIndex);
 
-					// Add discovered links to queue
-					for (const link of pageIndex.navigationLinks) {
-						const normalized = normalizeUrl(link.href, origin);
-						if (normalized && !visited.has(normalized)) {
-							queue.push(normalized);
+					// Only follow links if we haven't hit depth limit
+					if (depth < maxDepth) {
+						for (const link of pageIndex.navigationLinks) {
+							const normalized = normalizeUrl(link.href, origin);
+							if (
+								normalized &&
+								!visited.has(normalized) &&
+								isInScope(normalized, origin, pathScope)
+							) {
+								queue.push({ url: normalized, depth: depth + 1 });
+							}
 						}
 					}
 				}
@@ -281,11 +325,9 @@ export async function startCrawl(startTabId: number, maxPages = MAX_PAGES_DEFAUL
 				console.error(`[AFE Crawler] Error crawling ${url}:`, err);
 			}
 
-			// Throttle
 			await sleep(CRAWL_DELAY_MS);
 		}
 	} finally {
-		// Clean up
 		if (crawlTabId) {
 			try { await chrome.tabs.remove(crawlTabId); } catch {}
 			crawlTabId = null;
@@ -307,6 +349,8 @@ export async function startCrawl(startTabId: number, maxPages = MAX_PAGES_DEFAUL
 			currentUrl: null,
 			status: finalStatus,
 		});
+
+		console.log(`[AFE Crawler] Finished: ${visited.size} pages indexed within scope ${pathScope}`);
 	}
 }
 

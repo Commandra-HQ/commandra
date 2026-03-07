@@ -12,6 +12,7 @@ interface SiteData {
 export function ChatTab() {
 	const [mode, setMode] = useState<IndexMode>('onboarding');
 	const [domain, setDomain] = useState<string>('');
+	const [pathScope, setPathScope] = useState<string>('');
 	const [tabId, setTabId] = useState<number | null>(null);
 	const [siteData, setSiteData] = useState<SiteData>({ site: null, pages: [] });
 	const [crawlProgress, setCrawlProgress] = useState<CrawlProgress | null>(null);
@@ -39,10 +40,15 @@ export function ChatTab() {
 			const tab = tabs[0];
 			if (tab?.url && tab.id) {
 				try {
-					const d = new URL(tab.url).hostname;
-					setDomain(d);
+					const parsed = new URL(tab.url);
+					setDomain(parsed.hostname);
+					const segments = parsed.pathname.split('/').filter(Boolean);
+					const scope = segments.length >= 2
+						? `/${segments[0]}/${segments[1]}`
+						: segments.length === 1 ? `/${segments[0]}` : '/';
+					setPathScope(scope);
 					setTabId(tab.id);
-					loadSiteData(d);
+					loadSiteData(parsed.hostname);
 				} catch {}
 			}
 		});
@@ -111,7 +117,7 @@ export function ChatTab() {
 	}
 
 	if (mode === 'onboarding') {
-		return <OnboardingView domain={domain} onIndexPage={handleIndexPage} onIndexSite={handleIndexSite} />;
+		return <OnboardingView domain={domain} pathScope={pathScope} onIndexPage={handleIndexPage} onIndexSite={handleIndexSite} />;
 	}
 
 	if (mode === 'indexing') {
@@ -141,19 +147,23 @@ export function ChatTab() {
 
 function OnboardingView({
 	domain,
+	pathScope,
 	onIndexPage,
 	onIndexSite,
 }: {
 	domain: string;
+	pathScope: string;
 	onIndexPage: () => void;
 	onIndexSite: () => void;
 }) {
+	const scopeLabel = pathScope === '/' ? domain : `${domain}${pathScope}`;
+
 	return (
 		<div className="p-4 space-y-4">
 			<div>
 				<h3 className="text-sm font-semibold text-foreground">Teach the agent about this app</h3>
 				<p className="text-xs text-muted-foreground mt-1">
-					Index <span className="font-medium text-foreground">{domain}</span> so the agent can understand its pages, buttons, forms, and navigation.
+					Index <span className="font-medium text-foreground">{scopeLabel}</span> so the agent can understand its pages, buttons, forms, and navigation.
 				</p>
 			</div>
 
@@ -162,10 +172,10 @@ function OnboardingView({
 					onClick={onIndexSite}
 					className="w-full py-2.5 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:opacity-90"
 				>
-					Index Entire Site
+					Index Section
 				</button>
 				<p className="text-xs text-muted-foreground text-center">
-					Recommended — crawls all pages in the background (~1 min)
+					Crawls pages under <span className="font-mono">{pathScope}</span> in the background
 				</p>
 			</div>
 
