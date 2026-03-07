@@ -2,9 +2,9 @@
 
 Each phase is self-contained and shippable. Complete one before starting the next.
 
-| Phase | Name | What Ships |
-|-------|------|-----------|
-| 1 | Auth + Shell UI | Clerk login via admin dashboard, token exchange for extension, empty shell with tabs, user in Postgres |
+| Phase | Name | What Ships | Status |
+|-------|------|-----------|--------|
+| 1 | Auth + Shell UI | Clerk login via admin dashboard, token exchange for extension, empty shell with tabs, user in Postgres | ✅ Done |
 | 2 | Page Indexing | Content script indexes current page, side panel shows what agent sees |
 | 3 | Chat (Single Page) | User chats about current page, Agent SDK responds, no actions yet |
 | 4 | Browser Actions | MCP bridge executes real DOM actions, activity feed in side panel |

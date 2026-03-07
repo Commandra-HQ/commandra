@@ -1,4 +1,4 @@
-# Phase 1 — Auth + Shell UI
+# Phase 1 — Auth + Shell UI ✅
 
 ## Goal
 
