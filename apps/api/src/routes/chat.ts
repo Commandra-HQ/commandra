@@ -126,6 +126,7 @@ If the user asks about data or content you can't see (like table values, text co
 		pageType?: string;
 		elements?: { type: string; label: string; selector: string }[];
 		navigationLinks?: { label: string; href: string }[];
+		sitePages?: { url: string; urlPattern: string; title: string; pageType: string; elementCount: number }[];
 	};
 
 	const elementsSummary = pi.elements
@@ -139,6 +140,13 @@ If the user asks about data or content you can't see (like table values, text co
 				.join('\n')
 		: 'No navigation links found.';
 
+	let siteSummary = '';
+	if (pi.sitePages?.length) {
+		siteSummary = `\n\n## Other Indexed Pages (${pi.sitePages.length} total)\nYou also know about these pages on the same site:\n${pi.sitePages
+			.map((p) => `  - ${p.title || p.urlPattern} (${p.pageType}, ${p.elementCount} elements) — ${p.url}`)
+			.join('\n')}`;
+	}
+
 	return `${base}
 
 ## Current Page
@@ -150,7 +158,7 @@ If the user asks about data or content you can't see (like table values, text co
 ${elementsSummary}
 
 ## Navigation Links
-${navSummary}`;
+${navSummary}${siteSummary}`;
 }
 
 function formatElements(

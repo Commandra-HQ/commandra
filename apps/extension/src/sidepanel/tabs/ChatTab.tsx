@@ -49,7 +49,7 @@ export function ChatTab() {
 		);
 	}, []);
 
-	useEffect(() => {
+	const updateCurrentTab = useCallback(() => {
 		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
 			const tab = tabs[0];
 			if (tab?.url && tab.id) {
@@ -70,6 +70,19 @@ export function ChatTab() {
 			}
 		});
 	}, [loadSiteData]);
+
+	useEffect(() => {
+		updateCurrentTab();
+
+		// Update when user switches tabs
+		const onActivated = () => updateCurrentTab();
+		chrome.tabs.onActivated.addListener(onActivated);
+		chrome.tabs.onUpdated.addListener(onActivated);
+		return () => {
+			chrome.tabs.onActivated.removeListener(onActivated);
+			chrome.tabs.onUpdated.removeListener(onActivated);
+		};
+	}, [updateCurrentTab]);
 
 	useEffect(() => {
 		function handleMessage(message: { type: string; payload?: unknown }) {
@@ -133,17 +146,45 @@ export function ChatTab() {
 		setInput('');
 		setIsStreaming(true);
 
-		// Get current page index from content script
-		let pageIndex = null;
+		// Build page context from stored site data + live page state
+		let pageIndex: unknown = null;
+
+		// First: try live content script for the current page
 		if (tabId) {
 			try {
 				const response = await new Promise<{ pageIndex?: unknown }>((resolve) => {
 					chrome.tabs.sendMessage(tabId, { type: 'get_page_state' }, (r) => {
-						resolve(r || {});
+						if (chrome.runtime.lastError) resolve({});
+						else resolve(r || {});
 					});
 				});
 				pageIndex = response.pageIndex;
 			} catch {}
+		}
+
+		// Fallback/enrich: use stored Dexie data if we have it
+		if (!pageIndex && siteData.pages.length > 0) {
+			// Find the best matching stored page
+			const currentPage = siteData.pages[0];
+			pageIndex = {
+				url: currentPage.url,
+				title: currentPage.title,
+				pageType: currentPage.pageType,
+				elements: currentPage.elements,
+				navigationLinks: currentPage.navigationLinks,
+				timestamp: currentPage.indexedAt,
+			};
+		}
+
+		// If we have multiple pages, send a site summary
+		if (siteData.pages.length > 1 && pageIndex) {
+			(pageIndex as Record<string, unknown>).sitePages = siteData.pages.map((p) => ({
+				url: p.url,
+				urlPattern: p.urlPattern,
+				title: p.title,
+				pageType: p.pageType,
+				elementCount: p.elements.length,
+			}));
 		}
 
 		// Get auth token
