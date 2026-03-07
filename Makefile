@@ -18,14 +18,17 @@ setup:
 dev:
 	docker compose up -d db
 	@until docker compose exec db pg_isready -U afe > /dev/null 2>&1; do sleep 1; done
+	pnpm --filter @afe/shared build
 	pnpm dev
 
 dev-api:
 	docker compose up -d db
 	@until docker compose exec db pg_isready -U afe > /dev/null 2>&1; do sleep 1; done
+	pnpm --filter @afe/shared build
 	pnpm --filter @afe/api dev
 
 dev-ext:
+	pnpm --filter @afe/shared build
 	pnpm --filter @afe/extension dev
 
 # ---------- Database ----------
@@ -45,6 +48,7 @@ db-reset:
 
 # ---------- Build & Quality ----------
 build:
+	pnpm --filter @afe/shared build
 	pnpm build
 
 lint:
@@ -63,4 +67,5 @@ stop:
 # ---------- Cleanup ----------
 clean:
 	pnpm clean
+	find . -name '*.tsbuildinfo' -delete
 	rm -rf node_modules apps/*/node_modules packages/*/node_modules
