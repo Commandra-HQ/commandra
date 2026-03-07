@@ -48,6 +48,7 @@ export function handleWsConnection(ws: WebSocket) {
 
 				case 'action_result': {
 					const { requestId } = message;
+					console.log(`[WS] Received action_result for ${requestId}:`, JSON.stringify(message.payload));
 					const pending = pendingRequests.get(requestId);
 					if (pending) {
 						clearTimeout(pending.timer);
@@ -61,6 +62,8 @@ export function handleWsConnection(ws: WebSocket) {
 							timestamp: Date.now(),
 						});
 						pending.resolve(result);
+					} else {
+						console.warn(`[WS] No pending request for ${requestId} (already timed out?)`);
 					}
 					break;
 				}
@@ -106,6 +109,13 @@ export function sendActionRequest(
 		const timer = setTimeout(() => {
 			pendingRequests.delete(requestId);
 			console.error(`[WS] Action timed out: ${action} (${requestId})`);
+			broadcastStatus(connectionId, {
+				requestId,
+				action,
+				status: 'failed',
+				error: `Timed out after ${timeoutMs}ms`,
+				timestamp: Date.now(),
+			});
 			reject(new Error(`Action timed out after ${timeoutMs}ms: ${action}`));
 		}, timeoutMs);
 

@@ -1,9 +1,10 @@
 /**
  * WebSocket client — connects to the backend WS server.
- * Routes action requests from the agent to content scripts for execution.
+ * Routes action requests from the agent to the browser for execution.
  *
- * MV3 service workers get terminated after ~30s of inactivity.
- * We use chrome.alarms to keep the worker alive and reconnect WS if needed.
+ * Actions are executed via chrome.scripting.executeScript (inline functions),
+ * NOT via content script messaging. This is more reliable because it doesn't
+ * depend on the content script being loaded.
  */
 
 const WS_URL = 'ws://localhost:3002';
@@ -25,18 +26,13 @@ export function connectWebSocket() {
 
 		ws.onopen = async () => {
 			console.log('[AFE WS] Connected');
-
-			// Authenticate with stored token
 			const stored = await chrome.storage.local.get(['authToken']);
 			if (stored.authToken) {
 				ws?.send(JSON.stringify({ type: 'auth', token: stored.authToken }));
-				console.log('[AFE WS] Sent auth token');
 			} else {
-				console.warn('[AFE WS] No auth token found in storage');
+				console.warn('[AFE WS] No auth token found');
 			}
-
-			// Start keepalive alarm to prevent service worker termination
-			chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 0.4 }); // every 24s
+			chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 0.4 });
 		};
 
 		ws.onmessage = async (event) => {
@@ -47,27 +43,22 @@ export function connectWebSocket() {
 				switch (message.type) {
 					case 'connected':
 						connectionId = message.connectionId;
-						console.log(`[AFE WS] Assigned connectionId: ${connectionId}`);
 						break;
-
 					case 'auth_result':
-						console.log(`[AFE WS] Auth ${message.success ? 'succeeded' : 'FAILED'}`);
+						console.log(`[AFE WS] Auth ${message.success ? 'OK' : 'FAILED'}`);
 						break;
-
 					case 'action_request':
 						await handleActionRequest(message);
 						break;
-
 					case 'action_status':
-						// Forward to side panel
 						chrome.runtime.sendMessage({
 							type: 'ACTION_STATUS',
 							payload: message.payload,
-						}).catch(() => {}); // Side panel might not be open
+						}).catch(() => {});
 						break;
 				}
 			} catch (err) {
-				console.error('[AFE WS] Failed to handle message:', err);
+				console.error('[AFE WS] Message handler error:', err);
 			}
 		};
 
@@ -79,8 +70,8 @@ export function connectWebSocket() {
 			scheduleReconnect();
 		};
 
-		ws.onerror = (err) => {
-			console.error('[AFE WS] Error:', err);
+		ws.onerror = () => {
+			console.error('[AFE WS] Connection error');
 		};
 	} catch (err) {
 		console.error('[AFE WS] Failed to connect:', err);
@@ -96,11 +87,9 @@ function scheduleReconnect() {
 	}, 3000);
 }
 
-// Keepalive alarm handler — keeps service worker alive and reconnects WS if needed
 chrome.alarms.onAlarm.addListener((alarm) => {
 	if (alarm.name === KEEPALIVE_ALARM) {
 		if (!ws || ws.readyState !== WebSocket.OPEN) {
-			console.log('[AFE WS] Keepalive: reconnecting...');
 			connectWebSocket();
 		}
 	}
@@ -108,67 +97,133 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 async function handleActionRequest(message: { requestId: string; payload: Record<string, unknown> }) {
 	const { requestId, payload } = message;
-	console.log(`[AFE WS] Action request: ${payload.action}`, payload);
+	const action = payload.action as string;
+	console.log(`[AFE WS] Action: ${action}`, payload);
 
-	// Get the active tab
 	const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
 	const tab = tabs[0];
 
 	if (!tab?.id) {
-		console.error('[AFE WS] No active tab found');
 		sendResult(requestId, { success: false, error: 'No active tab found' });
 		return;
 	}
 
-	console.log(`[AFE WS] Sending to tab ${tab.id}: ${tab.url}`);
-
 	try {
-		// Navigate is handled in background (content script can't survive page unload)
-		if (payload.action === 'navigate' && payload.url) {
+		let result: unknown;
+
+		if (action === 'navigate') {
 			await chrome.tabs.update(tab.id, { url: payload.url as string });
 			await waitForTabLoad(tab.id);
-			sendResult(requestId, { success: true, data: { navigatedTo: payload.url } });
-			return;
+			result = { success: true, data: { navigatedTo: payload.url } };
+		} else if (action === 'click_element') {
+			result = await executeInTab(tab.id, clickInPage, [payload.selector as string]);
+		} else if (action === 'type_text') {
+			result = await executeInTab(tab.id, typeInPage, [payload.selector as string, payload.text as string]);
+		} else if (action === 'select_option') {
+			result = await executeInTab(tab.id, selectInPage, [payload.selector as string, payload.value as string]);
+		} else if (action === 'get_page_state') {
+			result = await executeInTab(tab.id, getPageStateInPage, []);
+		} else {
+			result = { success: false, error: `Unknown action: ${action}` };
 		}
 
-		// All other actions go to content script
-		const result = await chrome.tabs.sendMessage(tab.id, {
-			type: 'EXECUTE_ACTION',
-			payload,
-		});
-
-		console.log('[AFE WS] Content script result:', result);
+		console.log('[AFE WS] Action result:', result);
 		sendResult(requestId, result);
 	} catch (err) {
 		const errorMsg = err instanceof Error ? err.message : String(err);
-		console.error('[AFE WS] Action failed:', errorMsg);
-
-		// If content script isn't available, try injecting it
-		if (errorMsg.includes('Receiving end does not exist') || errorMsg.includes('Could not establish connection')) {
-			console.log('[AFE WS] Content script not available, trying to inject...');
-			try {
-				await chrome.scripting.executeScript({
-					target: { tabId: tab.id },
-					files: ['src/content/index.ts'],
-				});
-				// Retry after injection
-				const result = await chrome.tabs.sendMessage(tab.id, {
-					type: 'EXECUTE_ACTION',
-					payload,
-				});
-				console.log('[AFE WS] Retry result:', result);
-				sendResult(requestId, result);
-				return;
-			} catch (retryErr) {
-				console.error('[AFE WS] Retry also failed:', retryErr);
-			}
-		}
-
-		sendResult(requestId, {
-			success: false,
-			error: `Action failed: ${errorMsg}`,
-		});
+		console.error('[AFE WS] Action error:', errorMsg);
+		sendResult(requestId, { success: false, error: errorMsg });
 	}
+}
+
+/**
+ * Execute a function in the tab's page context via chrome.scripting.executeScript.
+ * This works regardless of whether the content script is loaded.
+ */
+async function executeInTab(tabId: number, func: (...args: string[]) => unknown, args: string[]): Promise<unknown> {
+	const results = await chrome.scripting.executeScript({
+		target: { tabId },
+		func,
+		args,
+	});
+	return results[0]?.result;
+}
+
+// --- Functions that run IN the page context (injected via executeScript) ---
+
+function clickInPage(selector: string) {
+	const el = document.querySelector(selector);
+	if (!el) return { success: false, error: `Element not found: ${selector}` };
+	if (!(el instanceof HTMLElement)) return { success: false, error: `Not clickable: ${selector}` };
+	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	el.click();
+	return { success: true, data: { clicked: selector, tag: el.tagName.toLowerCase(), text: el.textContent?.trim().slice(0, 100) } };
+}
+
+function typeInPage(selector: string, text: string) {
+	const el = document.querySelector(selector);
+	if (!el) return { success: false, error: `Element not found: ${selector}` };
+	if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {
+		return { success: false, error: `Not a text input: ${selector}` };
+	}
+	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	el.focus();
+	el.value = '';
+	el.dispatchEvent(new Event('input', { bubbles: true }));
+	el.value = text;
+	el.dispatchEvent(new Event('input', { bubbles: true }));
+	el.dispatchEvent(new Event('change', { bubbles: true }));
+	return { success: true, data: { typed: text, selector } };
+}
+
+function selectInPage(selector: string, value: string) {
+	const el = document.querySelector(selector);
+	if (!el) return { success: false, error: `Element not found: ${selector}` };
+	if (!(el instanceof HTMLSelectElement)) return { success: false, error: `Not a select: ${selector}` };
+	el.value = value;
+	el.dispatchEvent(new Event('change', { bubbles: true }));
+	return { success: true, data: { selected: value, selector } };
+}
+
+function getPageStateInPage() {
+	// Lightweight page indexer — inline version for action context
+	const elements: { type: string; label: string; selector: string }[] = [];
+	const interactiveSelectors = 'a, button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick]';
+
+	document.querySelectorAll(interactiveSelectors).forEach((el) => {
+		if (!(el instanceof HTMLElement)) return;
+		const rect = el.getBoundingClientRect();
+		if (rect.width === 0 && rect.height === 0) return;
+		if (getComputedStyle(el).display === 'none') return;
+
+		const type = el.tagName.toLowerCase();
+		const label = el.getAttribute('aria-label')
+			|| el.textContent?.trim().slice(0, 60)
+			|| el.getAttribute('placeholder')
+			|| el.getAttribute('title')
+			|| '';
+
+		if (!label) return;
+
+		// Build a selector
+		let selector = '';
+		if (el.id) selector = `#${el.id}`;
+		else if (el.getAttribute('data-testid')) selector = `[data-testid="${el.getAttribute('data-testid')}"]`;
+		else if (el.getAttribute('name')) selector = `${type}[name="${el.getAttribute('name')}"]`;
+		else if (el.className && typeof el.className === 'string') selector = `${type}.${el.className.split(' ').filter(Boolean)[0]}`;
+		else selector = type;
+
+		elements.push({ type, label, selector });
+	});
+
+	return {
+		success: true,
+		data: {
+			url: window.location.href,
+			title: document.title,
+			elements: elements.slice(0, 100),
+		},
+	};
 }
 
 function waitForTabLoad(tabId: number): Promise<void> {
@@ -189,7 +244,6 @@ function waitForTabLoad(tabId: number): Promise<void> {
 
 function sendResult(requestId: string, result: unknown) {
 	if (ws && ws.readyState === WebSocket.OPEN) {
-		console.log('[AFE WS] Sending result for', requestId);
 		ws.send(JSON.stringify({
 			type: 'action_result',
 			requestId,
@@ -197,7 +251,7 @@ function sendResult(requestId: string, result: unknown) {
 			timestamp: Date.now(),
 		}));
 	} else {
-		console.error('[AFE WS] Cannot send result — WS not open. State:', ws?.readyState);
+		console.error('[AFE WS] Cannot send result — WS not open');
 	}
 }
 
