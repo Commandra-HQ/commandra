@@ -4,9 +4,11 @@ import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 
-const clerk = createClerkClient({
-	secretKey: process.env.CLERK_SECRET_KEY!,
-});
+let _clerk: ReturnType<typeof createClerkClient> | null = null;
+function getClerk() {
+	if (!_clerk) _clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
+	return _clerk;
+}
 
 export const authRoutes = new Hono();
 
@@ -16,9 +18,11 @@ async function getClerkUser(c: any) {
 	try {
 		const payload = await verifyToken(token, {
 			secretKey: process.env.CLERK_SECRET_KEY!,
+			authorizedParties: ['http://localhost:3000'],
 		});
-		return await clerk.users.getUser(payload.sub);
-	} catch {
+		return await getClerk().users.getUser(payload.sub);
+	} catch (err) {
+		console.error('Token verification failed:', err);
 		return null;
 	}
 }
