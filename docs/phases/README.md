@@ -6,7 +6,7 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | ----- | ---------------------- | ------------------------------------------------------------------------------------------------------ | ------- |
 | 1     | Auth + Shell UI        | Clerk login via admin dashboard, token exchange for extension, empty shell with tabs, user in Postgres | ✅ Done |
 | 2     | Site Indexing          | Background tab crawler indexes full site, Dexie storage, site map UI in side panel                     | ✅ Done |
-| 3     | Chat (Single Page)     | User chats about current page, Agent SDK responds, no actions yet                                      |
+| 3     | Chat (Single Page)     | User chats about current page, Agent SDK responds, no actions yet                                      | ✅ Done |
 | 4     | Browser Actions        | MCP bridge executes real DOM actions, activity feed in side panel                                      |
 | 5     | Safety Layer           | Action classification, approval gates, kill switch, audit logging                                      |
 | 6     | Element Selector       | Hover-to-highlight, click to select, instruct agent about selected elements                            |
