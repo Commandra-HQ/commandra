@@ -16,7 +16,12 @@ app.use('*', logger());
 app.use(
 	'*',
 	cors({
-		origin: ['chrome-extension://*', 'http://localhost:*'],
+		origin: (origin) => {
+			if (!origin) return origin;
+			if (origin.startsWith('chrome-extension://')) return origin;
+			if (origin.startsWith('http://localhost:')) return origin;
+			return null;
+		},
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
 	}),
 );
