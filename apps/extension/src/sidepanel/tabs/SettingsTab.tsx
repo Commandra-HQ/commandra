@@ -5,7 +5,7 @@ const API_URL = process.env.API_URL || 'http://localhost:3001';
 
 export function SettingsTab() {
 	const { user } = useUser();
-	const { signOut } = useClerk();
+	const clerk = useClerk();
 	const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'disconnected'>(
 		'checking',
 	);
@@ -42,7 +42,7 @@ export function SettingsTab() {
 			</div>
 
 			<button
-				onClick={() => signOut()}
+				onClick={() => clerk.signOut()}
 				className="w-full py-2 text-sm text-red-600 border border-red-200 rounded-md hover:bg-red-50"
 			>
 				Sign out

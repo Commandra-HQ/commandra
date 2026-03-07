@@ -1,4 +1,4 @@
-import { SignedIn, SignedOut, useAuth, useUser } from '@clerk/chrome-extension';
+import { useAuth, useUser, ClerkLoaded, ClerkLoading } from '@clerk/chrome-extension';
 import { useState, useEffect } from 'react';
 import { LoginScreen } from './screens/LoginScreen.js';
 import { ChatTab } from './tabs/ChatTab.js';
@@ -9,7 +9,7 @@ type Tab = 'chat' | 'flows' | 'settings';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 
-export function App() {
+function AuthenticatedApp() {
 	const [activeTab, setActiveTab] = useState<Tab>('chat');
 	const { getToken } = useAuth();
 
@@ -37,38 +37,57 @@ export function App() {
 	];
 
 	return (
+		<>
+			<header className="px-4 py-3 border-b border-gray-200">
+				<h1 className="text-sm font-semibold text-gray-900">Agents for Everyone</h1>
+			</header>
+
+			<nav className="flex border-b border-gray-200">
+				{tabs.map((tab) => (
+					<button
+						key={tab.id}
+						onClick={() => setActiveTab(tab.id)}
+						className={`flex-1 py-2 text-xs font-medium text-center ${
+							activeTab === tab.id
+								? 'text-blue-600 border-b-2 border-blue-600'
+								: 'text-gray-500 hover:text-gray-700'
+						}`}
+					>
+						{tab.label}
+					</button>
+				))}
+			</nav>
+
+			<div className="flex-1 overflow-y-auto">
+				{activeTab === 'chat' && <ChatTab />}
+				{activeTab === 'flows' && <FlowsTab />}
+				{activeTab === 'settings' && <SettingsTab />}
+			</div>
+		</>
+	);
+}
+
+function AppRouter() {
+	const { isSignedIn } = useAuth();
+
+	if (!isSignedIn) {
+		return <LoginScreen />;
+	}
+
+	return <AuthenticatedApp />;
+}
+
+export function App() {
+	return (
 		<div className="flex flex-col h-screen bg-white">
-			<SignedOut>
-				<LoginScreen />
-			</SignedOut>
-
-			<SignedIn>
-				<header className="px-4 py-3 border-b border-gray-200">
-					<h1 className="text-sm font-semibold text-gray-900">Agents for Everyone</h1>
-				</header>
-
-				<nav className="flex border-b border-gray-200">
-					{tabs.map((tab) => (
-						<button
-							key={tab.id}
-							onClick={() => setActiveTab(tab.id)}
-							className={`flex-1 py-2 text-xs font-medium text-center ${
-								activeTab === tab.id
-									? 'text-blue-600 border-b-2 border-blue-600'
-									: 'text-gray-500 hover:text-gray-700'
-							}`}
-						>
-							{tab.label}
-						</button>
-					))}
-				</nav>
-
-				<div className="flex-1 overflow-y-auto">
-					{activeTab === 'chat' && <ChatTab />}
-					{activeTab === 'flows' && <FlowsTab />}
-					{activeTab === 'settings' && <SettingsTab />}
+			<ClerkLoading>
+				<div className="flex items-center justify-center h-screen">
+					<p className="text-sm text-gray-400">Loading...</p>
 				</div>
-			</SignedIn>
+			</ClerkLoading>
+			<ClerkLoaded>
+				<AppRouter />
+			</ClerkLoaded>
 		</div>
 	);
 }
