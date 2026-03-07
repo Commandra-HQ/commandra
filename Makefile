@@ -1,5 +1,8 @@
 # Agents for Everyone — Development Commands
 
+include .env
+export
+
 .PHONY: setup dev stop db-migrate db-generate db-reset build lint clean
 
 # ---------- First-time setup ----------
