@@ -16,6 +16,7 @@ This avoids Chrome MV3 CSP issues with Clerk's prebuilt components (they require
 ## What Ships
 
 ### Admin Dashboard (`apps/web` — Next.js)
+
 - Clerk sign-in / sign-up at `/sign-in` and `/sign-up`
 - Dashboard page showing account info and "Connect Chrome Extension" section
 - Token generation with inline copy-to-clipboard (client component, no React Query needed — single fetch)
@@ -23,10 +24,12 @@ This avoids Chrome MV3 CSP issues with Clerk's prebuilt components (they require
 - Clerk middleware protects all routes except auth pages
 
 ### Tech Decisions
+
 - **No React Query / TanStack Query** — overkill for Phase 1. Simple `fetch` + `useState` is enough. Revisit if query complexity grows.
 - **No state management library** — React state is sufficient for now
 
 ### Extension (Side Panel)
+
 - Login screen with instructions: go to dashboard, sign in, generate token, paste it
 - Token validation against `POST /api/auth/me`
 - After auth: app shell with tab bar (Chat, Flows, Settings)
@@ -36,24 +39,29 @@ This avoids Chrome MV3 CSP issues with Clerk's prebuilt components (they require
 - Persistent auth — token + user stored in `chrome.storage.local`, survives browser restart
 
 ### Extension (Background)
+
 - Opens side panel on extension icon click
 
 ### Backend (API)
+
 - `GET /api/auth/me` — verify Clerk token, return user info
 - `POST /api/auth/sync` — on first login, create user record in Postgres (clerkId + email)
 - Health check at `/health`
 
 ### Database
+
 - `users` table populated on first login
 - Drizzle migration runs cleanly
 
 ## Out of Scope
+
 - Page indexing
 - Chat / agent functionality
 - WebSocket connection (not needed until Phase 4)
 - Content script interactions
 
 ## How to Verify
+
 1. `make setup` — installs deps, starts Postgres, runs migrations
 2. `make dev` — starts API + dashboard + extension dev server
 3. Open `localhost:3000` — sign up with Clerk

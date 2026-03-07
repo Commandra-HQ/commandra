@@ -24,6 +24,7 @@ Extension                          Backend (API)
 ```
 
 ### What the agent knows (sent with each message)
+
 - Page title, URL, page type (dashboard/form/table/etc.)
 - All interactive elements: type, label, selector
 - Navigation links on the page
@@ -31,6 +32,7 @@ Extension                          Backend (API)
 - Conversation history
 
 ### What the agent does NOT know (never sent)
+
 - Actual text content, data values, PII
 - Screenshots (not in this phase)
 - User credentials or cookies
@@ -39,6 +41,7 @@ Extension                          Backend (API)
 ## What Ships
 
 ### Extension — Chat Tab UI
+
 - Chat input at the bottom of the Chat tab (below the page index view)
 - Message bubbles: user messages + agent responses
 - Streaming response display (tokens appear as they arrive)
@@ -48,6 +51,7 @@ Extension                          Backend (API)
 - Page context indicator: shows which page/site the agent is looking at
 
 ### Backend — Chat Endpoint
+
 - `POST /api/chat` — receives message, page index, conversation history
   - Authenticates via Clerk token (same as `/api/auth/me`)
   - Builds a system prompt injecting the page structure
@@ -56,6 +60,7 @@ Extension                          Backend (API)
   - Stores conversation + messages in Postgres
 
 ### Backend — Agent System Prompt
+
 - Describes the agent's role: "You're an assistant that helps users interact with web applications"
 - Injects the page index as structured context
 - Instructs the agent to reference elements by label and type
@@ -63,6 +68,7 @@ Extension                          Backend (API)
 - Keeps it concise — page structure only, no raw HTML
 
 ### Database
+
 - Conversations created per user + domain
 - Messages stored with role (user/assistant) and content
 - Conversation linked to user via auth
@@ -76,6 +82,7 @@ Extension                          Backend (API)
 - **Haiku for simple queries, Sonnet for reasoning** — start with Sonnet for everything, optimize model selection later.
 
 ## Out of Scope
+
 - Browser actions / tool use (Phase 4)
 - MCP browser-bridge (Phase 4)
 - WebSocket for agent ↔ extension (Phase 4)
@@ -93,6 +100,7 @@ Extension                          Backend (API)
 6. **Test** — chat about GitHub, localhost:3000, any real page
 
 ## How to Verify
+
 1. `make dev` — start everything
 2. Navigate to any site, open side panel
 3. Index the page (or site)

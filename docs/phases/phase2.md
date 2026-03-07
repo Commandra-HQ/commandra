@@ -1,4 +1,4 @@
-# Phase 2 — Site Indexing
+# Phase 2 — Site Indexing ✅
 
 ## Goal
 
@@ -7,11 +7,13 @@ After connecting the extension, the user is guided through an indexing setup: ch
 ## Two Modes
 
 ### Quick Index (This Page)
+
 - Indexes the current page only — interactive elements, forms, tables, links
 - Completes in under a second
 - Good for: trying the extension on a single page, quick one-off tasks
 
 ### Full Site Index (Recommended)
+
 - Crawls all reachable internal pages via background tab
 - Runs in background — user can keep working, close the side panel, navigate freely
 - Progress persists — if interrupted, resumes where it left off
@@ -33,6 +35,7 @@ The user can always upgrade from page → site index later, or re-index anytime.
 5. Results stored in **Dexie** (IndexedDB) — persists across sessions
 
 ### Crawl Rules
+
 - **Same-origin only** — never follow links to external domains
 - **Deduplicate by URL pattern** — `/invoices/123` and `/invoices/456` are the same page pattern (`/invoices/:id`), index once
 - **Max pages** — configurable limit (default 50) to prevent runaway crawls
@@ -43,12 +46,14 @@ The user can always upgrade from page → site index later, or re-index anytime.
 ## What Ships
 
 ### Content Script (`content/indexer.ts`)
+
 - Improve existing indexer with better selector strategies (data-testid, aria, nth-child fallbacks)
 - Filter hidden/zero-size elements
 - Detect page type heuristically (dashboard, form, table, detail, settings)
 - Re-export `indexPage()` for use by background script via messaging
 
 ### Background Script (`background/crawler.ts`) — NEW
+
 - Manages the crawl queue (BFS)
 - Opens/reuses a single background tab for crawling
 - Injects content script and collects page index via `chrome.scripting.executeScript`
@@ -59,6 +64,7 @@ The user can always upgrade from page → site index later, or re-index anytime.
 - **Non-blocking** — runs entirely in the service worker, user keeps working normally
 
 ### Storage (`storage/site-index.ts`) — NEW
+
 - Dexie (IndexedDB) schema for site indexes
 - Tables: `sites` (domain, metadata), `pages` (url, elements, links), `elements` (searchable)
 - CRUD operations for site data
@@ -67,6 +73,7 @@ The user can always upgrade from page → site index later, or re-index anytime.
 ### Side Panel Updates
 
 #### Onboarding Flow (first visit to a new domain)
+
 - Detects unindexed domain automatically
 - Setup card: "Teach the agent about this app"
   - **"Index This Page"** — quick, instant result
@@ -74,6 +81,7 @@ The user can always upgrade from page → site index later, or re-index anytime.
 - After either choice, transitions to the indexed view
 
 #### Chat Tab → Page Context
+
 - Shows what the agent knows about the current site
 - If site is being crawled: subtle progress indicator (e.g., "Indexing... 12/34 pages") — not blocking, user can still interact
 - Site overview: domain, total pages, total elements, last indexed
@@ -83,12 +91,14 @@ The user can always upgrade from page → site index later, or re-index anytime.
 - Badge/indicator on pages the agent hasn't indexed yet
 
 #### Settings Tab
+
 - Crawl settings: max pages, throttle delay
 - "Re-index Site" / "Index Full Site" button (if only page-indexed)
 - "Clear Site Data" button
 - Storage usage indicator
 
 ### Messaging Layer
+
 - Content script ↔ background: `chrome.runtime.sendMessage` for page index results
 - Background ↔ side panel: `chrome.runtime.sendMessage` for crawl progress and completion
 - Message types added to `@afe/shared`: `INDEX_PAGE`, `CRAWL_START`, `CRAWL_PROGRESS`, `CRAWL_COMPLETE`, `CRAWL_STOP`
@@ -101,6 +111,7 @@ The user can always upgrade from page → site index later, or re-index anytime.
 - **No backend storage yet** — site index stays local until Phase 9 when we add pgvector embeddings
 
 ## Out of Scope
+
 - Sending index to backend / Postgres
 - Element embeddings (pgvector)
 - Click-to-select elements (Phase 6)
@@ -117,6 +128,7 @@ The user can always upgrade from page → site index later, or re-index anytime.
 6. **Test on real sites** — GitHub, Google Sheets, a login-gated dashboard
 
 ## How to Verify
+
 1. `make dev` — start everything
 2. Navigate to any web app (e.g., GitHub)
 3. Open side panel → see onboarding card: "Teach the agent about this app"
