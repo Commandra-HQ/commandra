@@ -119,6 +119,7 @@ This starts all three apps:
 | `make dev-api` | Start API server only |
 | `make dev-web` | Start admin dashboard only |
 | `make dev-ext` | Start extension only |
+| `make db-studio` | Open Drizzle Studio (visual DB browser) |
 | `make db-migrate` | Run database migrations |
 | `make db-reset` | Drop and recreate database |
 | `make build` | Production build all packages |

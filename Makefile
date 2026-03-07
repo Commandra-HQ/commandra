@@ -19,6 +19,7 @@ dev:
 	docker compose up -d db
 	@until docker compose exec db pg_isready -U afe > /dev/null 2>&1; do sleep 1; done
 	pnpm --filter @afe/shared build
+	cd apps/api && npx drizzle-kit studio &
 	pnpm dev
 
 dev-api:
@@ -34,6 +35,9 @@ dev-ext:
 dev-web:
 	pnpm --filter @afe/shared build
 	pnpm --filter @afe/web dev
+
+db-studio:
+	cd apps/api && npx drizzle-kit studio
 
 # ---------- Database ----------
 db-generate:
