@@ -3,7 +3,7 @@
   "name": "Agents for Everyone",
   "version": "0.0.1",
   "description": "Chat with any web application. Automate what you do every day.",
-  "permissions": ["activeTab", "sidePanel", "storage", "tabs", "scripting"],
+  "permissions": ["activeTab", "sidePanel", "storage", "tabs", "scripting", "alarms"],
   "host_permissions": ["<all_urls>"],
   "side_panel": {
     "default_path": "src/sidepanel/index.html"

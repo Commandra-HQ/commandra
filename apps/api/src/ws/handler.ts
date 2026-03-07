@@ -95,14 +95,17 @@ export function sendActionRequest(
 ): Promise<unknown> {
 	const conn = connections.get(connectionId);
 	if (!conn || conn.ws.readyState !== conn.ws.OPEN) {
+		console.error(`[WS] sendActionRequest failed: connection ${connectionId} not open (state: ${conn?.ws.readyState})`);
 		return Promise.reject(new Error('Extension not connected'));
 	}
 
 	const requestId = randomUUID();
+	console.log(`[WS] Sending action: ${action} (${requestId})`, args);
 
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {
 			pendingRequests.delete(requestId);
+			console.error(`[WS] Action timed out: ${action} (${requestId})`);
 			reject(new Error(`Action timed out after ${timeoutMs}ms: ${action}`));
 		}, timeoutMs);
 
