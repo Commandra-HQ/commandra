@@ -5,6 +5,12 @@ import manifest from './manifest.json';
 
 export default defineConfig({
 	plugins: [react(), crx({ manifest })],
+	define: {
+		'process.env.CLERK_PUBLISHABLE_KEY': JSON.stringify(
+			process.env.VITE_CLERK_PUBLISHABLE_KEY,
+		),
+		'process.env.API_URL': JSON.stringify(process.env.API_URL || 'http://localhost:3001'),
+	},
 	build: {
 		outDir: 'dist',
 	},

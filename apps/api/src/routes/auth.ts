@@ -1,5 +1,8 @@
 import { Hono } from 'hono';
 import { createClerkClient, verifyToken } from '@clerk/backend';
+import { db } from '../db/index.js';
+import { users } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
 
 const clerk = createClerkClient({
 	secretKey: process.env.CLERK_SECRET_KEY!,
@@ -7,21 +10,53 @@ const clerk = createClerkClient({
 
 export const authRoutes = new Hono();
 
-// Clerk handles sign-up/login via their frontend components.
-// This endpoint verifies the session token from the extension.
-authRoutes.get('/me', async (c) => {
+async function getClerkUser(c: any) {
 	const token = c.req.header('Authorization')?.replace('Bearer ', '');
-	if (!token) {
-		return c.json({ error: 'No token provided' }, 401);
-	}
-
+	if (!token) return null;
 	try {
 		const payload = await verifyToken(token, {
 			secretKey: process.env.CLERK_SECRET_KEY!,
 		});
-		const user = await clerk.users.getUser(payload.sub);
-		return c.json({ id: user.id, email: user.emailAddresses[0]?.emailAddress });
+		return await clerk.users.getUser(payload.sub);
 	} catch {
-		return c.json({ error: 'Invalid token' }, 401);
+		return null;
 	}
+}
+
+authRoutes.get('/me', async (c) => {
+	const clerkUser = await getClerkUser(c);
+	if (!clerkUser) return c.json({ error: 'Unauthorized' }, 401);
+
+	const [dbUser] = await db.select().from(users).where(eq(users.clerkId, clerkUser.id)).limit(1);
+
+	return c.json({
+		id: dbUser?.id,
+		clerkId: clerkUser.id,
+		email: clerkUser.emailAddresses[0]?.emailAddress,
+	});
+});
+
+authRoutes.post('/sync', async (c) => {
+	const clerkUser = await getClerkUser(c);
+	if (!clerkUser) return c.json({ error: 'Unauthorized' }, 401);
+
+	const email = clerkUser.emailAddresses[0]?.emailAddress;
+	if (!email) return c.json({ error: 'No email on Clerk account' }, 400);
+
+	const [existing] = await db
+		.select()
+		.from(users)
+		.where(eq(users.clerkId, clerkUser.id))
+		.limit(1);
+
+	if (existing) {
+		return c.json({ id: existing.id, email: existing.email, created: false });
+	}
+
+	const [newUser] = await db
+		.insert(users)
+		.values({ clerkId: clerkUser.id, email })
+		.returning();
+
+	return c.json({ id: newUser.id, email: newUser.email, created: true });
 });

@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@afe/shared": "workspace:*",
+    "@clerk/chrome-extension": "^3.0.1",
     "dexie": "^4.0.10",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.3.0"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.28",
