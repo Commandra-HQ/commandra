@@ -5,7 +5,9 @@ import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';
 import { eq, asc } from 'drizzle-orm';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
-import { getConnectionByUser, sendActionRequest } from '../ws/handler.js';
+import { getConnectionByUser, sendActionRequest, sendApprovalRequest, isKilled, resetKill } from '../ws/handler.js';
+import { classifyAction } from '../safety/classifier.js';
+import { logAction } from '../safety/audit.js';
 
 const getClient = (() => {
 	let client: Anthropic | null = null;
@@ -122,6 +124,7 @@ chatRoutes.post('/', async (c) => {
 	// Check if extension is connected — determines if we can use tools
 	const connectionId = getConnectionByUser(user.id);
 	const canAct = !!connectionId;
+	if (connectionId) resetKill(connectionId);
 
 	// Stream response
 	return stream(c, async (s) => {
@@ -134,6 +137,7 @@ chatRoutes.post('/', async (c) => {
 					systemPrompt,
 					claudeMessages,
 					connectionId!,
+					user.id,
 					async (text) => { await s.write(text); },
 				);
 			} else {
@@ -191,12 +195,14 @@ async function runSimpleChat(
 
 /**
  * Agentic loop — Claude can call browser tools, observe results, and continue.
- * Runs until Claude stops requesting tools (max 10 iterations to prevent runaway).
+ * Each tool call is classified (safe/review/blocked) before execution.
+ * Review actions pause for user approval. Blocked actions are rejected.
  */
 async function runAgentLoop(
 	systemPrompt: string,
 	chatMessages: Anthropic.MessageParam[],
 	connectionId: string,
+	userId: string,
 	onText: (text: string) => Promise<void>,
 	maxIterations = 10,
 ): Promise<string> {
@@ -205,6 +211,14 @@ async function runAgentLoop(
 	let iterations = 0;
 
 	while (iterations < maxIterations) {
+		// Check kill switch
+		if (isKilled(connectionId)) {
+			const msg = '\n\n[Agent stopped by user]';
+			fullResponse += msg;
+			await onText(msg);
+			break;
+		}
+
 		iterations++;
 
 		const response = await getClient().messages.create({
@@ -215,8 +229,6 @@ async function runAgentLoop(
 			tools: browserTools,
 		});
 
-		// Process response content blocks
-		const toolUseBlocks: Anthropic.ContentBlockParam[] = [];
 		const toolResults: Anthropic.ToolResultBlockParam[] = [];
 		let hasToolUse = false;
 
@@ -226,17 +238,96 @@ async function runAgentLoop(
 				await onText(block.text);
 			} else if (block.type === 'tool_use') {
 				hasToolUse = true;
-				toolUseBlocks.push(block);
 
-				// Stream a status message to the user
+				// Check kill switch before each action
+				if (isKilled(connectionId)) {
+					toolResults.push({
+						type: 'tool_result',
+						tool_use_id: block.id,
+						content: JSON.stringify({ success: false, error: 'Agent stopped by user' }),
+						is_error: true,
+					});
+					continue;
+				}
+
 				const toolArgs = block.input as Record<string, unknown>;
+				const elementLabel = (toolArgs.description as string) || (toolArgs.selector as string) || '';
+
+				// Classify action
+				const classification = classifyAction({
+					toolName: block.name,
+					args: toolArgs,
+					elementLabel,
+				});
+
+				console.log(`[Safety] ${block.name} "${elementLabel}" → ${classification.level} (${classification.reason})`);
+
+				// Handle blocked actions
+				if (classification.level === 'blocked') {
+					const blockMsg = `\n[Blocked: ${classification.reason}]\n`;
+					fullResponse += blockMsg;
+					await onText(blockMsg);
+
+					await logAction({ userId, action: block.name, safetyLevel: 'blocked', approved: false, metadata: { args: toolArgs, reason: classification.reason } });
+
+					toolResults.push({
+						type: 'tool_result',
+						tool_use_id: block.id,
+						content: JSON.stringify({ success: false, error: `Blocked: ${classification.reason}. Ask the user to confirm this action explicitly.` }),
+						is_error: true,
+					});
+					continue;
+				}
+
+				// Handle review actions — request approval
+				if (classification.level === 'review') {
+					const approvalMsg = `\n[Awaiting approval: ${block.name} — ${classification.reason}]\n`;
+					fullResponse += approvalMsg;
+					await onText(approvalMsg);
+
+					try {
+						const approval = await sendApprovalRequest(connectionId, {
+							action: block.name,
+							selector: toolArgs.selector as string,
+							label: elementLabel,
+							reason: classification.reason,
+						});
+
+						if (!approval.approved) {
+							const rejectMsg = `\n[User rejected: ${approval.reason || 'No reason given'}]\n`;
+							fullResponse += rejectMsg;
+							await onText(rejectMsg);
+
+							await logAction({ userId, action: block.name, safetyLevel: 'review', approved: false, metadata: { args: toolArgs, reason: approval.reason } });
+
+							toolResults.push({
+								type: 'tool_result',
+								tool_use_id: block.id,
+								content: JSON.stringify({ success: false, error: `User rejected this action. ${approval.reason || ''}` }),
+								is_error: true,
+							});
+							continue;
+						}
+					} catch {
+						await logAction({ userId, action: block.name, safetyLevel: 'review', approved: false, metadata: { args: toolArgs, error: 'Approval failed' } });
+						toolResults.push({
+							type: 'tool_result',
+							tool_use_id: block.id,
+							content: JSON.stringify({ success: false, error: 'Could not get user approval' }),
+							is_error: true,
+						});
+						continue;
+					}
+				}
+
+				// Execute the action (safe or approved review)
 				const statusMsg = `\n[Action: ${block.name}${toolArgs.selector ? ` on "${toolArgs.selector}"` : ''}${toolArgs.url ? ` to ${toolArgs.url}` : ''}]\n`;
 				fullResponse += statusMsg;
 				await onText(statusMsg);
 
-				// Execute the tool via WebSocket
 				try {
 					const result = await sendActionRequest(connectionId, block.name, toolArgs);
+					await logAction({ userId, action: block.name, safetyLevel: classification.level, approved: true, metadata: { args: toolArgs, result } });
 					toolResults.push({
 						type: 'tool_result',
 						tool_use_id: block.id,
@@ -244,6 +335,7 @@ async function runAgentLoop(
 					});
 				} catch (err) {
 					const errorMsg = err instanceof Error ? err.message : String(err);
+					await logAction({ userId, action: block.name, safetyLevel: classification.level, approved: true, metadata: { args: toolArgs, error: errorMsg } });
 					toolResults.push({
 						type: 'tool_result',
 						tool_use_id: block.id,
@@ -255,11 +347,9 @@ async function runAgentLoop(
 		}
 
 		if (!hasToolUse || response.stop_reason === 'end_turn') {
-			// No more tools to call — we're done
 			break;
 		}
 
-		// Add assistant response and tool results to messages for next iteration
 		currentMessages = [
 			...currentMessages,
 			{ role: 'assistant', content: response.content },

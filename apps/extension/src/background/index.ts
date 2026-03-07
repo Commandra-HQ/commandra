@@ -1,6 +1,6 @@
 import { startCrawl, stopCrawl } from './crawler.js';
 import { db, getOrCreateSite, storePage, clearSite } from '../storage/db.js';
-import { connectWebSocket, disconnectWebSocket, isConnected } from './ws-client.js';
+import { connectWebSocket, disconnectWebSocket, isConnected, sendApproval, sendKill } from './ws-client.js';
 
 // Open side panel when extension icon is clicked
 chrome.sidePanel
@@ -72,8 +72,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			break;
 		}
 
+		case 'APPROVAL_RESPONSE': {
+			const { requestId, approved, reason } = message as { requestId: string; approved: boolean; reason?: string };
+			sendApproval(requestId, approved, reason);
+			sendResponse({ ok: true });
+			break;
+		}
+
 		case 'kill': {
 			stopCrawl();
+			sendKill();
 			sendResponse({ ok: true });
 			break;
 		}

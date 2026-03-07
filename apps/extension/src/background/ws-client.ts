@@ -50,6 +50,17 @@ export function connectWebSocket() {
 					case 'action_request':
 						await handleActionRequest(message);
 						break;
+					case 'approval_request':
+						// Forward to side panel for user approval
+						chrome.runtime.sendMessage({
+							type: 'APPROVAL_REQUEST',
+							requestId: message.requestId,
+							payload: message.payload,
+						}).catch(() => {
+							// Side panel not open — auto-reject
+							sendApproval(message.requestId, false, 'Side panel not open');
+						});
+						break;
 					case 'action_status':
 						chrome.runtime.sendMessage({
 							type: 'ACTION_STATUS',
@@ -252,6 +263,24 @@ function sendResult(requestId: string, result: unknown) {
 		}));
 	} else {
 		console.error('[AFE WS] Cannot send result — WS not open');
+	}
+}
+
+export function sendApproval(requestId: string, approved: boolean, reason?: string) {
+	if (ws && ws.readyState === WebSocket.OPEN) {
+		ws.send(JSON.stringify({
+			type: 'approval_response',
+			requestId,
+			approved,
+			reason,
+			timestamp: Date.now(),
+		}));
+	}
+}
+
+export function sendKill() {
+	if (ws && ws.readyState === WebSocket.OPEN) {
+		ws.send(JSON.stringify({ type: 'kill', timestamp: Date.now() }));
 	}
 }
 

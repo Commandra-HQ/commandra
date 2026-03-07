@@ -21,6 +21,14 @@ interface ActivityItem {
 	timestamp: number;
 }
 
+interface ApprovalRequest {
+	requestId: string;
+	action: string;
+	selector?: string;
+	label?: string;
+	reason: string;
+}
+
 interface SiteData {
 	site: StoredSite | null;
 	pages: StoredPage[];
@@ -54,6 +62,7 @@ export function ChatTab() {
 	const [showContext, setShowContext] = useState(false);
 	const [wsConnected, setWsConnected] = useState(false);
 	const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
+	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
 	const loadSiteData = useCallback((d: string) => {
@@ -123,6 +132,9 @@ export function ChatTab() {
 				} else {
 					setMode('crawling');
 				}
+			} else if (message.type === 'APPROVAL_REQUEST') {
+				const req = message as { requestId: string; payload: ApprovalRequest };
+				setPendingApprovals((prev) => [...prev, { ...req.payload, requestId: req.requestId }]);
 			} else if (message.type === 'ACTION_STATUS') {
 				const status = message.payload as ActivityItem;
 				setActivityItems((prev) => {
@@ -300,10 +312,16 @@ export function ChatTab() {
 		}
 	}
 
+	function handleApproval(requestId: string, approved: boolean) {
+		chrome.runtime.sendMessage({ type: 'APPROVAL_RESPONSE', requestId, approved });
+		setPendingApprovals((prev) => prev.filter((a) => a.requestId !== requestId));
+	}
+
 	function handleNewConversation() {
 		setChatMessages([]);
 		setConversationId(null);
 		setActivityItems([]);
+		setPendingApprovals([]);
 	}
 
 	if (!domain) {

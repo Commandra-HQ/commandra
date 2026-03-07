@@ -6,6 +6,7 @@ interface Connection {
 	ws: WebSocket;
 	userId?: string;
 	authenticated: boolean;
+	killed?: boolean;
 }
 
 const connections = new Map<string, Connection>();
@@ -65,6 +66,35 @@ export function handleWsConnection(ws: WebSocket) {
 					} else {
 						console.warn(`[WS] No pending request for ${requestId} (already timed out?)`);
 					}
+					break;
+				}
+
+				case 'approval_response': {
+					const { requestId } = message;
+					console.log(`[WS] Received approval_response for ${requestId}:`, message.approved);
+					const pending = pendingRequests.get(requestId);
+					if (pending) {
+						clearTimeout(pending.timer);
+						pendingRequests.delete(requestId);
+						pending.resolve({ approved: !!message.approved, reason: message.reason });
+					}
+					break;
+				}
+
+				case 'kill': {
+					console.log(`[WS] Kill received from ${connectionId}`);
+					// Cancel all pending requests for this connection
+					cancelAllPending(connectionId);
+					// Set killed flag
+					const conn = connections.get(connectionId);
+					if (conn) conn.killed = true;
+					broadcastStatus(connectionId, {
+						requestId: 'kill',
+						action: 'kill',
+						status: 'failed',
+						error: 'Agent stopped by user',
+						timestamp: Date.now(),
+					});
 					break;
 				}
 
@@ -173,6 +203,78 @@ function broadcastStatus(connectionId: string, update: unknown) {
 	const conn = connections.get(connectionId);
 	if (conn && conn.ws.readyState === conn.ws.OPEN) {
 		conn.ws.send(JSON.stringify({ type: 'action_status', payload: update, timestamp: Date.now() }));
+	}
+}
+
+/**
+ * Send an approval request to the extension and wait for user response.
+ * Returns { approved: boolean, reason?: string }
+ */
+export function sendApprovalRequest(
+	connectionId: string,
+	details: { action: string; selector?: string; label?: string; reason: string },
+	timeoutMs = 60000,
+): Promise<{ approved: boolean; reason?: string }> {
+	const conn = connections.get(connectionId);
+	if (!conn || conn.ws.readyState !== conn.ws.OPEN) {
+		return Promise.reject(new Error('Extension not connected'));
+	}
+
+	const requestId = randomUUID();
+	console.log(`[WS] Sending approval request: ${details.action} "${details.label}" (${requestId})`);
+
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			pendingRequests.delete(requestId);
+			console.log(`[WS] Approval timed out: ${requestId}`);
+			broadcastStatus(connectionId, {
+				requestId,
+				action: details.action,
+				label: details.label,
+				status: 'failed',
+				error: 'Approval timed out',
+				timestamp: Date.now(),
+			});
+			resolve({ approved: false, reason: 'Timed out waiting for approval' });
+		}, timeoutMs);
+
+		pendingRequests.set(requestId, { resolve: resolve as (v: unknown) => void, reject, timer });
+
+		conn.ws.send(JSON.stringify({
+			type: 'approval_request',
+			requestId,
+			payload: details,
+			timestamp: Date.now(),
+		}));
+
+		broadcastStatus(connectionId, {
+			requestId,
+			action: details.action,
+			label: details.label || details.selector,
+			status: 'pending',
+			timestamp: Date.now(),
+		});
+	});
+}
+
+/** Check if user has killed the agent for this connection */
+export function isKilled(connectionId: string): boolean {
+	const conn = connections.get(connectionId);
+	return !!conn?.killed;
+}
+
+/** Reset the kill flag (call when starting a new chat message) */
+export function resetKill(connectionId: string): void {
+	const conn = connections.get(connectionId);
+	if (conn) conn.killed = false;
+}
+
+/** Cancel all pending requests/approvals for a connection */
+function cancelAllPending(connectionId: string) {
+	for (const [reqId, pending] of pendingRequests) {
+		clearTimeout(pending.timer);
+		pending.reject(new Error('Cancelled by user'));
+		pendingRequests.delete(reqId);
 	}
 }
 
