@@ -1,5 +1,5 @@
-import { startCrawl, stopCrawl, indexCurrentPage } from './crawler.js';
-import { db, getOrCreateSite, storePage } from '../storage/db.js';
+import { startCrawl, stopCrawl } from './crawler.js';
+import { db, getOrCreateSite, storePage, clearSite } from '../storage/db.js';
 
 // Open side panel when extension icon is clicked
 chrome.sidePanel
@@ -58,9 +58,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 		case 'CLEAR_SITE': {
 			const { domain } = message.payload as { domain: string };
-			import('../storage/db.js').then(({ clearSite }) => {
-				clearSite(domain).then(() => sendResponse({ ok: true }));
-			});
+			clearSite(domain).then(() => sendResponse({ ok: true }));
 			return true; // async
 		}
 
