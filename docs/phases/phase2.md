@@ -2,11 +2,22 @@
 
 ## Goal
 
-User clicks "Index Site" in the side panel. The extension crawls every reachable page of the current web app (following internal links), indexes all interactive elements on each page, and stores the full site map locally. The side panel shows the site structure and what the agent "sees." No backend involvement — everything stays in the extension.
+After connecting the extension, the user is guided through an indexing setup: choose to index just the current page (fast, seconds) or the entire site (thorough, runs in background). Indexing feels like part of onboarding — "teach the agent about your app." The side panel shows what the agent "sees" and indexing progress continues silently in the background while the user keeps working.
 
-## Why Full Site, Not Single Page
+## Two Modes
 
-The agent needs to understand the entire application to be useful. If a user says "go to the invoices page and filter by unpaid," the agent needs to know that page exists, how to get there, and what elements are on it. Single-page indexing isn't enough — we need the full navigation graph.
+### Quick Index (This Page)
+- Indexes the current page only — interactive elements, forms, tables, links
+- Completes in under a second
+- Good for: trying the extension on a single page, quick one-off tasks
+
+### Full Site Index (Recommended)
+- Crawls all reachable internal pages via background tab
+- Runs in background — user can keep working, close the side panel, navigate freely
+- Progress persists — if interrupted, resumes where it left off
+- Good for: full automation, multi-page workflows, "the agent knows the whole app"
+
+The user can always upgrade from page → site index later, or re-index anytime.
 
 ## How the Crawler Works
 
@@ -44,6 +55,8 @@ The agent needs to understand the entire application to be useful. If a user say
 - URL pattern deduplication (`/users/123` → `/users/:id`)
 - Respects crawl limits and throttle
 - Sends progress updates to side panel
+- **Resumable** — crawl state (queue, visited) persisted in Dexie, survives panel close / browser restart
+- **Non-blocking** — runs entirely in the service worker, user keeps working normally
 
 ### Storage (`storage/site-index.ts`) — NEW
 - Dexie (IndexedDB) schema for site indexes
@@ -53,18 +66,25 @@ The agent needs to understand the entire application to be useful. If a user say
 
 ### Side Panel Updates
 
+#### Onboarding Flow (first visit to a new domain)
+- Detects unindexed domain automatically
+- Setup card: "Teach the agent about this app"
+  - **"Index This Page"** — quick, instant result
+  - **"Index Entire Site"** — recommended, with explanation ("takes a minute, runs in background")
+- After either choice, transitions to the indexed view
+
 #### Chat Tab → Page Context
-- When no site indexed: "Index Site" button with domain name
-- During crawl: progress bar (pages indexed / pages discovered), current page being crawled
-- After crawl: site overview showing:
-  - Domain, total pages, total elements, last indexed timestamp
-  - Page list grouped by URL pattern (collapsible)
-  - Each page shows: title, URL, element count by type
-  - Expandable element details (label, type, selector)
+- Shows what the agent knows about the current site
+- If site is being crawled: subtle progress indicator (e.g., "Indexing... 12/34 pages") — not blocking, user can still interact
+- Site overview: domain, total pages, total elements, last indexed
+- Page list grouped by URL pattern (collapsible)
+- Each page shows: title, URL, element count by type
+- Expandable element details (label, type, selector)
+- Badge/indicator on pages the agent hasn't indexed yet
 
 #### Settings Tab
 - Crawl settings: max pages, throttle delay
-- "Re-index Site" button
+- "Re-index Site" / "Index Full Site" button (if only page-indexed)
 - "Clear Site Data" button
 - Storage usage indicator
 
@@ -99,10 +119,12 @@ The agent needs to understand the entire application to be useful. If a user say
 ## How to Verify
 1. `make dev` — start everything
 2. Navigate to any web app (e.g., GitHub)
-3. Open side panel → click "Index Site"
-4. Watch progress bar as pages are crawled
-5. After completion: browse the full site map in the side panel
-6. See all pages, elements, navigation links
-7. Close and reopen browser — site index persists
-8. Navigate to a different site → index it separately
-9. Settings → re-index or clear site data
+3. Open side panel → see onboarding card: "Teach the agent about this app"
+4. Click "Index This Page" → instant result, see page elements listed
+5. Click "Index Entire Site" → progress indicator appears, user can keep browsing
+6. Close side panel, reopen → crawl still running, progress persists
+7. After completion: browse the full site map in the side panel
+8. See all pages, elements, navigation links
+9. Close and reopen browser — site index persists
+10. Navigate to a different site → onboarding card appears again
+11. Settings → re-index, upgrade page→site, or clear site data
