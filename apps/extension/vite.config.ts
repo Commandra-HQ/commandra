@@ -9,7 +9,6 @@ export default defineConfig(({ mode }) => {
 	return {
 		plugins: [react(), crx({ manifest })],
 		define: {
-			'process.env.CLERK_PUBLISHABLE_KEY': JSON.stringify(env.VITE_CLERK_PUBLISHABLE_KEY),
 			'process.env.API_URL': JSON.stringify(env.API_URL || 'http://localhost:3001'),
 		},
 		build: {
