@@ -133,7 +133,7 @@ export function ChatTab() {
 					setMode('crawling');
 				}
 			} else if (message.type === 'APPROVAL_REQUEST') {
-				const req = message as { requestId: string; payload: ApprovalRequest };
+				const req = message as unknown as { requestId: string; payload: ApprovalRequest };
 				setPendingApprovals((prev) => [...prev, { ...req.payload, requestId: req.requestId }]);
 			} else if (message.type === 'ACTION_STATUS') {
 				const status = message.payload as ActivityItem;
@@ -401,6 +401,31 @@ export function ChatTab() {
 					))}
 				</div>
 			)}
+
+			{/* Approval Requests */}
+			{pendingApprovals.map((req) => (
+				<div key={req.requestId} className="border-b border-yellow-500/30 bg-yellow-500/5 px-4 py-3 space-y-2">
+					<p className="text-xs font-medium text-foreground">
+						Agent wants to: <span className="font-semibold">{formatAction(req.action)}</span>
+						{req.label ? ` "${req.label}"` : ''}
+					</p>
+					<p className="text-xs text-muted-foreground">{req.reason}</p>
+					<div className="flex gap-2">
+						<button
+							onClick={() => handleApproval(req.requestId, true)}
+							className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
+						>
+							Approve
+						</button>
+						<button
+							onClick={() => handleApproval(req.requestId, false)}
+							className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700"
+						>
+							Reject
+						</button>
+					</div>
+				</div>
+			))}
 
 			{/* Messages */}
 			<div className="flex-1 overflow-y-auto p-4 space-y-4">
