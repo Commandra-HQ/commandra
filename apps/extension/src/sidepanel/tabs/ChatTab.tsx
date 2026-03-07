@@ -26,6 +26,18 @@ interface SiteData {
 	pages: StoredPage[];
 }
 
+const ACTION_LABELS: Record<string, string> = {
+	click_element: 'Click',
+	type_text: 'Type',
+	select_option: 'Select',
+	navigate: 'Navigate',
+	get_page_state: 'Read page',
+};
+
+function formatAction(action: string): string {
+	return ACTION_LABELS[action] || action;
+}
+
 export function ChatTab() {
 	const [mode, setMode] = useState<ViewMode>('onboarding');
 	const [domain, setDomain] = useState('');
@@ -117,7 +129,8 @@ export function ChatTab() {
 					const existing = prev.findIndex((i) => i.requestId === status.requestId);
 					if (existing >= 0) {
 						const updated = [...prev];
-						updated[existing] = status;
+						// Merge: keep action/label from pending, update status
+						updated[existing] = { ...updated[existing], ...status, action: updated[existing].action || status.action, label: updated[existing].label || status.label };
 						return updated;
 					}
 					return [...prev, status];
@@ -364,7 +377,7 @@ export function ChatTab() {
 								{item.status === 'done' ? '✓' : item.status === 'failed' ? '✗' : '●'}
 							</span>
 							<span className="text-muted-foreground truncate">
-								{item.action}{item.label ? ` → ${item.label}` : ''}
+								{formatAction(item.action)}{item.label ? ` → ${item.label}` : ''}
 							</span>
 						</div>
 					))}
