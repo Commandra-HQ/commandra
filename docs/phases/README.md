@@ -9,7 +9,7 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | 3     | Chat (Single Page)     | User chats about current page, Claude responds with page context, no actions yet                       | ✅ Done |
 | 4     | Browser Actions        | Agentic loop executes real DOM actions via WS, activity feed in side panel                             | ✅ Done |
 | 5     | Safety Layer           | Action classification, approval gates, kill switch, audit logging                                      | ✅ Done |
-| 6     | Element Selector       | Hover-to-highlight, click to select, instruct agent about selected elements                            |
+| 6     | Element Selector       | Hover-to-highlight, click to select, instruct agent about selected elements                            | ✅ Done |
 | 7     | Data Extraction        | Read tables/text/forms, summarize page data, export CSV                                                |
 | 8     | Multi-Page Navigation  | Agent navigates across pages using site index                                                          |
 | 9     | Site Sync + Embeddings | Sync site index to backend, pgvector embeddings, incremental re-indexing                               |

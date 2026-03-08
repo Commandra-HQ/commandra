@@ -57,6 +57,17 @@ export interface ActionStatusUpdate {
 
 export type AgentStatus = 'idle' | 'planning' | 'executing' | 'waiting_approval' | 'error';
 
+/** Element selected by the user via the element selector overlay */
+export interface SelectedElement {
+	selector: string;
+	fallbackSelectors: string[];
+	tag: string;
+	label: string;
+	type?: string;
+	attributes: Record<string, string>;
+	rect: { x: number; y: number; width: number; height: number };
+}
+
 /** Messages sent between content script, background, and side panel */
 export type ExtMessageType =
 	| 'INDEX_PAGE'

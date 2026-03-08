@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { CrawlProgress } from '@afe/shared';
+import type { CrawlProgress, SelectedElement } from '@afe/shared';
 import type { StoredSite, StoredPage } from '../../storage/db.js';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
@@ -63,6 +63,8 @@ export function ChatTab() {
 	const [wsConnected, setWsConnected] = useState(false);
 	const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
+	const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
+	const [selectorActive, setSelectorActive] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
 	const loadSiteData = useCallback((d: string) => {
@@ -135,6 +137,12 @@ export function ChatTab() {
 			} else if (message.type === 'APPROVAL_REQUEST') {
 				const req = message as unknown as { requestId: string; payload: ApprovalRequest };
 				setPendingApprovals((prev) => [...prev, { ...req.payload, requestId: req.requestId }]);
+			} else if (message.type === 'ELEMENT_SELECTED') {
+				const el = message.payload as SelectedElement;
+				setSelectedElement(el);
+				setSelectorActive(false);
+			} else if (message.type === 'SELECTOR_CANCELLED') {
+				setSelectorActive(false);
 			} else if (message.type === 'ACTION_STATUS') {
 				const status = message.payload as ActivityItem;
 				setActivityItems((prev) => {
@@ -261,6 +269,7 @@ export function ChatTab() {
 					message: userMsg.content,
 					pageIndex,
 					conversationId,
+					selectedElement: selectedElement || undefined,
 				}),
 			});
 
@@ -309,12 +318,24 @@ export function ChatTab() {
 			);
 		} finally {
 			setIsStreaming(false);
+			setSelectedElement(null);
 		}
 	}
 
 	function handleApproval(requestId: string, approved: boolean) {
 		chrome.runtime.sendMessage({ type: 'APPROVAL_RESPONSE', requestId, approved });
 		setPendingApprovals((prev) => prev.filter((a) => a.requestId !== requestId));
+	}
+
+	function handleToggleSelector() {
+		if (!tabId) return;
+		if (selectorActive) {
+			chrome.tabs.sendMessage(tabId, { type: 'SELECTOR_STOP' });
+			setSelectorActive(false);
+		} else {
+			chrome.tabs.sendMessage(tabId, { type: 'SELECTOR_START' });
+			setSelectorActive(true);
+		}
 	}
 
 	function handleNewConversation() {
@@ -476,6 +497,23 @@ export function ChatTab() {
 						</button>
 					</div>
 				)}
+
+				{/* Selected element chip */}
+				{selectedElement && (
+					<div className="flex items-center gap-1.5 mb-2 px-2 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-md">
+						<span className="text-xs text-blue-400 font-mono">&lt;{selectedElement.tag}&gt;</span>
+						<span className="text-xs text-foreground truncate flex-1">
+							{selectedElement.label || selectedElement.selector}
+						</span>
+						<button
+							onClick={() => setSelectedElement(null)}
+							className="text-xs text-muted-foreground hover:text-foreground shrink-0"
+						>
+							✕
+						</button>
+					</div>
+				)}
+
 				<form
 					onSubmit={(e) => {
 						e.preventDefault();
@@ -483,11 +521,23 @@ export function ChatTab() {
 					}}
 					className="flex gap-2"
 				>
+					<button
+						type="button"
+						onClick={handleToggleSelector}
+						title={selectorActive ? 'Cancel selector' : 'Select an element'}
+						className={`px-2 py-2 text-sm rounded-md border shrink-0 ${
+							selectorActive
+								? 'border-blue-500 bg-blue-500/10 text-blue-400'
+								: 'border-input text-muted-foreground hover:text-foreground hover:bg-secondary'
+						}`}
+					>
+						⊕
+					</button>
 					<input
 						type="text"
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
-						placeholder="Ask about this page..."
+						placeholder={selectedElement ? `Instruct about this ${selectedElement.tag}...` : 'Ask about this page...'}
 						disabled={isStreaming}
 						className="flex-1 text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
 					/>

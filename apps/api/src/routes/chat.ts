@@ -82,10 +82,11 @@ chatRoutes.use('*', requireAuth);
 chatRoutes.post('/', async (c) => {
 	const user = c.get('user');
 	const body = await c.req.json();
-	const { message, pageIndex, conversationId } = body as {
+	const { message, pageIndex, conversationId, selectedElement } = body as {
 		message: string;
 		pageIndex?: unknown;
 		conversationId?: string;
+		selectedElement?: { selector: string; fallbackSelectors: string[]; tag: string; label: string; type?: string; attributes: Record<string, string> };
 	};
 
 	if (!message?.trim()) return c.json({ error: 'Message required' }, 400);
@@ -119,7 +120,7 @@ chatRoutes.post('/', async (c) => {
 		content: m.content,
 	}));
 
-	const systemPrompt = buildSystemPrompt(pageIndex);
+	const systemPrompt = buildSystemPrompt(pageIndex, selectedElement);
 
 	// Check if extension is connected — determines if we can use tools
 	const connectionId = getConnectionByUser(user.id);
@@ -360,7 +361,7 @@ async function runAgentLoop(
 	return fullResponse;
 }
 
-function buildSystemPrompt(pageIndex?: unknown): string {
+function buildSystemPrompt(pageIndex?: unknown, selectedElement?: { selector: string; fallbackSelectors: string[]; tag: string; label: string; type?: string; attributes: Record<string, string> }): string {
 	const base = `You are an AI assistant embedded in a Chrome extension called "Agents for Everyone." You help users understand and interact with web applications.
 
 You are looking at a web page through its structural index — you can see all interactive elements (buttons, links, inputs, forms, tables), their labels, and the page's navigation structure. You do NOT see the actual content, data values, or visual layout.
@@ -410,6 +411,23 @@ If the user asks about data or content you can't see (like table values, text co
 			.join('\n')}`;
 	}
 
+	let selectedSummary = '';
+	if (selectedElement) {
+		const attrs = Object.entries(selectedElement.attributes)
+			.map(([k, v]) => `${k}="${v}"`)
+			.join(', ');
+		selectedSummary = `\n\n## Selected Element
+The user has pointed at a specific element on the page:
+- **Tag:** <${selectedElement.tag}>
+- **Label:** "${selectedElement.label}"
+- **Selector:** \`${selectedElement.selector}\`
+- **Fallback selectors:** ${selectedElement.fallbackSelectors.map((s) => `\`${s}\``).join(', ') || 'none'}
+${selectedElement.type ? `- **Type:** ${selectedElement.type}` : ''}
+${attrs ? `- **Attributes:** ${attrs}` : ''}
+
+When the user says "this element", "that", "it", or refers to something they selected, they mean THIS element. Use the provided selector.`;
+	}
+
 	return `${base}
 
 ## Current Page
@@ -421,7 +439,7 @@ If the user asks about data or content you can't see (like table values, text co
 ${elementsSummary}
 
 ## Navigation Links
-${navSummary}${siteSummary}`;
+${navSummary}${siteSummary}${selectedSummary}`;
 }
 
 function formatElements(
