@@ -5,7 +5,7 @@
  * Handles: tool dispatch, safety classification, audit logging, kill switch, streaming.
  */
 
-import { collectStream, getFastModel, getProvider, getStrongModel } from '../llm/index.js';
+import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import type {
 	ContentBlock,
 	ImageBlock,
@@ -93,7 +93,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		iterations++;
 
 		// Call LLM
-		const stream = provider.chat({
+		const streamIter = provider.chat({
 			model,
 			system: systemPrompt,
 			messages: currentMessages,
@@ -101,18 +101,40 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			maxTokens: 4096,
 		});
 
-		// Collect the full response (we need to process tool calls after)
-		const response = await collectStream(stream);
+		// Stream text to client in real time while collecting tool calls
+		const content: ContentBlock[] = [];
+		let stopReason: 'end_turn' | 'tool_use' | 'max_tokens' = 'end_turn';
 
-		// Process response blocks
+		for await (const event of streamIter) {
+			switch (event.type) {
+				case 'text':
+					// Stream text to client immediately
+					fullResponse += event.text;
+					await onText(event.text);
+					// Merge consecutive text blocks
+					if (content.length > 0 && content[content.length - 1].type === 'text') {
+						(content[content.length - 1] as { text: string }).text += event.text;
+					} else {
+						content.push({ type: 'text', text: event.text });
+					}
+					break;
+				case 'tool_use_end':
+					content.push({ type: 'tool_use', id: event.id, name: event.name, input: event.input });
+					break;
+				case 'message_end':
+					stopReason = event.stopReason;
+					break;
+			}
+		}
+
+		const response = { content, stopReason };
+
+		// Process tool calls
 		const toolResults: ToolResultBlock[] = [];
 		let hasToolUse = false;
 
 		for (const block of response.content) {
-			if (block.type === 'text') {
-				fullResponse += block.text;
-				await onText(block.text);
-			} else if (block.type === 'tool_use') {
+			if (block.type === 'tool_use') {
 				hasToolUse = true;
 				const result = await handleToolCall(block, context, userId, connectionId, onText);
 				fullResponse += result.statusText;
