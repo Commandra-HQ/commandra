@@ -126,7 +126,7 @@ function toAnthropicBlock(block: ContentBlock): Anthropic.ContentBlockParam {
 				type: 'tool_result',
 				tool_use_id: block.toolUseId,
 				content: Array.isArray(block.content)
-					? block.content.map(toAnthropicBlock) as Anthropic.ToolResultBlockParam['content']
+					? (block.content.map(toAnthropicBlock) as Anthropic.ToolResultBlockParam['content'])
 					: block.content,
 				is_error: block.isError,
 			};

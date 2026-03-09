@@ -97,12 +97,8 @@ export const domainMemory = pgTable('domain_memory', {
 	knownPages: jsonb('known_pages')
 		.$type<{ path: string; description: string; howToReach: string }[]>()
 		.default([]),
-	elementNotes: jsonb('element_notes')
-		.$type<{ selector: string; note: string }[]>()
-		.default([]),
-	workflows: jsonb('workflows')
-		.$type<{ name: string; steps: string[] }[]>()
-		.default([]),
+	elementNotes: jsonb('element_notes').$type<{ selector: string; note: string }[]>().default([]),
+	workflows: jsonb('workflows').$type<{ name: string; steps: string[] }[]>().default([]),
 	appNotes: jsonb('app_notes').$type<string[]>().default([]),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),

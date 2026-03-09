@@ -6,7 +6,14 @@
  */
 
 import { collectStream, getFastModel, getProvider, getStrongModel } from '../llm/index.js';
-import type { ContentBlock, ImageBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
+import type {
+	ContentBlock,
+	ImageBlock,
+	Message,
+	TextBlock,
+	ToolResultBlock,
+	ToolUseBlock,
+} from '../llm/types.js';
 import { compressHistory } from '../memory/conversation.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
@@ -59,7 +66,11 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	const context = { connectionId, userId };
 
 	// Compress long conversation histories before sending to LLM
-	const { messages: compressedHistory } = await compressHistory(chatHistory, provider, getFastModel());
+	const { messages: compressedHistory } = await compressHistory(
+		chatHistory,
+		provider,
+		getFastModel(),
+	);
 
 	// Build message history in provider-agnostic format
 	let currentMessages: Message[] = compressedHistory.map((m) => ({

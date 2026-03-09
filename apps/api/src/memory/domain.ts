@@ -133,22 +133,16 @@ export async function updateDomainMemory(
 
 	if (existing) {
 		// Merge — deduplicate by path/selector/name
-		const mergedPages = mergeByKey(
-			existing.knownPages || [],
-			learned.knownPages || [],
-			'path',
-		);
+		const mergedPages = mergeByKey(existing.knownPages || [], learned.knownPages || [], 'path');
 		const mergedNotes = mergeByKey(
 			existing.elementNotes || [],
 			learned.elementNotes || [],
 			'selector',
 		);
-		const mergedWorkflows = mergeByKey(
-			existing.workflows || [],
-			learned.workflows || [],
-			'name',
-		);
-		const mergedAppNotes = [...new Set([...(existing.appNotes || []), ...(learned.appNotes || [])])];
+		const mergedWorkflows = mergeByKey(existing.workflows || [], learned.workflows || [], 'name');
+		const mergedAppNotes = [
+			...new Set([...(existing.appNotes || []), ...(learned.appNotes || [])]),
+		];
 
 		await db
 			.update(domainMemory)

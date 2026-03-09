@@ -5,8 +5,8 @@ import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
-import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
+import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
