@@ -2,19 +2,50 @@
 
 Each phase is self-contained and shippable. Complete one before starting the next.
 
-| Phase | Name                   | What Ships                                                                                             | Status  |
-| ----- | ---------------------- | ------------------------------------------------------------------------------------------------------ | ------- |
-| 1     | Auth + Shell UI        | Clerk login via admin dashboard, token exchange for extension, empty shell with tabs, user in Postgres | ✅ Done |
-| 2     | Site Indexing          | Background tab crawler indexes full site, Dexie storage, site map UI in side panel                     | ✅ Done |
-| 3     | Chat (Single Page)     | User chats about current page, Claude responds with page context, no actions yet                       | ✅ Done |
-| 4     | Browser Actions        | Agentic loop executes real DOM actions via WS, activity feed in side panel                             | ✅ Done |
-| 5     | Safety Layer           | Action classification, approval gates, kill switch, audit logging                                      | ✅ Done |
-| 6     | Element Selector       | Hover-to-highlight, click to select, instruct agent about selected elements                            | ✅ Done |
-| 7     | Data Extraction        | Read tables/text/forms, summarize page data, export CSV                                                |
-| 8     | Multi-Page Navigation  | Agent navigates across pages using site index                                                          |
-| 9     | Site Sync + Embeddings | Sync site index to backend, pgvector embeddings, incremental re-indexing                               |
-| 10    | Flows                  | Save tasks as reusable parameterized flows, flow library UI                                            |
-| 11    | Teach Mode             | Record user actions, convert to flow, replay                                                           |
-| 12    | Scheduled Agents       | Inngest cron triggers, headless agent runs, completion notifications                                   |
-| 13    | Multi-Agent Swarm      | Parallel subagents, cross-app workflows, coordinator dispatch                                          |
-| 14    | Teams + Sharing        | Shared flows, admin dashboard, team management                                                         |
+## Foundation (Done)
+
+| Phase | Name             | What Shipped                                                                                   | Status  |
+| ----- | ---------------- | ---------------------------------------------------------------------------------------------- | ------- |
+| 1     | Auth + Shell UI  | Clerk login via dashboard, token exchange for extension, shell with tabs, user in Postgres     | ✅ Done |
+| 2     | Site Indexing    | Background tab crawler indexes full site, Dexie storage, site map UI in side panel             | ✅ Done |
+| 3     | Chat             | User chats about current page, Claude responds with page context, streaming responses          | ✅ Done |
+| 4     | Browser Actions  | Agentic loop executes DOM actions via WS, activity feed, navigate/click/type/select/read tools | ✅ Done |
+| 5     | Safety Layer     | Three-tier classification (safe/review/blocked), approval gates, kill switch, audit logging    | ✅ Done |
+| 6     | Element Selector | DevTools-style hover highlight, click-to-select, drag-to-select area, element chips in chat    | ✅ Done |
+
+## Intelligence (Next)
+
+| Phase | Name                    | What Ships                                                                                | Status |
+| ----- | ----------------------- | ----------------------------------------------------------------------------------------- | ------ |
+| 7     | **Agent Core + Vision** | Agent SDK, MCP browser-bridge, screenshot tool, planning, memory, sessions, model routing |        |
+| 8     | Data Tools              | read_text, read_table, extract_data, scroll, wait tools. CSV/JSON export                  |        |
+| 9     | Dashboard Agents        | Trigger agent runs from dashboard, execute in employee browser, progress streaming        |        |
+
+## Automation
+
+| Phase | Name                | What Ships                                                                            | Status |
+| ----- | ------------------- | ------------------------------------------------------------------------------------- | ------ |
+| 10    | Flows + Teach Mode  | Record action sequences, parameterize, replay. Flow library UI                        |        |
+| 11    | Scheduled Agents    | Inngest cron triggers, run in employee browser on schedule, completion notifications  |        |
+| 12    | Embeddings + Search | pgvector embeddings for elements/pages, smart element lookup, incremental re-indexing |        |
+
+## Scale
+
+| Phase | Name              | What Ships                                                       | Status |
+| ----- | ----------------- | ---------------------------------------------------------------- | ------ |
+| 13    | Multi-Agent Swarm | Parallel subagents, cross-tab coordination, coordinator dispatch |        |
+| 14    | Teams + Sharing   | Shared flows, team management, admin dashboard, RBAC             |        |
+
+---
+
+## Key Architecture Decision: Agents Run in the Browser
+
+Unlike Puppeteer/Playwright-based solutions, our agents **always execute in the employee's actual browser session**. This means:
+
+- SSO, VPN, MFA — already handled (employee is logged in)
+- No credential storage — we never see passwords or session cookies
+- No data exfiltration — page data stays in the browser, only structure/screenshots sent to LLM
+- No IT provisioning — employee installs extension, done
+- Dashboard-triggered tasks execute via WS → extension → background tab in employee's browser
+
+This is a core architectural constraint, not a limitation. It's what makes this enterprise-safe.

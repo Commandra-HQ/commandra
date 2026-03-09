@@ -6,7 +6,7 @@ An open-source platform (Chrome extension + backend) that lets enterprise employ
 
 ## Architecture in One Paragraph
 
-Chrome extension (thin client) handles UI, DOM indexing, element selection, and action execution. Backend (Node.js + Claude Agent SDK) handles all reasoning, planning, and agent orchestration. A custom MCP server called "browser-bridge" exposes browser actions as MCP tools — the Agent SDK calls these tools, they get forwarded to the extension via WebSocket. Postgres + pgvector stores everything. Inngest handles scheduled workflows. The whole thing runs in Docker.
+Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, and action execution. Backend (Node.js + Claude Agent SDK) handles all reasoning, planning, and agent orchestration. An MCP server called "browser-bridge" exposes browser actions as MCP tools — the Agent SDK calls these tools, they get forwarded to the extension via WebSocket. Agents always execute in the employee's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores everything. Inngest handles scheduled workflows. The whole thing runs in Docker.
 
 ## Rules
 

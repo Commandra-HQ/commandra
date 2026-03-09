@@ -34,15 +34,16 @@ The agent understands the app because it has already indexed it — every button
 2. **Index** — extension maps your web app (pages, buttons, forms, tables)
 3. **Chat** — tell the agent what to do in plain English
 4. **Select** — point at elements for precise control ("this table → export as CSV")
-5. **Save** — promote one-time tasks to reusable flows
-6. **Automate** — flows become agents that run on schedule or triggers
+5. **See** — agent takes screenshots to understand visual layout, not just DOM
+6. **Save** — promote one-time tasks to reusable flows
+7. **Automate** — trigger agent runs from the dashboard, they execute in your browser
 
 ## Key Principles
 
-- **Data stays in the browser** — we see page structure, never your actual data
-- **Safety first** — destructive actions blocked by default, approval gates on writes
+- **Data never leaves the browser** — agent runs in your browser, not our servers. We see page structure and screenshots, never your actual data. No credentials stored, no server-side browsers.
+- **Safety first** — destructive actions blocked by default, approval gates on writes, kill switch on every run
 - **Open source** — self-host with Docker, bring your own API key
-- **Truly agentic** — powered by Claude Agent SDK with multi-agent coordination
+- **Truly agentic** — Claude Agent SDK with planning, memory, subagents, and vision
 
 ## Setup
 
