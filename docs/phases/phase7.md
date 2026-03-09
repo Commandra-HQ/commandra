@@ -9,12 +9,14 @@ This is the foundation phase. Everything after this — data tools, flows, sched
 Claude Agent SDK locks us into Anthropic. This is an open-source project. Enterprises have existing LLM contracts — some only allow OpenAI, some only Claude, some run open-source models on their own infra. **Users must be able to bring their own keys and choose their provider.**
 
 What we build instead:
+
 - **Provider-agnostic LLM layer** — adapter pattern over multiple providers (Anthropic, OpenAI, Google, Bedrock, local/Ollama)
 - **Our own orchestration** — coordinator/subagent pattern, planning loop, tool dispatch
 - **Our own memory management** — per-domain context that persists and improves over time
 - **Our own safety hooks** — we already have classification, just wire it into the loop properly
 
 What we DON'T need from Agent SDK:
+
 - Tool calling? Every LLM provider supports it now.
 - Streaming? Standard across providers.
 - Subagents? It's just spawning another LLM call with a different system prompt.
@@ -27,6 +29,7 @@ The Agent SDK is a convenience wrapper. The value of this product is in the brow
 We never built MCP. We deleted the fake browser-bridge and inlined tools in chat.ts. What we have is just Anthropic function calling.
 
 Real MCP (Model Context Protocol) is a JSON-RPC protocol that lets any LLM client connect to tool servers. If we build a proper MCP browser-bridge:
+
 - Any MCP-compatible client can use our browser tools
 - Users could connect Claude Desktop, Cursor, or their own agents to our browser-bridge
 - The tool server is provider-agnostic by design
@@ -61,17 +64,18 @@ apps/api/src/llm/
 ```
 
 Each provider adapter implements:
+
 ```typescript
 interface LLMProvider {
-  id: string;                          // 'anthropic', 'openai', etc.
+  id: string; // 'anthropic', 'openai', etc.
   chat(params: ChatParams): AsyncIterable<StreamEvent>;
   supportsVision: boolean;
   supportsToolUse: boolean;
-  models: ModelConfig[];               // available models with capabilities
+  models: ModelConfig[]; // available models with capabilities
 }
 
 interface ChatParams {
-  model: string;                       // 'sonnet', 'haiku', 'gpt-4o', etc.
+  model: string; // 'sonnet', 'haiku', 'gpt-4o', etc.
   system: string;
   messages: Message[];
   tools?: Tool[];
@@ -82,16 +86,17 @@ interface ChatParams {
 interface Tool {
   name: string;
   description: string;
-  parameters: JsonSchema;              // standard JSON Schema, not vendor-specific
+  parameters: JsonSchema; // standard JSON Schema, not vendor-specific
 }
 
 interface Message {
   role: 'user' | 'assistant' | 'tool_result';
-  content: string | ContentBlock[];    // text or multimodal (text + images)
+  content: string | ContentBlock[]; // text or multimodal (text + images)
 }
 ```
 
 **Configuration:** Users set their provider + API key in the dashboard settings or via environment variables:
+
 ```
 LLM_PROVIDER=anthropic          # or openai, google, bedrock, ollama
 LLM_API_KEY=sk-...
@@ -121,16 +126,20 @@ apps/api/src/tools/
 ```
 
 Each tool:
+
 ```typescript
 interface ToolDefinition {
   name: string;
   description: string;
   parameters: JsonSchema;
-  execute(args: Record<string, unknown>, context: ToolContext): Promise<ToolResult>;
+  execute(
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolResult>;
 }
 
 interface ToolContext {
-  connectionId: string;              // which browser to target
+  connectionId: string; // which browser to target
   userId: string;
   tabId?: number;
 }
@@ -139,7 +148,7 @@ interface ToolResult {
   success: boolean;
   data?: unknown;
   error?: string;
-  screenshot?: string;               // base64 image if tool returns visual
+  screenshot?: string; // base64 image if tool returns visual
 }
 ```
 
@@ -192,12 +201,12 @@ Orchestrator (strong model):
 
 The orchestrator CAN delegate to subagents — smaller, focused LLM calls with limited tool access:
 
-| Agent Role | Model | Tools | Use Case |
-|-----------|-------|-------|----------|
-| Coordinator | strong | all | Planning, complex reasoning, error recovery |
-| Reader | fast | get_page_state, read_text, read_table, screenshot | Data extraction |
-| Navigator | fast | navigate, get_page_state, screenshot | Page-to-page movement |
-| Writer | strong | click, type, select | Form filling, actions that modify state |
+| Agent Role  | Model  | Tools                                             | Use Case                                    |
+| ----------- | ------ | ------------------------------------------------- | ------------------------------------------- |
+| Coordinator | strong | all                                               | Planning, complex reasoning, error recovery |
+| Reader      | fast   | get_page_state, read_text, read_table, screenshot | Data extraction                             |
+| Navigator   | fast   | navigate, get_page_state, screenshot              | Page-to-page movement                       |
+| Writer      | strong | click, type, select                               | Form filling, actions that modify state     |
 
 **Phase 7 implementation: just the Coordinator (one agent, strong model).** The subagent split happens when we need it — the architecture supports it because each "subagent" is just an orchestrator call with a different system prompt and tool subset.
 
@@ -232,17 +241,18 @@ interface DomainMemory {
   // Navigation patterns
   knownPages: { path: string; description: string; howToReach: string }[];
   // Element quirks
-  elementNotes: { selector: string; note: string }[];  // "this dropdown takes 2s to load"
+  elementNotes: { selector: string; note: string }[]; // "this dropdown takes 2s to load"
   // Workflow patterns
-  workflows: { name: string; steps: string[] }[];       // "to filter invoices: click Filters → ..."
+  workflows: { name: string; steps: string[] }[]; // "to filter invoices: click Filters → ..."
   // App behavior
-  appNotes: string[];                                    // "uses React, needs wait after navigation"
+  appNotes: string[]; // "uses React, needs wait after navigation"
   // Updated by the agent after each successful task
   lastUpdated: number;
 }
 ```
 
 **How it gets populated:**
+
 1. After each successful task, the orchestrator calls the fast model: "What did you learn about this app that would help future tasks?"
 2. Response gets merged into the domain's memory record
 3. Next conversation on this domain gets the memory injected into the system prompt
@@ -254,12 +264,14 @@ interface DomainMemory {
 ### Screenshot / Vision
 
 The agent can see the page. This is critical for:
+
 - Verifying actions worked (did the button click actually submit the form?)
 - Understanding visual layout (error banners, loading spinners, modals)
 - Reading content that's rendered visually but not in the DOM (canvas, SVG charts)
 - Navigating unfamiliar pages without relying solely on DOM indexing
 
 **Extension handler:**
+
 ```
 action === 'screenshot'
   → chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 75 })
@@ -267,6 +279,7 @@ action === 'screenshot'
 ```
 
 **Provider integration:**
+
 - Claude: native vision (image in message content)
 - OpenAI: native vision (GPT-4o supports images)
 - Gemini: native vision
@@ -274,6 +287,7 @@ action === 'screenshot'
 - If provider doesn't support vision: skip screenshot, rely on DOM only
 
 **Privacy controls:**
+
 - Screenshots sent directly to LLM API, never stored on our backend
 - Can be disabled per-domain in settings
 - JPEG quality 75 (reduces detail + payload size)
@@ -330,6 +344,7 @@ Orchestrator:
 ```
 
 **What Phase 7 must support:**
+
 - Tool context includes `connectionId` + `tabId` so tools can target specific tabs
 - Orchestrator loop is async and can run multiple instances
 - Domain memory is shared across subagents on the same domain
@@ -348,12 +363,14 @@ Dashboard UI: [Run "Daily Invoice Check"]
 ```
 
 **The agent runs in the employee's browser, not on our servers.** This means:
+
 - SSO/VPN/MFA — already handled
 - No credential storage needed
 - No data leaves the employee's machine
 - IT doesn't provision anything — employee installs extension, done
 
 **What Phase 7 must support:**
+
 - Orchestrator is decoupled from HTTP request handler (can be triggered by WS message too)
 - Each run has a `taskId` for tracking
 - WS protocol supports `task_start` / `task_progress` / `task_complete`
@@ -371,17 +388,17 @@ Inngest cron fires at 9am
 
 ## Privacy Model
 
-| Data | Where It Lives | Who Sees It | Stored? |
-|------|---------------|-------------|---------|
-| Page HTML/content | Employee's browser | Never leaves browser | No |
-| DOM structure (selectors, labels) | Sent to LLM API | LLM provider | No (ephemeral) |
-| Screenshots | Sent to LLM API | LLM provider | No (ephemeral, configurable) |
-| Credentials/cookies | Employee's browser | Never sent anywhere | No |
-| User messages | Postgres | User + admins | Yes |
-| Conversation history | Postgres | User + admins | Yes |
-| Domain memory | Postgres | All domain users + admins | Yes |
-| Audit logs | Postgres | Admins only | Yes (append-only) |
-| LLM API keys | Settings (env or chrome.storage) | Backend only | Encrypted |
+| Data                              | Where It Lives                   | Who Sees It               | Stored?                      |
+| --------------------------------- | -------------------------------- | ------------------------- | ---------------------------- |
+| Page HTML/content                 | Employee's browser               | Never leaves browser      | No                           |
+| DOM structure (selectors, labels) | Sent to LLM API                  | LLM provider              | No (ephemeral)               |
+| Screenshots                       | Sent to LLM API                  | LLM provider              | No (ephemeral, configurable) |
+| Credentials/cookies               | Employee's browser               | Never sent anywhere       | No                           |
+| User messages                     | Postgres                         | User + admins             | Yes                          |
+| Conversation history              | Postgres                         | User + admins             | Yes                          |
+| Domain memory                     | Postgres                         | All domain users + admins | Yes                          |
+| Audit logs                        | Postgres                         | Admins only               | Yes (append-only)            |
+| LLM API keys                      | Settings (env or chrome.storage) | Backend only              | Encrypted                    |
 
 **Enterprise deployment:** Self-host with Docker. LLM API calls go directly to the provider (or to an internal endpoint if using Bedrock/Azure OpenAI/on-prem models). We are a passthrough, not a proxy.
 
