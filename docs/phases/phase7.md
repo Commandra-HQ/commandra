@@ -320,23 +320,25 @@ Step 4: Safety hooks (wire classifier into orchestrator pre/post)     ✅ DONE
         ↓ same classification, cleaner integration
         → handleToolCall() in orchestrator.ts
 
-Step 5: Screenshot tool (extension handler + tool definition)
+Step 5: Screenshot tool (extension handler + vision in orchestrator) ✅ DONE
         ↓ agent can see the page
-        → extension ws-client.ts handler + tool already registered
+        → extension ws-client.ts handler + ImageBlock in tool results
 
-Step 6: Conversation memory (summarization for long conversations)
+Step 6: Conversation memory (summarization for long conversations)  ✅ DONE
         ↓ agent handles 50+ message conversations
         → src/memory/conversation.ts
 
-Step 7: Domain memory (per-domain knowledge persistence)
+Step 7: Domain memory (per-domain knowledge persistence)            ✅ DONE
         ↓ agent gets better at each app over time
         → src/memory/domain.ts + DB schema + migration
 
-Step 8: Planning (structured plan output + UI)
+Step 8: Planning (structured plan output + UI)                      ✅ DONE
         ↓ agent plans before executing complex tasks
-        → orchestrator plan mode + ChatTab plan UI
-Step 9: OpenAI adapter (second provider, proves the abstraction works)
+        → src/agent/planner.ts + ChatTab plan UI (Execute/Edit buttons)
+
+Step 9: OpenAI adapter (second provider, proves the abstraction)    ✅ DONE
         ↓ users can choose Claude or GPT-4o
+        → src/llm/providers/openai.ts + registry update
 ```
 
 Steps 1-4 are pure refactoring — move existing code into better structure, no new features, everything still works.
