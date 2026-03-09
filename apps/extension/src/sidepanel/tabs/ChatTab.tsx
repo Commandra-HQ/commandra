@@ -1,10 +1,11 @@
-import type { CrawlProgress, SelectedElement } from '@afe/shared';
+import type { CrawlProgress, SSEEvent, SelectedElement } from '@afe/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StoredPage, StoredSite } from '../../storage/db.js';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 
 type ViewMode = 'onboarding' | 'indexing' | 'crawling' | 'chat';
+type StreamStatus = 'idle' | 'thinking' | 'streaming' | 'tool_executing';
 
 interface Plan {
 	steps: string[];
@@ -17,15 +18,6 @@ interface ChatMessage {
 	content: string;
 	selectedElements?: SelectedElement[];
 	plan?: Plan;
-}
-
-interface ActivityItem {
-	requestId: string;
-	action: string;
-	label?: string;
-	status: 'pending' | 'executing' | 'done' | 'failed';
-	error?: string;
-	timestamp: number;
 }
 
 interface ApprovalRequest {
@@ -41,16 +33,22 @@ interface SiteData {
 	pages: StoredPage[];
 }
 
-const ACTION_LABELS: Record<string, string> = {
-	click_element: 'Click',
-	type_text: 'Type',
-	select_option: 'Select',
-	navigate: 'Navigate',
-	get_page_state: 'Read page',
+const TOOL_LABELS: Record<string, string> = {
+	click_element: 'Clicking',
+	type_text: 'Typing',
+	select_option: 'Selecting',
+	navigate: 'Navigating',
+	get_page_state: 'Reading page',
+	screenshot: 'Taking screenshot',
+	scroll: 'Scrolling',
+	wait: 'Waiting',
+	read_text: 'Reading text',
+	read_table: 'Reading table',
 };
 
-function formatAction(action: string): string {
-	return ACTION_LABELS[action] || action;
+function formatToolLabel(toolName: string, label?: string): string {
+	const verb = TOOL_LABELS[toolName] || toolName;
+	return label ? `${verb}: ${label}` : verb;
 }
 
 function parsePlan(text: string): Plan | null {
@@ -69,6 +67,29 @@ function stripPlanBlock(text: string): string {
 	return text.replace(/<!--plan:.*?-->/s, '').trim();
 }
 
+/**
+ * Parse SSE frames from a buffer. Returns [parsedEvents, remainingBuffer].
+ */
+function parseSSEBuffer(buffer: string): [SSEEvent[], string] {
+	const events: SSEEvent[] = [];
+	const frames = buffer.split('\n\n');
+	const remaining = frames.pop()!; // Last one may be incomplete
+
+	for (const frame of frames) {
+		for (const line of frame.split('\n')) {
+			if (line.startsWith('data: ')) {
+				try {
+					events.push(JSON.parse(line.slice(6)) as SSEEvent);
+				} catch {
+					// Malformed JSON, skip
+				}
+			}
+		}
+	}
+
+	return [events, remaining];
+}
+
 export function ChatTab() {
 	const [mode, setMode] = useState<ViewMode>('onboarding');
 	const [domain, setDomain] = useState('');
@@ -80,15 +101,21 @@ export function ChatTab() {
 	// Chat state
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 	const [input, setInput] = useState('');
-	const [isStreaming, setIsStreaming] = useState(false);
+	const [streamStatus, setStreamStatus] = useState<StreamStatus>('idle');
+	const [activeToolLabel, setActiveToolLabel] = useState<string | null>(null);
 	const [conversationId, setConversationId] = useState<string | null>(null);
 	const [showContext, setShowContext] = useState(false);
 	const [wsConnected, setWsConnected] = useState(false);
-	const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
 	const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
 	const [selectorActive, setSelectorActive] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
+
+	// Streaming refs — avoid per-token re-renders
+	const abortRef = useRef<AbortController | null>(null);
+	const textAccumRef = useRef('');
+	const rafRef = useRef<number>(0);
+	const assistantMsgIdRef = useRef<string>('');
 
 	const loadSiteData = useCallback((d: string) => {
 		chrome.runtime.sendMessage({ type: 'GET_SITE_DATA', payload: { domain: d } }, (response) => {
@@ -127,8 +154,6 @@ export function ChatTab() {
 
 	useEffect(() => {
 		updateCurrentTab();
-
-		// Update when user switches tabs
 		const onActivated = () => updateCurrentTab();
 		chrome.tabs.onActivated.addListener(onActivated);
 		chrome.tabs.onUpdated.addListener(onActivated);
@@ -139,7 +164,6 @@ export function ChatTab() {
 	}, [updateCurrentTab]);
 
 	useEffect(() => {
-		// Check WS connection status
 		chrome.runtime.sendMessage({ type: 'GET_WS_STATUS' }, (res) => {
 			if (res) setWsConnected(res.connected);
 		});
@@ -163,23 +187,6 @@ export function ChatTab() {
 				setSelectorActive(false);
 			} else if (message.type === 'SELECTOR_CANCELLED') {
 				setSelectorActive(false);
-			} else if (message.type === 'ACTION_STATUS') {
-				const status = message.payload as ActivityItem;
-				setActivityItems((prev) => {
-					const existing = prev.findIndex((i) => i.requestId === status.requestId);
-					if (existing >= 0) {
-						const updated = [...prev];
-						// Merge: keep action/label from pending, update status
-						updated[existing] = {
-							...updated[existing],
-							...status,
-							action: updated[existing].action || status.action,
-							label: updated[existing].label || status.label,
-						};
-						return updated;
-					}
-					return [...prev, status];
-				});
 			}
 		}
 		chrome.runtime.onMessage.addListener(handleMessage);
@@ -216,24 +223,181 @@ export function ChatTab() {
 		chrome.runtime.sendMessage({ type: 'CRAWL_STOP' });
 	}
 
-	async function handleSend() {
-		if (!input.trim() || isStreaming) return;
+	/**
+	 * Flush accumulated text into React state. Called via rAF or on stream end.
+	 */
+	function flushText() {
+		const id = assistantMsgIdRef.current;
+		const text = textAccumRef.current;
+		if (!id) return;
 
+		const plan = parsePlan(text);
+		const cleanText = stripPlanBlock(text);
+
+		setChatMessages((prev) =>
+			prev.map((m) =>
+				m.id === id ? { ...m, content: cleanText, plan: plan ?? undefined } : m,
+			),
+		);
+		rafRef.current = 0;
+	}
+
+	/**
+	 * Core streaming function. Sends a message and consumes the SSE stream.
+	 */
+	async function sendMessage(text: string, extraBody?: Record<string, unknown>) {
+		// Get auth token
+		const stored = await chrome.storage.local.get(['authToken']);
+		const token = stored.authToken;
+
+		// Create assistant message placeholder
+		const assistantMsg: ChatMessage = {
+			id: crypto.randomUUID(),
+			role: 'assistant',
+			content: '',
+		};
+		assistantMsgIdRef.current = assistantMsg.id;
+		textAccumRef.current = '';
+		setChatMessages((prev) => [...prev, assistantMsg]);
+		setStreamStatus('thinking');
+
+		// Set up abort controller
+		const controller = new AbortController();
+		abortRef.current = controller;
+
+		try {
+			const res = await fetch(`${API_URL}/api/chat`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					message: text,
+					conversationId,
+					...extraBody,
+				}),
+				signal: controller.signal,
+			});
+
+			if (!res.ok) {
+				throw new Error(`API error: ${res.status}`);
+			}
+
+			const reader = res.body?.getReader();
+			const decoder = new TextDecoder();
+
+			if (reader) {
+				let buffer = '';
+
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+
+					buffer += decoder.decode(value, { stream: true });
+					const [events, remaining] = parseSSEBuffer(buffer);
+					buffer = remaining;
+
+					for (const event of events) {
+						switch (event.type) {
+							case 'text_delta':
+								if (streamStatus !== 'streaming') {
+									setStreamStatus('streaming');
+								}
+								textAccumRef.current += event.text;
+								// Batch UI updates with rAF
+								if (!rafRef.current) {
+									rafRef.current = requestAnimationFrame(flushText);
+								}
+								break;
+
+							case 'thinking':
+								setStreamStatus('thinking');
+								break;
+
+							case 'tool_start':
+								setStreamStatus('tool_executing');
+								setActiveToolLabel(
+									formatToolLabel(event.toolName, event.label),
+								);
+								break;
+
+							case 'tool_end':
+								setActiveToolLabel(null);
+								setStreamStatus('thinking');
+								break;
+
+							case 'blocked':
+								// Show blocked message inline
+								textAccumRef.current += `\n⚠ Blocked: ${event.reason}\n`;
+								if (!rafRef.current) {
+									rafRef.current = requestAnimationFrame(flushText);
+								}
+								break;
+
+							case 'plan': {
+								// Plan arrives as a separate event
+								const planData: Plan = {
+									steps: event.steps,
+									description: event.description,
+								};
+								setChatMessages((prev) =>
+									prev.map((m) =>
+										m.id === assistantMsg.id
+											? { ...m, plan: planData }
+											: m,
+									),
+								);
+								break;
+							}
+
+							case 'done':
+								setConversationId(event.conversationId);
+								break;
+
+							case 'error':
+								textAccumRef.current = event.message;
+								flushText();
+								break;
+						}
+					}
+				}
+			}
+		} catch (err) {
+			if (controller.signal.aborted) {
+				// User cancelled — just stop
+				return;
+			}
+			textAccumRef.current = 'Failed to get a response. Make sure the API is running.';
+			flushText();
+		} finally {
+			// Final flush to ensure all text is rendered
+			if (rafRef.current) {
+				cancelAnimationFrame(rafRef.current);
+			}
+			flushText();
+			setStreamStatus('idle');
+			setActiveToolLabel(null);
+			abortRef.current = null;
+			assistantMsgIdRef.current = '';
+		}
+	}
+
+	async function handleSend() {
+		if (!input.trim() || streamStatus !== 'idle') return;
+
+		const text = input.trim();
 		const userMsg: ChatMessage = {
 			id: crypto.randomUUID(),
 			role: 'user',
-			content: input.trim(),
+			content: text,
 			selectedElements: selectedElements.length > 0 ? selectedElements : undefined,
 		};
 		setChatMessages((prev) => [...prev, userMsg]);
 		setInput('');
-		setSelectedElements([]);
-		setIsStreaming(true);
 
-		// Build page context from stored site data + live page state
+		// Build page context
 		let pageIndex: unknown = null;
-
-		// First: try live content script for the current page
 		if (tabId) {
 			try {
 				const response = await new Promise<{ pageIndex?: unknown }>((resolve) => {
@@ -246,9 +410,7 @@ export function ChatTab() {
 			} catch {}
 		}
 
-		// Fallback/enrich: use stored Dexie data if we have it
 		if (!pageIndex && siteData.pages.length > 0) {
-			// Find the best matching stored page
 			const currentPage = siteData.pages[0];
 			pageIndex = {
 				url: currentPage.url,
@@ -260,7 +422,6 @@ export function ChatTab() {
 			};
 		}
 
-		// If we have multiple pages, send a site summary
 		if (siteData.pages.length > 1 && pageIndex) {
 			(pageIndex as Record<string, unknown>).sitePages = siteData.pages.map((p) => ({
 				url: p.url,
@@ -271,160 +432,26 @@ export function ChatTab() {
 			}));
 		}
 
-		// Get auth token
-		const stored = await chrome.storage.local.get(['authToken']);
-		const token = stored.authToken;
+		const els = selectedElements.length > 0 ? selectedElements : undefined;
+		setSelectedElements([]);
 
-		const assistantMsg: ChatMessage = {
-			id: crypto.randomUUID(),
-			role: 'assistant',
-			content: '',
-		};
-		setChatMessages((prev) => [...prev, assistantMsg]);
-
-		try {
-			const res = await fetch(`${API_URL}/api/chat`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${token}`,
-				},
-				body: JSON.stringify({
-					message: userMsg.content,
-					pageIndex,
-					conversationId,
-					selectedElements: selectedElements.length > 0 ? selectedElements : undefined,
-				}),
-			});
-
-			if (!res.ok) {
-				throw new Error(`API error: ${res.status}`);
-			}
-
-			const reader = res.body?.getReader();
-			const decoder = new TextDecoder();
-
-			if (reader) {
-				let fullText = '';
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					const chunk = decoder.decode(value, { stream: true });
-					fullText += chunk;
-
-					// Extract conversation ID if present
-					const convMatch = fullText.match(/<!--conv:(.+?)-->/);
-					let displayText = fullText;
-					if (convMatch) {
-						setConversationId(convMatch[1]);
-						displayText = fullText.replace(/\n\n<!--conv:.+?-->/, '');
-					}
-
-					// Parse plan blocks
-					const plan = parsePlan(displayText);
-					const cleanText = stripPlanBlock(displayText);
-
-					setChatMessages((prev) =>
-						prev.map((m) =>
-							m.id === assistantMsg.id ? { ...m, content: cleanText, plan: plan ?? undefined } : m,
-						),
-					);
-				}
-			}
-		} catch (err) {
-			setChatMessages((prev) =>
-				prev.map((m) =>
-					m.id === assistantMsg.id
-						? { ...m, content: 'Failed to get a response. Make sure the API is running.' }
-						: m,
-				),
-			);
-		} finally {
-			setIsStreaming(false);
-			setSelectedElements([]);
-		}
+		await sendMessage(text, { pageIndex, selectedElements: els });
 	}
 
 	function handlePlanApproval() {
-		// Directly send a "go ahead" message to approve the plan
-		const approvalInput = 'go ahead';
 		const userMsg: ChatMessage = {
 			id: crypto.randomUUID(),
 			role: 'user',
-			content: approvalInput,
+			content: 'go ahead',
 		};
 		setChatMessages((prev) => [...prev, userMsg]);
-		setInput('');
+		sendMessage('go ahead');
+	}
 
-		// Reuse handleSend logic but with overridden input
-		(async () => {
-			setIsStreaming(true);
-			const stored = await chrome.storage.local.get(['authToken']);
-			const token = stored.authToken;
-
-			const assistantMsg: ChatMessage = {
-				id: crypto.randomUUID(),
-				role: 'assistant',
-				content: '',
-			};
-			setChatMessages((prev) => [...prev, assistantMsg]);
-
-			try {
-				const res = await fetch(`${API_URL}/api/chat`, {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						Authorization: `Bearer ${token}`,
-					},
-					body: JSON.stringify({
-						message: approvalInput,
-						conversationId,
-					}),
-				});
-
-				if (!res.ok) throw new Error(`API error: ${res.status}`);
-
-				const reader = res.body?.getReader();
-				const decoder = new TextDecoder();
-
-				if (reader) {
-					let fullText = '';
-					while (true) {
-						const { done, value } = await reader.read();
-						if (done) break;
-						fullText += decoder.decode(value, { stream: true });
-
-						const convMatch = fullText.match(/<!--conv:(.+?)-->/);
-						let displayText = fullText;
-						if (convMatch) {
-							setConversationId(convMatch[1]);
-							displayText = fullText.replace(/\n\n<!--conv:.+?-->/, '');
-						}
-
-						const plan = parsePlan(displayText);
-						const cleanText = stripPlanBlock(displayText);
-
-						setChatMessages((prev) =>
-							prev.map((m) =>
-								m.id === assistantMsg.id
-									? { ...m, content: cleanText, plan: plan ?? undefined }
-									: m,
-							),
-						);
-					}
-				}
-			} catch {
-				setChatMessages((prev) =>
-					prev.map((m) =>
-						m.id === assistantMsg.id
-							? { ...m, content: 'Failed to get a response. Make sure the API is running.' }
-							: m,
-					),
-				);
-			} finally {
-				setIsStreaming(false);
-			}
-		})();
+	function handleStop() {
+		abortRef.current?.abort();
+		setStreamStatus('idle');
+		setActiveToolLabel(null);
 	}
 
 	function handleApproval(requestId: string, approved: boolean) {
@@ -446,7 +473,6 @@ export function ChatTab() {
 	function handleNewConversation() {
 		setChatMessages([]);
 		setConversationId(null);
-		setActivityItems([]);
 		setPendingApprovals([]);
 	}
 
@@ -482,6 +508,8 @@ export function ChatTab() {
 		return <CrawlingView progress={crawlProgress} domain={domain} onStop={handleStopCrawl} />;
 	}
 
+	const isActive = streamStatus !== 'idle';
+
 	// Chat mode
 	return (
 		<div className="flex flex-col h-full">
@@ -508,32 +536,6 @@ export function ChatTab() {
 				</div>
 			)}
 
-			{/* Activity Feed */}
-			{activityItems.length > 0 && (
-				<div className="border-b border-border px-4 py-2 space-y-1 max-h-32 overflow-y-auto">
-					<p className="text-xs font-medium text-muted-foreground">Activity</p>
-					{activityItems.slice(-5).map((item) => (
-						<div key={item.requestId} className="flex items-center gap-2 text-xs">
-							<span
-								className={
-									item.status === 'done'
-										? 'text-green-500'
-										: item.status === 'failed'
-											? 'text-red-500'
-											: 'text-yellow-500 animate-pulse'
-								}
-							>
-								{item.status === 'done' ? '✓' : item.status === 'failed' ? '✗' : '●'}
-							</span>
-							<span className="text-muted-foreground truncate">
-								{formatAction(item.action)}
-								{item.label ? ` → ${item.label}` : ''}
-							</span>
-						</div>
-					))}
-				</div>
-			)}
-
 			{/* Approval Requests */}
 			{pendingApprovals.map((req) => (
 				<div
@@ -541,7 +543,7 @@ export function ChatTab() {
 					className="border-b border-yellow-500/30 bg-yellow-500/5 px-4 py-3 space-y-2"
 				>
 					<p className="text-xs font-medium text-foreground">
-						Agent wants to: <span className="font-semibold">{formatAction(req.action)}</span>
+						Agent wants to: <span className="font-semibold">{TOOL_LABELS[req.action] || req.action}</span>
 						{req.label ? ` "${req.label}"` : ''}
 					</p>
 					<p className="text-xs text-muted-foreground">{req.reason}</p>
@@ -623,7 +625,7 @@ export function ChatTab() {
 											</div>
 										))}
 									</div>
-									{!isStreaming && (
+									{!isActive && (
 										<div className="flex gap-2 pt-1">
 											<button
 												onClick={() => handlePlanApproval()}
@@ -642,22 +644,31 @@ export function ChatTab() {
 								</div>
 							)}
 							{msg.content ||
-								(!msg.plan && (
-									<span className="inline-flex items-center gap-1">
-										<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse" />
-										<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse [animation-delay:0.2s]" />
-										<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse [animation-delay:0.4s]" />
-									</span>
+								(!msg.plan && msg.role === 'assistant' && !isActive && (
+									<span className="text-muted-foreground text-xs">No response</span>
 								))}
 						</div>
 					</div>
 				))}
+
+				{/* Status indicator — below messages */}
+				{isActive && (
+					<div className="flex items-center gap-2 text-xs text-muted-foreground py-1 pl-1">
+						<div className="h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+						<span>
+							{streamStatus === 'thinking' && 'Thinking...'}
+							{streamStatus === 'tool_executing' && (activeToolLabel || 'Executing...')}
+							{streamStatus === 'streaming' && 'Writing...'}
+						</span>
+					</div>
+				)}
+
 				<div ref={messagesEndRef} />
 			</div>
 
 			{/* Input */}
 			<div className="p-3 border-t border-border">
-				{chatMessages.length > 0 && (
+				{chatMessages.length > 0 && !isActive && (
 					<div className="flex justify-end mb-2">
 						<button
 							onClick={handleNewConversation}
@@ -732,23 +743,33 @@ export function ChatTab() {
 									: `Instruct about ${selectedElements.length} elements...`
 								: 'Ask about this page...'
 						}
-						disabled={isStreaming}
+						disabled={isActive}
 						className="flex-1 text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
 					/>
-					<button
-						type="submit"
-						disabled={isStreaming || !input.trim()}
-						className="px-3 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:opacity-90 disabled:opacity-50"
-					>
-						Send
-					</button>
+					{isActive ? (
+						<button
+							type="button"
+							onClick={handleStop}
+							className="px-3 py-2 text-sm font-medium text-red-400 border border-red-500/50 rounded-md hover:bg-red-500/10"
+						>
+							Stop
+						</button>
+					) : (
+						<button
+							type="submit"
+							disabled={!input.trim()}
+							className="px-3 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:opacity-90 disabled:opacity-50"
+						>
+							Send
+						</button>
+					)}
 				</form>
 			</div>
 		</div>
 	);
 }
 
-// --- Sub-components (unchanged from Phase 2) ---
+// --- Sub-components ---
 
 function OnboardingView({
 	domain,
