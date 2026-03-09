@@ -134,6 +134,11 @@ async function handleActionRequest(message: { requestId: string; payload: Record
 			result = await executeInTab(tab.id, selectInPage, [payload.selector as string, payload.value as string]);
 		} else if (action === 'get_page_state') {
 			result = await executeInTab(tab.id, getPageStateInPage, []);
+		} else if (action === 'screenshot') {
+			const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 75 });
+			// Strip the data:image/jpeg;base64, prefix — backend gets raw base64
+			const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+			result = { success: true, data: { image: base64, format: 'jpeg', url: tab.url, title: tab.title } };
 		} else {
 			result = { success: false, error: `Unknown action: ${action}` };
 		}
