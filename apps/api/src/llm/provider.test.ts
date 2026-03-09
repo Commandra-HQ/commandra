@@ -7,18 +7,17 @@ describe('LLM provider registry', () => {
 	});
 
 	it('throws when no API key is set', async () => {
-		// Remove API keys
 		const origLLM = process.env.LLM_API_KEY;
 		const origAnthropic = process.env.ANTHROPIC_API_KEY;
-		delete process.env.LLM_API_KEY;
-		delete process.env.ANTHROPIC_API_KEY;
+		process.env.LLM_API_KEY = '';
+		process.env.ANTHROPIC_API_KEY = '';
 
 		try {
 			const { getProvider } = await import('./index.js');
 			expect(() => getProvider()).toThrow('No API key configured');
 		} finally {
-			if (origLLM) process.env.LLM_API_KEY = origLLM;
-			if (origAnthropic) process.env.ANTHROPIC_API_KEY = origAnthropic;
+			process.env.LLM_API_KEY = origLLM ?? '';
+			process.env.ANTHROPIC_API_KEY = origAnthropic ?? '';
 		}
 	});
 
@@ -32,22 +31,20 @@ describe('LLM provider registry', () => {
 			const { getProvider } = await import('./index.js');
 			expect(() => getProvider()).toThrow('Unknown LLM provider');
 		} finally {
-			if (origProvider) process.env.LLM_PROVIDER = origProvider;
-			else delete process.env.LLM_PROVIDER;
-			if (origKey) process.env.LLM_API_KEY = origKey;
-			else delete process.env.LLM_API_KEY;
+			process.env.LLM_PROVIDER = origProvider ?? '';
+			process.env.LLM_API_KEY = origKey ?? '';
 		}
 	});
 
 	it('getStrongModel defaults to sonnet', async () => {
 		const origModel = process.env.LLM_MODEL_STRONG;
-		delete process.env.LLM_MODEL_STRONG;
+		process.env.LLM_MODEL_STRONG = '';
 
 		try {
 			const { getStrongModel } = await import('./index.js');
 			expect(getStrongModel()).toBe('sonnet');
 		} finally {
-			if (origModel) process.env.LLM_MODEL_STRONG = origModel;
+			process.env.LLM_MODEL_STRONG = origModel ?? '';
 		}
 	});
 
@@ -59,20 +56,19 @@ describe('LLM provider registry', () => {
 			const { getStrongModel } = await import('./index.js');
 			expect(getStrongModel()).toBe('gpt-4o');
 		} finally {
-			if (origModel) process.env.LLM_MODEL_STRONG = origModel;
-			else delete process.env.LLM_MODEL_STRONG;
+			process.env.LLM_MODEL_STRONG = origModel ?? '';
 		}
 	});
 
 	it('getFastModel defaults to haiku', async () => {
 		const origModel = process.env.LLM_MODEL_FAST;
-		delete process.env.LLM_MODEL_FAST;
+		process.env.LLM_MODEL_FAST = '';
 
 		try {
 			const { getFastModel } = await import('./index.js');
 			expect(getFastModel()).toBe('haiku');
 		} finally {
-			if (origModel) process.env.LLM_MODEL_FAST = origModel;
+			process.env.LLM_MODEL_FAST = origModel ?? '';
 		}
 	});
 });
