@@ -45,24 +45,27 @@ describe('tool registry', () => {
 		const defs = getToolDefinitions();
 		const click = defs.find((d) => d.name === 'click_element');
 		expect(click).toBeDefined();
-		expect(click!.parameters.properties).toHaveProperty('selector');
-		expect(click!.parameters.required).toContain('selector');
+		if (!click) return;
+		expect(click.parameters.properties).toHaveProperty('selector');
+		expect(click.parameters.required).toContain('selector');
 	});
 
 	it('navigate tool has url parameter', () => {
 		const defs = getToolDefinitions();
 		const nav = defs.find((d) => d.name === 'navigate');
 		expect(nav).toBeDefined();
-		expect(nav!.parameters.properties).toHaveProperty('url');
-		expect(nav!.parameters.required).toContain('url');
+		if (!nav) return;
+		expect(nav.parameters.properties).toHaveProperty('url');
+		expect(nav.parameters.required).toContain('url');
 	});
 
 	it('type_text tool has selector and text parameters', () => {
 		const defs = getToolDefinitions();
 		const type = defs.find((d) => d.name === 'type_text');
 		expect(type).toBeDefined();
-		expect(type!.parameters.properties).toHaveProperty('selector');
-		expect(type!.parameters.properties).toHaveProperty('text');
+		if (!type) return;
+		expect(type.parameters.properties).toHaveProperty('selector');
+		expect(type.parameters.properties).toHaveProperty('text');
 	});
 
 	it('tool names are unique', () => {
