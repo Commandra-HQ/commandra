@@ -63,7 +63,7 @@ export function ChatTab() {
 	const [wsConnected, setWsConnected] = useState(false);
 	const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
-	const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
+	const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
 	const [selectorActive, setSelectorActive] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -138,8 +138,8 @@ export function ChatTab() {
 				const req = message as unknown as { requestId: string; payload: ApprovalRequest };
 				setPendingApprovals((prev) => [...prev, { ...req.payload, requestId: req.requestId }]);
 			} else if (message.type === 'ELEMENT_SELECTED') {
-				const el = message.payload as SelectedElement;
-				setSelectedElement(el);
+				const els = message.payload as SelectedElement[];
+				setSelectedElements(els);
 				setSelectorActive(false);
 			} else if (message.type === 'SELECTOR_CANCELLED') {
 				setSelectorActive(false);
@@ -269,7 +269,7 @@ export function ChatTab() {
 					message: userMsg.content,
 					pageIndex,
 					conversationId,
-					selectedElement: selectedElement || undefined,
+					selectedElements: selectedElements.length > 0 ? selectedElements : undefined,
 				}),
 			});
 
@@ -318,7 +318,7 @@ export function ChatTab() {
 			);
 		} finally {
 			setIsStreaming(false);
-			setSelectedElement(null);
+			setSelectedElements([]);
 		}
 	}
 
@@ -330,10 +330,10 @@ export function ChatTab() {
 	function handleToggleSelector() {
 		if (!tabId) return;
 		if (selectorActive) {
-			chrome.tabs.sendMessage(tabId, { type: 'SELECTOR_STOP' });
+			chrome.runtime.sendMessage({ type: 'SELECTOR_STOP', payload: { tabId } });
 			setSelectorActive(false);
 		} else {
-			chrome.tabs.sendMessage(tabId, { type: 'SELECTOR_START' });
+			chrome.runtime.sendMessage({ type: 'SELECTOR_START', payload: { tabId } });
 			setSelectorActive(true);
 		}
 	}
@@ -498,15 +498,26 @@ export function ChatTab() {
 					</div>
 				)}
 
-				{/* Selected element chip */}
-				{selectedElement && (
-					<div className="flex items-center gap-1.5 mb-2 px-2 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-md">
-						<span className="text-xs text-blue-400 font-mono">&lt;{selectedElement.tag}&gt;</span>
-						<span className="text-xs text-foreground truncate flex-1">
-							{selectedElement.label || selectedElement.selector}
-						</span>
+				{/* Selected element chip(s) */}
+				{selectedElements.length > 0 && (
+					<div className="flex flex-wrap items-center gap-1.5 mb-2 px-2 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-md">
+						{selectedElements.length === 1 ? (
+							<>
+								<span className="text-xs text-blue-400 font-mono">&lt;{selectedElements[0].tag}&gt;</span>
+								<span className="text-xs text-foreground truncate flex-1">
+									{selectedElements[0].label || selectedElements[0].selector}
+								</span>
+							</>
+						) : (
+							<span className="text-xs text-foreground flex-1">
+								{selectedElements.length} elements selected
+								<span className="text-muted-foreground ml-1">
+									({selectedElements.map((e) => e.tag).filter((t, i, a) => a.indexOf(t) === i).join(', ')})
+								</span>
+							</span>
+						)}
 						<button
-							onClick={() => setSelectedElement(null)}
+							onClick={() => setSelectedElements([])}
 							className="text-xs text-muted-foreground hover:text-foreground shrink-0"
 						>
 							✕
@@ -537,7 +548,11 @@ export function ChatTab() {
 						type="text"
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
-						placeholder={selectedElement ? `Instruct about this ${selectedElement.tag}...` : 'Ask about this page...'}
+						placeholder={selectedElements.length > 0
+							? selectedElements.length === 1
+								? `Instruct about this ${selectedElements[0].tag}...`
+								: `Instruct about ${selectedElements.length} elements...`
+							: 'Ask about this page...'}
 						disabled={isStreaming}
 						className="flex-1 text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
 					/>

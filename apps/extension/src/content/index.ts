@@ -1,6 +1,5 @@
 import { indexPage } from './indexer.js';
 import { executeAction, type ActionPayload } from './actions.js';
-import { startSelector, stopSelector } from './selector.js';
 
 /**
  * Content script — runs on every page.
@@ -46,14 +45,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 			sendResponse(result);
 			break;
 		}
-		case 'SELECTOR_START':
-			startSelector();
-			sendResponse({ ok: true });
-			break;
-		case 'SELECTOR_STOP':
-			stopSelector();
-			sendResponse({ ok: true });
-			break;
 	}
 	return true;
 });

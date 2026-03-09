@@ -1,6 +1,7 @@
 import { startCrawl, stopCrawl } from './crawler.js';
 import { db, getOrCreateSite, storePage, clearSite } from '../storage/db.js';
 import { connectWebSocket, disconnectWebSocket, isConnected, sendApproval, sendKill } from './ws-client.js';
+import { startSelectorInPage, stopSelectorInPage } from '../content/selector.js';
 
 // Open side panel when extension icon is clicked
 chrome.sidePanel
@@ -77,6 +78,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			sendApproval(requestId, approved, reason);
 			sendResponse({ ok: true });
 			break;
+		}
+
+		case 'SELECTOR_START': {
+			const { tabId } = message.payload as { tabId: number };
+			chrome.scripting.executeScript({
+				target: { tabId },
+				func: startSelectorInPage,
+			}).then(() => sendResponse({ ok: true }))
+			.catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+			return true; // async
+		}
+
+		case 'SELECTOR_STOP': {
+			const { tabId } = message.payload as { tabId: number };
+			chrome.scripting.executeScript({
+				target: { tabId },
+				func: stopSelectorInPage,
+			}).then(() => sendResponse({ ok: true }))
+			.catch(() => sendResponse({ ok: false }));
+			return true; // async
 		}
 
 		case 'kill': {

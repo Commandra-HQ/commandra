@@ -82,11 +82,11 @@ chatRoutes.use('*', requireAuth);
 chatRoutes.post('/', async (c) => {
 	const user = c.get('user');
 	const body = await c.req.json();
-	const { message, pageIndex, conversationId, selectedElement } = body as {
+	const { message, pageIndex, conversationId, selectedElements } = body as {
 		message: string;
 		pageIndex?: unknown;
 		conversationId?: string;
-		selectedElement?: { selector: string; fallbackSelectors: string[]; tag: string; label: string; type?: string; attributes: Record<string, string> };
+		selectedElements?: { selector: string; fallbackSelectors: string[]; tag: string; label: string; type?: string; attributes: Record<string, string> }[];
 	};
 
 	if (!message?.trim()) return c.json({ error: 'Message required' }, 400);
@@ -120,7 +120,7 @@ chatRoutes.post('/', async (c) => {
 		content: m.content,
 	}));
 
-	const systemPrompt = buildSystemPrompt(pageIndex, selectedElement);
+	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements);
 
 	// Check if extension is connected — determines if we can use tools
 	const connectionId = getConnectionByUser(user.id);
@@ -361,7 +361,7 @@ async function runAgentLoop(
 	return fullResponse;
 }
 
-function buildSystemPrompt(pageIndex?: unknown, selectedElement?: { selector: string; fallbackSelectors: string[]; tag: string; label: string; type?: string; attributes: Record<string, string> }): string {
+function buildSystemPrompt(pageIndex?: unknown, selectedElements?: { selector: string; fallbackSelectors: string[]; tag: string; label: string; type?: string; attributes: Record<string, string> }[]): string {
 	const base = `You are an AI assistant embedded in a Chrome extension called "Agents for Everyone." You help users understand and interact with web applications.
 
 You are looking at a web page through its structural index — you can see all interactive elements (buttons, links, inputs, forms, tables), their labels, and the page's navigation structure. You do NOT see the actual content, data values, or visual layout.
@@ -412,20 +412,30 @@ If the user asks about data or content you can't see (like table values, text co
 	}
 
 	let selectedSummary = '';
-	if (selectedElement) {
-		const attrs = Object.entries(selectedElement.attributes)
-			.map(([k, v]) => `${k}="${v}"`)
-			.join(', ');
-		selectedSummary = `\n\n## Selected Element
+	if (selectedElements?.length) {
+		if (selectedElements.length === 1) {
+			const el = selectedElements[0];
+			const attrs = Object.entries(el.attributes).map(([k, v]) => `${k}="${v}"`).join(', ');
+			selectedSummary = `\n\n## Selected Element
 The user has pointed at a specific element on the page:
-- **Tag:** <${selectedElement.tag}>
-- **Label:** "${selectedElement.label}"
-- **Selector:** \`${selectedElement.selector}\`
-- **Fallback selectors:** ${selectedElement.fallbackSelectors.map((s) => `\`${s}\``).join(', ') || 'none'}
-${selectedElement.type ? `- **Type:** ${selectedElement.type}` : ''}
+- **Tag:** <${el.tag}>
+- **Label:** "${el.label}"
+- **Selector:** \`${el.selector}\`
+- **Fallback selectors:** ${el.fallbackSelectors.map((s) => `\`${s}\``).join(', ') || 'none'}
+${el.type ? `- **Type:** ${el.type}` : ''}
 ${attrs ? `- **Attributes:** ${attrs}` : ''}
 
 When the user says "this element", "that", "it", or refers to something they selected, they mean THIS element. Use the provided selector.`;
+		} else {
+			const elementList = selectedElements.map((el, i) => {
+				return `${i + 1}. <${el.tag}> "${el.label}" — selector: \`${el.selector}\``;
+			}).join('\n');
+			selectedSummary = `\n\n## Selected Elements (${selectedElements.length})
+The user has selected ${selectedElements.length} elements on the page by dragging over an area:
+${elementList}
+
+When the user refers to "these elements" or "the selected elements", they mean this set. Use the provided selectors.`;
+		}
 	}
 
 	return `${base}
