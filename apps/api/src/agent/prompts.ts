@@ -2,6 +2,8 @@
  * System prompts for the agent.
  */
 
+import { PLANNING_INSTRUCTIONS } from './planner.js';
+
 const BASE_PROMPT = `You are an AI assistant embedded in a Chrome extension called "Agents for Everyone." You help users understand and interact with web applications.
 
 You can see a web page through its structural index — all interactive elements (buttons, links, inputs, forms, tables), their labels, and navigation structure. You can also take screenshots to see the actual visual layout.
@@ -121,7 +123,7 @@ When the user refers to "these elements" or "the selected elements", they mean t
 ${elementsSummary}
 
 ## Navigation Links
-${navSummary}${siteSummary}${selectedSummary}${memorySummary}`;
+${navSummary}${siteSummary}${selectedSummary}${memorySummary}${PLANNING_INSTRUCTIONS}`;
 }
 
 function formatElements(elements: { type: string; label: string; selector: string }[]): string {

@@ -6,11 +6,17 @@ const API_URL = process.env.API_URL || 'http://localhost:3001';
 
 type ViewMode = 'onboarding' | 'indexing' | 'crawling' | 'chat';
 
+interface Plan {
+	steps: string[];
+	description?: string;
+}
+
 interface ChatMessage {
 	id: string;
 	role: 'user' | 'assistant';
 	content: string;
 	selectedElements?: SelectedElement[];
+	plan?: Plan;
 }
 
 interface ActivityItem {
@@ -45,6 +51,22 @@ const ACTION_LABELS: Record<string, string> = {
 
 function formatAction(action: string): string {
 	return ACTION_LABELS[action] || action;
+}
+
+function parsePlan(text: string): Plan | null {
+	const match = text.match(/<!--plan:(.*?)-->/s);
+	if (!match) return null;
+	try {
+		const plan = JSON.parse(match[1]) as Plan;
+		if (!plan.steps || !Array.isArray(plan.steps) || plan.steps.length === 0) return null;
+		return plan;
+	} catch {
+		return null;
+	}
+}
+
+function stripPlanBlock(text: string): string {
+	return text.replace(/<!--plan:.*?-->/s, '').trim();
 }
 
 export function ChatTab() {
@@ -292,18 +314,21 @@ export function ChatTab() {
 
 					// Extract conversation ID if present
 					const convMatch = fullText.match(/<!--conv:(.+?)-->/);
+					let displayText = fullText;
 					if (convMatch) {
 						setConversationId(convMatch[1]);
-						// Remove the marker from displayed text
-						const displayText = fullText.replace(/\n\n<!--conv:.+?-->/, '');
-						setChatMessages((prev) =>
-							prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: displayText } : m)),
-						);
-					} else {
-						setChatMessages((prev) =>
-							prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: fullText } : m)),
-						);
+						displayText = fullText.replace(/\n\n<!--conv:.+?-->/, '');
 					}
+
+					// Parse plan blocks
+					const plan = parsePlan(displayText);
+					const cleanText = stripPlanBlock(displayText);
+
+					setChatMessages((prev) =>
+						prev.map((m) =>
+							m.id === assistantMsg.id ? { ...m, content: cleanText, plan: plan ?? undefined } : m,
+						),
+					);
 				}
 			}
 		} catch (err) {
@@ -318,6 +343,88 @@ export function ChatTab() {
 			setIsStreaming(false);
 			setSelectedElements([]);
 		}
+	}
+
+	function handlePlanApproval() {
+		// Directly send a "go ahead" message to approve the plan
+		const approvalInput = 'go ahead';
+		const userMsg: ChatMessage = {
+			id: crypto.randomUUID(),
+			role: 'user',
+			content: approvalInput,
+		};
+		setChatMessages((prev) => [...prev, userMsg]);
+		setInput('');
+
+		// Reuse handleSend logic but with overridden input
+		(async () => {
+			setIsStreaming(true);
+			const stored = await chrome.storage.local.get(['authToken']);
+			const token = stored.authToken;
+
+			const assistantMsg: ChatMessage = {
+				id: crypto.randomUUID(),
+				role: 'assistant',
+				content: '',
+			};
+			setChatMessages((prev) => [...prev, assistantMsg]);
+
+			try {
+				const res = await fetch(`${API_URL}/api/chat`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						Authorization: `Bearer ${token}`,
+					},
+					body: JSON.stringify({
+						message: approvalInput,
+						conversationId,
+					}),
+				});
+
+				if (!res.ok) throw new Error(`API error: ${res.status}`);
+
+				const reader = res.body?.getReader();
+				const decoder = new TextDecoder();
+
+				if (reader) {
+					let fullText = '';
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						fullText += decoder.decode(value, { stream: true });
+
+						const convMatch = fullText.match(/<!--conv:(.+?)-->/);
+						let displayText = fullText;
+						if (convMatch) {
+							setConversationId(convMatch[1]);
+							displayText = fullText.replace(/\n\n<!--conv:.+?-->/, '');
+						}
+
+						const plan = parsePlan(displayText);
+						const cleanText = stripPlanBlock(displayText);
+
+						setChatMessages((prev) =>
+							prev.map((m) =>
+								m.id === assistantMsg.id
+									? { ...m, content: cleanText, plan: plan ?? undefined }
+									: m,
+							),
+						);
+					}
+				}
+			} catch {
+				setChatMessages((prev) =>
+					prev.map((m) =>
+						m.id === assistantMsg.id
+							? { ...m, content: 'Failed to get a response. Make sure the API is running.' }
+							: m,
+					),
+				);
+			} finally {
+				setIsStreaming(false);
+			}
+		})();
 	}
 
 	function handleApproval(requestId: string, approved: boolean) {
@@ -500,12 +607,48 @@ export function ChatTab() {
 									)}
 								</div>
 							)}
+							{/* Plan UI */}
+							{msg.plan && (
+								<div className="mb-2 space-y-1.5">
+									{msg.plan.description && (
+										<p className="text-xs font-medium opacity-80">{msg.plan.description}</p>
+									)}
+									<div className="space-y-1">
+										{msg.plan.steps.map((step, i) => (
+											<div key={i} className="flex items-start gap-2 text-xs">
+												<span className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-[10px] font-medium mt-0.5">
+													{i + 1}
+												</span>
+												<span>{step}</span>
+											</div>
+										))}
+									</div>
+									{!isStreaming && (
+										<div className="flex gap-2 pt-1">
+											<button
+												onClick={() => handlePlanApproval()}
+												className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
+											>
+												Execute
+											</button>
+											<button
+												onClick={() => setInput('I want to change the plan: ')}
+												className="px-3 py-1 text-xs font-medium text-foreground border border-border rounded hover:bg-secondary"
+											>
+												Edit
+											</button>
+										</div>
+									)}
+								</div>
+							)}
 							{msg.content || (
-								<span className="inline-flex items-center gap-1">
-									<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse" />
-									<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse [animation-delay:0.2s]" />
-									<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse [animation-delay:0.4s]" />
-								</span>
+								!msg.plan && (
+									<span className="inline-flex items-center gap-1">
+										<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse" />
+										<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse [animation-delay:0.2s]" />
+										<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse [animation-delay:0.4s]" />
+									</span>
+								)
 							)}
 						</div>
 					</div>
