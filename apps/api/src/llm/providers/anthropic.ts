@@ -36,14 +36,17 @@ export class AnthropicProvider implements LLMProvider {
 	}
 
 	async *chat(params: ChatParams): AsyncIterable<StreamEvent> {
-		const response = await this.client.messages.create({
-			model: resolveModel(params.model),
-			max_tokens: params.maxTokens ?? 4096,
-			system: params.system,
-			messages: toAnthropicMessages(params.messages),
-			tools: params.tools ? toAnthropicTools(params.tools) : undefined,
-			stream: true,
-		});
+		const response = await this.client.messages.create(
+			{
+				model: resolveModel(params.model),
+				max_tokens: params.maxTokens ?? 4096,
+				system: params.system,
+				messages: toAnthropicMessages(params.messages),
+				tools: params.tools ? toAnthropicTools(params.tools) : undefined,
+				stream: true,
+			},
+			params.signal ? { signal: params.signal } : undefined,
+		);
 
 		let currentToolId = '';
 		let currentToolName = '';

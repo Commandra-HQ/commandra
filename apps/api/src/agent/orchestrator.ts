@@ -3,8 +3,10 @@
  *
  * Provider-agnostic: uses the LLM provider layer, not vendor SDKs directly.
  * Handles: tool dispatch, safety classification, audit logging, kill switch, streaming.
+ * Emits structured SSE events instead of raw text.
  */
 
+import type { SSEEvent } from '@afe/shared';
 import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import type {
 	ContentBlock,
@@ -35,7 +37,8 @@ export interface OrchestratorParams {
 		attributes: Record<string, string>;
 	}[];
 	domainMemory?: string;
-	onText: (text: string) => Promise<void>;
+	onEvent: (event: SSEEvent) => Promise<void>;
+	signal?: AbortSignal;
 	maxIterations?: number;
 }
 
@@ -44,7 +47,7 @@ export interface OrchestratorResult {
 }
 
 /**
- * Run the agentic loop. Streams text to the client, executes tools,
+ * Run the agentic loop. Emits structured SSE events, executes tools,
  * handles safety classification and approval gates.
  */
 export async function runOrchestrator(params: OrchestratorParams): Promise<OrchestratorResult> {
@@ -55,7 +58,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		pageIndex,
 		selectedElements,
 		domainMemory,
-		onText,
+		onEvent,
+		signal,
 		maxIterations = 15,
 	} = params;
 
@@ -82,50 +86,65 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	let iterations = 0;
 
 	while (iterations < maxIterations) {
-		// Kill switch check
-		if (isKilled(connectionId)) {
-			const msg = '\n\n[Agent stopped by user]';
-			fullResponse += msg;
-			await onText(msg);
+		// Kill switch / abort check
+		if (isKilled(connectionId) || signal?.aborted) {
 			break;
 		}
 
 		iterations++;
 
-		// Call LLM
+		// Signal that the LLM is thinking
+		await onEvent({ type: 'thinking' });
+
+		// Call LLM with abort signal
 		const streamIter = provider.chat({
 			model,
 			system: systemPrompt,
 			messages: currentMessages,
-			tools: connectionId ? tools : undefined, // Only pass tools if browser connected
+			tools: connectionId ? tools : undefined,
 			maxTokens: 4096,
+			signal,
 		});
 
 		// Stream text to client in real time while collecting tool calls
 		const content: ContentBlock[] = [];
 		let stopReason: 'end_turn' | 'tool_use' | 'max_tokens' = 'end_turn';
 
-		for await (const event of streamIter) {
-			switch (event.type) {
-				case 'text':
-					// Stream text to client immediately
-					fullResponse += event.text;
-					await onText(event.text);
-					// Merge consecutive text blocks
-					if (content.length > 0 && content[content.length - 1].type === 'text') {
-						(content[content.length - 1] as { text: string }).text += event.text;
-					} else {
-						content.push({ type: 'text', text: event.text });
-					}
-					break;
-				case 'tool_use_end':
-					content.push({ type: 'tool_use', id: event.id, name: event.name, input: event.input });
-					break;
-				case 'message_end':
-					stopReason = event.stopReason;
-					break;
+		try {
+			for await (const event of streamIter) {
+				if (signal?.aborted) break;
+
+				switch (event.type) {
+					case 'text':
+						fullResponse += event.text;
+						await onEvent({ type: 'text_delta', text: event.text });
+						// Merge consecutive text blocks
+						if (content.length > 0 && content[content.length - 1].type === 'text') {
+							(content[content.length - 1] as { text: string }).text += event.text;
+						} else {
+							content.push({ type: 'text', text: event.text });
+						}
+						break;
+					case 'tool_use_end':
+						content.push({
+							type: 'tool_use',
+							id: event.id,
+							name: event.name,
+							input: event.input,
+						});
+						break;
+					case 'message_end':
+						stopReason = event.stopReason;
+						break;
+				}
 			}
+		} catch (err) {
+			// AbortError is expected when client disconnects
+			if (signal?.aborted) break;
+			throw err;
 		}
+
+		if (signal?.aborted) break;
 
 		const response = { content, stopReason };
 
@@ -134,10 +153,11 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		let hasToolUse = false;
 
 		for (const block of response.content) {
+			if (signal?.aborted) break;
+
 			if (block.type === 'tool_use') {
 				hasToolUse = true;
-				const result = await handleToolCall(block, context, userId, connectionId, onText);
-				fullResponse += result.statusText;
+				const result = await handleToolCall(block, context, userId, connectionId, onEvent);
 
 				// Build tool result content — include image for screenshot results
 				let toolContent: string | (TextBlock | ImageBlock)[];
@@ -150,11 +170,14 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 					imageData?.image &&
 					provider.supportsVision
 				) {
-					// Send screenshot as actual vision content so the LLM can see the page
 					const { image, ...rest } = imageData;
 					toolContent = [
 						{ type: 'text' as const, text: JSON.stringify({ success: true, data: rest }) },
-						{ type: 'image' as const, data: image as string, mediaType: 'image/jpeg' as const },
+						{
+							type: 'image' as const,
+							data: image as string,
+							mediaType: 'image/jpeg' as const,
+						},
 					];
 				} else {
 					toolContent = JSON.stringify(result.data);
@@ -194,7 +217,8 @@ export async function runSimpleChat(params: {
 	pageIndex?: unknown;
 	selectedElements?: OrchestratorParams['selectedElements'];
 	domainMemory?: string;
-	onText: (text: string) => Promise<void>;
+	onEvent: (event: SSEEvent) => Promise<void>;
+	signal?: AbortSignal;
 }): Promise<string> {
 	const provider = getProvider();
 	const model = getStrongModel();
@@ -204,6 +228,8 @@ export async function runSimpleChat(params: {
 		params.domainMemory,
 	);
 
+	await params.onEvent({ type: 'thinking' });
+
 	let fullResponse = '';
 
 	const stream = provider.chat({
@@ -211,13 +237,20 @@ export async function runSimpleChat(params: {
 		system: systemPrompt,
 		messages: params.messages.map((m) => ({ role: m.role, content: m.content })),
 		maxTokens: 2048,
+		signal: params.signal,
 	});
 
-	for await (const event of stream) {
-		if (event.type === 'text') {
-			fullResponse += event.text;
-			await params.onText(event.text);
+	try {
+		for await (const event of stream) {
+			if (params.signal?.aborted) break;
+			if (event.type === 'text') {
+				fullResponse += event.text;
+				await params.onEvent({ type: 'text_delta', text: event.text });
+			}
 		}
+	} catch (err) {
+		if (params.signal?.aborted) return fullResponse;
+		throw err;
 	}
 
 	return fullResponse;
@@ -228,7 +261,6 @@ export async function runSimpleChat(params: {
 interface ToolCallResult {
 	data: unknown;
 	isError: boolean;
-	statusText: string;
 }
 
 async function handleToolCall(
@@ -236,7 +268,7 @@ async function handleToolCall(
 	context: { connectionId: string; userId: string },
 	userId: string,
 	connectionId: string,
-	onText: (text: string) => Promise<void>,
+	onEvent: (event: SSEEvent) => Promise<void>,
 ): Promise<ToolCallResult> {
 	const { name, input: toolArgs } = block;
 	const elementLabel = (toolArgs.description as string) || (toolArgs.selector as string) || '';
@@ -246,7 +278,6 @@ async function handleToolCall(
 		return {
 			data: { success: false, error: 'Agent stopped by user' },
 			isError: true,
-			statusText: '',
 		};
 	}
 
@@ -258,8 +289,7 @@ async function handleToolCall(
 
 	// Blocked
 	if (classification.level === 'blocked') {
-		const msg = `\n[Blocked: ${classification.reason}]\n`;
-		await onText(msg);
+		await onEvent({ type: 'blocked', toolName: name, reason: classification.reason });
 		await logAction({
 			userId,
 			action: name,
@@ -273,15 +303,11 @@ async function handleToolCall(
 				error: `Blocked: ${classification.reason}. Ask the user to confirm this action explicitly.`,
 			},
 			isError: true,
-			statusText: msg,
 		};
 	}
 
-	// Review — request approval
+	// Review — request approval via WS (existing flow, just emit events)
 	if (classification.level === 'review') {
-		const approvalMsg = `\n[Awaiting approval: ${name} — ${classification.reason}]\n`;
-		await onText(approvalMsg);
-
 		try {
 			const approval = await sendApprovalRequest(connectionId, {
 				action: name,
@@ -291,8 +317,6 @@ async function handleToolCall(
 			});
 
 			if (!approval.approved) {
-				const rejectMsg = `\n[User rejected: ${approval.reason || 'No reason given'}]\n`;
-				await onText(rejectMsg);
 				await logAction({
 					userId,
 					action: name,
@@ -301,9 +325,11 @@ async function handleToolCall(
 					metadata: { args: toolArgs, reason: approval.reason },
 				});
 				return {
-					data: { success: false, error: `User rejected this action. ${approval.reason || ''}` },
+					data: {
+						success: false,
+						error: `User rejected this action. ${approval.reason || ''}`,
+					},
 					isError: true,
-					statusText: approvalMsg + rejectMsg,
 				};
 			}
 		} catch {
@@ -317,14 +343,12 @@ async function handleToolCall(
 			return {
 				data: { success: false, error: 'Could not get user approval' },
 				isError: true,
-				statusText: approvalMsg,
 			};
 		}
 	}
 
-	// Execute (safe or approved review)
-	const statusMsg = `\n[Action: ${name}${toolArgs.selector ? ` on "${toolArgs.selector}"` : ''}${toolArgs.url ? ` to ${toolArgs.url}` : ''}]\n`;
-	await onText(statusMsg);
+	// Execute tool — emit start/end events
+	await onEvent({ type: 'tool_start', toolName: name, label: elementLabel || undefined });
 
 	try {
 		const result = await executeTool(name, toolArgs, context);
@@ -335,7 +359,8 @@ async function handleToolCall(
 			approved: true,
 			metadata: { args: toolArgs, result },
 		});
-		return { data: result, isError: false, statusText: statusMsg };
+		await onEvent({ type: 'tool_end', toolName: name, success: true });
+		return { data: result, isError: false };
 	} catch (err) {
 		const errorMsg = err instanceof Error ? err.message : String(err);
 		await logAction({
@@ -345,10 +370,10 @@ async function handleToolCall(
 			approved: true,
 			metadata: { args: toolArgs, error: errorMsg },
 		});
+		await onEvent({ type: 'tool_end', toolName: name, success: false, error: errorMsg });
 		return {
 			data: { success: false, error: errorMsg },
 			isError: true,
-			statusText: statusMsg,
 		};
 	}
 }

@@ -16,6 +16,7 @@ export interface ChatParams {
 	messages: Message[];
 	tools?: Tool[];
 	maxTokens?: number;
+	signal?: AbortSignal;
 }
 
 // --- Messages ---

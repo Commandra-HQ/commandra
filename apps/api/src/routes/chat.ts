@@ -1,6 +1,7 @@
+import type { SSEEvent } from '@afe/shared';
 import { asc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { stream } from 'hono/streaming';
+import { streamSSE } from 'hono/streaming';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';
@@ -79,9 +80,17 @@ chatRoutes.post('/', async (c) => {
 		}
 	}
 
-	// Stream response
-	return stream(c, async (s) => {
+	// Get the abort signal from the request (fires when client disconnects)
+	const signal = c.req.raw.signal;
+
+	// Stream response as SSE
+	return streamSSE(c, async (stream) => {
 		let fullResponse = '';
+
+		const onEvent = async (event: SSEEvent) => {
+			if (signal.aborted) return;
+			await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });
+		};
 
 		try {
 			if (canAct) {
@@ -92,9 +101,8 @@ chatRoutes.post('/', async (c) => {
 					pageIndex,
 					selectedElements,
 					domainMemory: domainMem,
-					onText: async (text) => {
-						await s.write(text);
-					},
+					onEvent,
+					signal,
 				});
 				fullResponse = result.response;
 			} else {
@@ -103,23 +111,26 @@ chatRoutes.post('/', async (c) => {
 					pageIndex,
 					selectedElements,
 					domainMemory: domainMem,
-					onText: async (text) => {
-						await s.write(text);
-					},
+					onEvent,
+					signal,
 				});
 			}
 
-			// Store assistant response
-			await db.insert(messages).values({
-				conversationId: convId!,
-				role: 'assistant',
-				content: fullResponse,
-			});
+			if (signal.aborted) return;
 
-			// Update domain memory in the background (don't block the response)
+			// Store assistant response (only actual text, not tool status)
+			if (fullResponse.trim()) {
+				await db.insert(messages).values({
+					conversationId: convId!,
+					role: 'assistant',
+					content: fullResponse,
+				});
+			}
+
+			// Update domain memory in the background
 			if (domain && fullResponse.length > 50) {
 				const transcript = chatMessages
-					.slice(-10) // Last 10 messages for learning
+					.slice(-10)
 					.map((m) => `${m.role}: ${m.content}`)
 					.join('\n\n');
 				updateDomainMemory(domain, transcript, getProvider(), getFastModel()).catch((err) =>
@@ -127,11 +138,12 @@ chatRoutes.post('/', async (c) => {
 				);
 			}
 
-			// Send conversation ID as final metadata
-			await s.write(`\n\n<!--conv:${convId}-->`);
+			// Send done event with conversation ID
+			await onEvent({ type: 'done', conversationId: convId! });
 		} catch (err) {
+			if (signal.aborted) return;
 			console.error('Chat error:', err);
-			await s.write('\n\nSorry, something went wrong. Please try again.');
+			await onEvent({ type: 'error', message: 'Something went wrong. Please try again.' });
 		}
 	});
 });

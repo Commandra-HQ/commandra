@@ -41,13 +41,16 @@ export class OpenAIProvider implements LLMProvider {
 	async *chat(params: ChatParams): AsyncIterable<StreamEvent> {
 		const messages = toOpenAIMessages(params.system, params.messages);
 
-		const response = await this.client.chat.completions.create({
-			model: resolveModel(params.model),
-			max_tokens: params.maxTokens ?? 4096,
-			messages,
-			tools: params.tools ? toOpenAITools(params.tools) : undefined,
-			stream: true,
-		});
+		const response = await this.client.chat.completions.create(
+			{
+				model: resolveModel(params.model),
+				max_tokens: params.maxTokens ?? 4096,
+				messages,
+				tools: params.tools ? toOpenAITools(params.tools) : undefined,
+				stream: true,
+			},
+			params.signal ? { signal: params.signal } : undefined,
+		);
 
 		// Track tool calls being built from deltas
 		const toolCalls = new Map<number, { id: string; name: string; json: string }>();
