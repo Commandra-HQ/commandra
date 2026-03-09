@@ -641,15 +641,14 @@ export function ChatTab() {
 									)}
 								</div>
 							)}
-							{msg.content || (
-								!msg.plan && (
+							{msg.content ||
+								(!msg.plan && (
 									<span className="inline-flex items-center gap-1">
 										<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse" />
 										<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse [animation-delay:0.2s]" />
 										<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse [animation-delay:0.4s]" />
 									</span>
-								)
-							)}
+								))}
 						</div>
 					</div>
 				))}

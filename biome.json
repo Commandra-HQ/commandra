@@ -29,6 +29,6 @@
 		}
 	},
 	"files": {
-		"ignore": ["node_modules", "dist", ".turbo", "drizzle", ".claude"]
+		"ignore": ["node_modules", "dist", ".turbo", "drizzle", ".claude", ".next"]
 	}
 }

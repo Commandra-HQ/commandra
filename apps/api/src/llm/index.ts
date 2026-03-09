@@ -4,6 +4,7 @@
  */
 
 import { AnthropicProvider } from './providers/anthropic.js';
+import { OpenAIProvider } from './providers/openai.js';
 import type { LLMProvider } from './types.js';
 
 export type {
@@ -41,10 +42,12 @@ export function getProvider(): LLMProvider {
 		case 'anthropic':
 			cachedProvider = new AnthropicProvider(apiKey);
 			break;
-		// Future: case 'openai': cachedProvider = new OpenAIProvider(apiKey); break;
+		case 'openai':
+			cachedProvider = new OpenAIProvider(apiKey);
+			break;
 		// Future: case 'google': cachedProvider = new GoogleProvider(apiKey); break;
 		default:
-			throw new Error(`Unknown LLM provider: ${providerId}. Supported: anthropic`);
+			throw new Error(`Unknown LLM provider: ${providerId}. Supported: anthropic, openai`);
 	}
 
 	return cachedProvider;
