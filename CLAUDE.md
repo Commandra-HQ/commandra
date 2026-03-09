@@ -19,12 +19,14 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Use `ws` library for WebSocket, not Socket.io
 
 ### Architecture Rules
-- The extension is a THIN CLIENT. No LLM calls from the extension. No agent logic in the extension. It indexes the DOM, executes actions, and renders UI. That's it.
-- All LLM reasoning happens in the backend via Claude Agent SDK
-- Browser actions are exposed as MCP tools through the browser-bridge server
-- Every browser action flows: Agent SDK → MCP tool call → WebSocket → extension → DOM
-- Never send raw page content (HTML, text values, PII) to the backend. Only send page STRUCTURE (element types, labels, selectors, navigation graph)
+- The extension is a THIN CLIENT. No LLM calls from the extension. No agent logic in the extension. It indexes the DOM, executes actions, takes screenshots, and renders UI. That's it.
+- All LLM reasoning happens in the backend via our own orchestration layer (NOT a vendor SDK)
+- LLM provider is configurable — Anthropic, OpenAI, Google, Bedrock, Ollama. Users bring their own keys.
+- Browser actions are exposed through a tool registry. Each tool sends a WS message to the extension and returns the result.
+- Every browser action flows: Orchestrator → tool call → WebSocket → extension → DOM
+- Never send raw page content (HTML, text values, PII) to the backend. Only send page STRUCTURE (element types, labels, selectors, navigation graph) and screenshots (configurable)
 - Never send or store user credentials, session cookies, or auth tokens
+- Agents always execute in the employee's browser, never server-side browsers
 
 ### Safety Rules
 - Every browser action MUST be classified before execution: safe / review / blocked
@@ -34,12 +36,14 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Always implement a kill switch (Escape key halts all agent activity)
 - Never bypass the safety classification system
 
-### Agent SDK Usage
-- Use subagents for parallel or specialized tasks, not one monolithic agent
-- Use Haiku for simple/fast tasks (data extraction, navigation), Sonnet for reasoning (form logic, planning)
-- Always implement PreToolUse hooks for safety checks
-- Always implement PostToolUse hooks for audit logging
-- Use sessions to resume interrupted agent runs
+### Agent Orchestration
+- Provider-agnostic: all LLM calls go through the provider layer (`apps/api/src/llm/`)
+- Never import a vendor SDK directly outside the provider adapter files
+- Use the strong model for planning and complex reasoning, fast model for data reads and navigation
+- Safety classification happens pre-execution in the orchestrator loop
+- Audit logging happens post-execution in the orchestrator loop
+- Per-domain memory: agent learns about each web app over time, stored in Postgres
+- Conversation memory: auto-summarize long conversations to stay within context limits
 
 ### Database
 - Postgres + pgvector, single database for everything
