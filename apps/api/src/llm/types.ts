@@ -74,7 +74,7 @@ export type StreamEvent =
 	| { type: 'text'; text: string }
 	| { type: 'tool_use_start'; id: string; name: string }
 	| { type: 'tool_use_delta'; id: string; partialJson: string }
-	| { type: 'tool_use_end'; id: string; input: Record<string, unknown> }
+	| { type: 'tool_use_end'; id: string; name: string; input: Record<string, unknown> }
 	| { type: 'message_end'; stopReason: 'end_turn' | 'tool_use' | 'max_tokens' };
 
 // --- Response (non-streaming convenience) ---
