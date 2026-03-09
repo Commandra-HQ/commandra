@@ -9,11 +9,22 @@
 			"recommended": true,
 			"correctness": {
 				"noUnusedVariables": "warn",
-				"noUnusedImports": "warn"
+				"noUnusedImports": "warn",
+				"useExhaustiveDependencies": "warn"
 			},
 			"style": {
 				"noNonNullAssertion": "warn",
 				"noUnusedTemplateLiteral": "warn"
+			},
+			"suspicious": {
+				"noExplicitAny": "warn",
+				"noArrayIndexKey": "warn"
+			},
+			"a11y": {
+				"useButtonType": "warn"
+			},
+			"complexity": {
+				"noForEach": "warn"
 			}
 		}
 	},
