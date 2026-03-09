@@ -50,7 +50,7 @@ export interface ToolUseBlock {
 export interface ToolResultBlock {
 	type: 'tool_result';
 	toolUseId: string;
-	content: string;
+	content: string | (TextBlock | ImageBlock)[];
 	isError?: boolean;
 }
 

@@ -91,6 +91,23 @@ export const flows = pgTable('flows', {
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const domainMemory = pgTable('domain_memory', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	domain: text('domain').notNull().unique(),
+	knownPages: jsonb('known_pages')
+		.$type<{ path: string; description: string; howToReach: string }[]>()
+		.default([]),
+	elementNotes: jsonb('element_notes')
+		.$type<{ selector: string; note: string }[]>()
+		.default([]),
+	workflows: jsonb('workflows')
+		.$type<{ name: string; steps: string[] }[]>()
+		.default([]),
+	appNotes: jsonb('app_notes').$type<string[]>().default([]),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export const auditLogs = pgTable('audit_logs', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	userId: uuid('user_id')

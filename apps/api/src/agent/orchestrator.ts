@@ -5,8 +5,9 @@
  * Handles: tool dispatch, safety classification, audit logging, kill switch, streaming.
  */
 
-import { collectStream, getProvider, getStrongModel } from '../llm/index.js';
-import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
+import { collectStream, getFastModel, getProvider, getStrongModel } from '../llm/index.js';
+import type { ContentBlock, ImageBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
+import { compressHistory } from '../memory/conversation.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
@@ -57,8 +58,11 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	const tools = getToolDefinitions();
 	const context = { connectionId, userId };
 
+	// Compress long conversation histories before sending to LLM
+	const { messages: compressedHistory } = await compressHistory(chatHistory, provider, getFastModel());
+
 	// Build message history in provider-agnostic format
-	let currentMessages: Message[] = chatHistory.map((m) => ({
+	let currentMessages: Message[] = compressedHistory.map((m) => ({
 		role: m.role,
 		content: m.content,
 	}));
@@ -101,10 +105,32 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				hasToolUse = true;
 				const result = await handleToolCall(block, context, userId, connectionId, onText);
 				fullResponse += result.statusText;
+
+				// Build tool result content — include image for screenshot results
+				let toolContent: string | (TextBlock | ImageBlock)[];
+				const resultData = result.data as Record<string, unknown> | undefined;
+				const imageData = resultData?.data as Record<string, unknown> | undefined;
+
+				if (
+					block.name === 'screenshot' &&
+					!result.isError &&
+					imageData?.image &&
+					provider.supportsVision
+				) {
+					// Send screenshot as actual vision content so the LLM can see the page
+					const { image, ...rest } = imageData;
+					toolContent = [
+						{ type: 'text' as const, text: JSON.stringify({ success: true, data: rest }) },
+						{ type: 'image' as const, data: image as string, mediaType: 'image/jpeg' as const },
+					];
+				} else {
+					toolContent = JSON.stringify(result.data);
+				}
+
 				toolResults.push({
 					type: 'tool_result',
 					toolUseId: block.id,
-					content: JSON.stringify(result.data),
+					content: toolContent,
 					isError: result.isError,
 				});
 			}

@@ -8,6 +8,13 @@
       "when": 1772868839826,
       "tag": "0000_cuddly_rogue",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773037577049,
+      "tag": "0001_perpetual_tenebrous",
+      "breakpoints": true
     }
   ]
 }

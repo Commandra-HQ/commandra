@@ -137,7 +137,7 @@ export function startSelectorInPage() {
 		const parts: string[] = [];
 		let cur: Element | null = el;
 		while (cur && cur !== document.body && parts.length < 3) {
-			const parent = cur.parentElement;
+			const parent: Element | null = cur.parentElement;
 			if (!parent) break;
 			const idx = Array.from(parent.children).indexOf(cur) + 1;
 			parts.unshift(`${cur.tagName.toLowerCase()}:nth-child(${idx})`);

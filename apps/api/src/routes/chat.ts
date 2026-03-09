@@ -4,7 +4,9 @@ import { stream } from 'hono/streaming';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';
+import { getFastModel, getProvider } from '../llm/index.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
+import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -64,6 +66,19 @@ chatRoutes.post('/', async (c) => {
 	const canAct = !!connectionId;
 	if (connectionId) resetKill(connectionId);
 
+	// Load domain memory if we have page context
+	const pi = pageIndex as { url?: string } | undefined;
+	let domain: string | undefined;
+	let domainMem: string | undefined;
+	if (pi?.url) {
+		try {
+			domain = new URL(pi.url).hostname;
+			domainMem = (await loadDomainMemory(domain)) ?? undefined;
+		} catch {
+			// Invalid URL, skip domain memory
+		}
+	}
+
 	// Stream response
 	return stream(c, async (s) => {
 		let fullResponse = '';
@@ -76,6 +91,7 @@ chatRoutes.post('/', async (c) => {
 					messages: chatMessages,
 					pageIndex,
 					selectedElements,
+					domainMemory: domainMem,
 					onText: async (text) => {
 						await s.write(text);
 					},
@@ -86,6 +102,7 @@ chatRoutes.post('/', async (c) => {
 					messages: chatMessages,
 					pageIndex,
 					selectedElements,
+					domainMemory: domainMem,
 					onText: async (text) => {
 						await s.write(text);
 					},
@@ -98,6 +115,17 @@ chatRoutes.post('/', async (c) => {
 				role: 'assistant',
 				content: fullResponse,
 			});
+
+			// Update domain memory in the background (don't block the response)
+			if (domain && fullResponse.length > 50) {
+				const transcript = chatMessages
+					.slice(-10) // Last 10 messages for learning
+					.map((m) => `${m.role}: ${m.content}`)
+					.join('\n\n');
+				updateDomainMemory(domain, transcript, getProvider(), getFastModel()).catch((err) =>
+					console.warn('[DomainMemory] Update failed:', err),
+				);
+			}
 
 			// Send conversation ID as final metadata
 			await s.write(`\n\n<!--conv:${convId}-->`);
