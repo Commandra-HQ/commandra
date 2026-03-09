@@ -41,12 +41,20 @@ export function executeAction(payload: ActionPayload): ActionResponse {
 function clickElement(selector: string): ActionResponse {
 	const el = document.querySelector(selector);
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
-	if (!(el instanceof HTMLElement)) return { success: false, error: `Element is not clickable: ${selector}` };
+	if (!(el instanceof HTMLElement))
+		return { success: false, error: `Element is not clickable: ${selector}` };
 
 	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	el.click();
 
-	return { success: true, data: { clicked: selector, tag: el.tagName.toLowerCase(), text: el.textContent?.trim().slice(0, 100) } };
+	return {
+		success: true,
+		data: {
+			clicked: selector,
+			tag: el.tagName.toLowerCase(),
+			text: el.textContent?.trim().slice(0, 100),
+		},
+	};
 }
 
 function typeText(selector: string, text: string): ActionResponse {

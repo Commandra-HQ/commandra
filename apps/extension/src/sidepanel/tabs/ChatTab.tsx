@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
 import type { CrawlProgress, SelectedElement } from '@afe/shared';
-import type { StoredSite, StoredPage } from '../../storage/db.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { StoredPage, StoredSite } from '../../storage/db.js';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 
@@ -69,19 +69,16 @@ export function ChatTab() {
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
 	const loadSiteData = useCallback((d: string) => {
-		chrome.runtime.sendMessage(
-			{ type: 'GET_SITE_DATA', payload: { domain: d } },
-			(response) => {
-				if (response?.site) {
-					setSiteData(response);
-					if (response.site.crawlStatus === 'crawling') {
-						setMode('crawling');
-					} else if (response.pages.length > 0) {
-						setMode('chat');
-					}
+		chrome.runtime.sendMessage({ type: 'GET_SITE_DATA', payload: { domain: d } }, (response) => {
+			if (response?.site) {
+				setSiteData(response);
+				if (response.site.crawlStatus === 'crawling') {
+					setMode('crawling');
+				} else if (response.pages.length > 0) {
+					setMode('chat');
 				}
-			},
-		);
+			}
+		});
 	}, []);
 
 	const updateCurrentTab = useCallback(() => {
@@ -151,7 +148,12 @@ export function ChatTab() {
 					if (existing >= 0) {
 						const updated = [...prev];
 						// Merge: keep action/label from pending, update status
-						updated[existing] = { ...updated[existing], ...status, action: updated[existing].action || status.action, label: updated[existing].label || status.label };
+						updated[existing] = {
+							...updated[existing],
+							...status,
+							action: updated[existing].action || status.action,
+							label: updated[existing].label || status.label,
+						};
 						return updated;
 					}
 					return [...prev, status];
@@ -169,17 +171,14 @@ export function ChatTab() {
 	function handleIndexPage() {
 		if (!tabId) return;
 		setMode('indexing');
-		chrome.runtime.sendMessage(
-			{ type: 'INDEX_PAGE_SINGLE', payload: { tabId } },
-			(response) => {
-				if (response?.ok) {
-					setMode('chat');
-					loadSiteData(domain);
-				} else {
-					setMode('onboarding');
-				}
-			},
-		);
+		chrome.runtime.sendMessage({ type: 'INDEX_PAGE_SINGLE', payload: { tabId } }, (response) => {
+			if (response?.ok) {
+				setMode('chat');
+				loadSiteData(domain);
+			} else {
+				setMode('onboarding');
+			}
+		});
 	}
 
 	function handleIndexSite() {
@@ -298,15 +297,11 @@ export function ChatTab() {
 						// Remove the marker from displayed text
 						const displayText = fullText.replace(/\n\n<!--conv:.+?-->/, '');
 						setChatMessages((prev) =>
-							prev.map((m) =>
-								m.id === assistantMsg.id ? { ...m, content: displayText } : m,
-							),
+							prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: displayText } : m)),
 						);
 					} else {
 						setChatMessages((prev) =>
-							prev.map((m) =>
-								m.id === assistantMsg.id ? { ...m, content: fullText } : m,
-							),
+							prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: fullText } : m)),
 						);
 					}
 				}
@@ -389,7 +384,8 @@ export function ChatTab() {
 				className="px-4 py-2 border-b border-border flex items-center justify-between hover:bg-secondary/30"
 			>
 				<span className="text-xs text-muted-foreground">
-					{domain} · {siteData.site?.totalPages ?? 0} pages · {wsConnected ? 'connected' : 'chat only'}
+					{domain} · {siteData.site?.totalPages ?? 0} pages ·{' '}
+					{wsConnected ? 'connected' : 'chat only'}
 				</span>
 				<span className="text-xs text-muted-foreground">{showContext ? '▲' : '▼'}</span>
 			</button>
@@ -411,15 +407,20 @@ export function ChatTab() {
 					<p className="text-xs font-medium text-muted-foreground">Activity</p>
 					{activityItems.slice(-5).map((item) => (
 						<div key={item.requestId} className="flex items-center gap-2 text-xs">
-							<span className={
-								item.status === 'done' ? 'text-green-500' :
-								item.status === 'failed' ? 'text-red-500' :
-								'text-yellow-500 animate-pulse'
-							}>
+							<span
+								className={
+									item.status === 'done'
+										? 'text-green-500'
+										: item.status === 'failed'
+											? 'text-red-500'
+											: 'text-yellow-500 animate-pulse'
+								}
+							>
 								{item.status === 'done' ? '✓' : item.status === 'failed' ? '✗' : '●'}
 							</span>
 							<span className="text-muted-foreground truncate">
-								{formatAction(item.action)}{item.label ? ` → ${item.label}` : ''}
+								{formatAction(item.action)}
+								{item.label ? ` → ${item.label}` : ''}
 							</span>
 						</div>
 					))}
@@ -428,7 +429,10 @@ export function ChatTab() {
 
 			{/* Approval Requests */}
 			{pendingApprovals.map((req) => (
-				<div key={req.requestId} className="border-b border-yellow-500/30 bg-yellow-500/5 px-4 py-3 space-y-2">
+				<div
+					key={req.requestId}
+					className="border-b border-yellow-500/30 bg-yellow-500/5 px-4 py-3 space-y-2"
+				>
 					<p className="text-xs font-medium text-foreground">
 						Agent wants to: <span className="font-semibold">{formatAction(req.action)}</span>
 						{req.label ? ` "${req.label}"` : ''}
@@ -455,9 +459,7 @@ export function ChatTab() {
 			<div className="flex-1 overflow-y-auto p-4 space-y-4">
 				{chatMessages.length === 0 && (
 					<div className="text-center py-8">
-						<p className="text-sm text-muted-foreground">
-							Ask anything about this page or site.
-						</p>
+						<p className="text-sm text-muted-foreground">Ask anything about this page or site.</p>
 						<p className="text-xs text-muted-foreground mt-1">
 							"What can I do here?" · "Click the login button" · "Type hello in the search box"
 						</p>
@@ -487,7 +489,10 @@ export function ChatTab() {
 										</span>
 									) : (
 										msg.selectedElements.map((el, i) => (
-											<span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs font-mono">
+											<span
+												key={i}
+												className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs font-mono"
+											>
 												<span className="opacity-70">&lt;{el.tag}&gt;</span>
 												<span className="truncate max-w-[100px]">{el.label || el.selector}</span>
 											</span>
@@ -526,7 +531,9 @@ export function ChatTab() {
 					<div className="flex flex-wrap items-center gap-1.5 mb-2 px-2 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-md">
 						{selectedElements.length === 1 ? (
 							<>
-								<span className="text-xs text-blue-400 font-mono">&lt;{selectedElements[0].tag}&gt;</span>
+								<span className="text-xs text-blue-400 font-mono">
+									&lt;{selectedElements[0].tag}&gt;
+								</span>
 								<span className="text-xs text-foreground truncate flex-1">
 									{selectedElements[0].label || selectedElements[0].selector}
 								</span>
@@ -535,7 +542,12 @@ export function ChatTab() {
 							<span className="text-xs text-foreground flex-1">
 								{selectedElements.length} elements selected
 								<span className="text-muted-foreground ml-1">
-									({selectedElements.map((e) => e.tag).filter((t, i, a) => a.indexOf(t) === i).join(', ')})
+									(
+									{selectedElements
+										.map((e) => e.tag)
+										.filter((t, i, a) => a.indexOf(t) === i)
+										.join(', ')}
+									)
 								</span>
 							</span>
 						)}
@@ -571,11 +583,13 @@ export function ChatTab() {
 						type="text"
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
-						placeholder={selectedElements.length > 0
-							? selectedElements.length === 1
-								? `Instruct about this ${selectedElements[0].tag}...`
-								: `Instruct about ${selectedElements.length} elements...`
-							: 'Ask about this page...'}
+						placeholder={
+							selectedElements.length > 0
+								? selectedElements.length === 1
+									? `Instruct about this ${selectedElements[0].tag}...`
+									: `Instruct about ${selectedElements.length} elements...`
+								: 'Ask about this page...'
+						}
 						disabled={isStreaming}
 						className="flex-1 text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
 					/>
@@ -612,8 +626,8 @@ function OnboardingView({
 			<div>
 				<h3 className="text-sm font-semibold text-foreground">Teach the agent about this app</h3>
 				<p className="text-xs text-muted-foreground mt-1">
-					Index <span className="font-medium text-foreground">{scopeLabel}</span> so the agent
-					can understand its pages, buttons, forms, and navigation.
+					Index <span className="font-medium text-foreground">{scopeLabel}</span> so the agent can
+					understand its pages, buttons, forms, and navigation.
 				</p>
 			</div>
 

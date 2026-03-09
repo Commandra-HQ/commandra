@@ -52,20 +52,24 @@ export function connectWebSocket() {
 						break;
 					case 'approval_request':
 						// Forward to side panel for user approval
-						chrome.runtime.sendMessage({
-							type: 'APPROVAL_REQUEST',
-							requestId: message.requestId,
-							payload: message.payload,
-						}).catch(() => {
-							// Side panel not open — auto-reject
-							sendApproval(message.requestId, false, 'Side panel not open');
-						});
+						chrome.runtime
+							.sendMessage({
+								type: 'APPROVAL_REQUEST',
+								requestId: message.requestId,
+								payload: message.payload,
+							})
+							.catch(() => {
+								// Side panel not open — auto-reject
+								sendApproval(message.requestId, false, 'Side panel not open');
+							});
 						break;
 					case 'action_status':
-						chrome.runtime.sendMessage({
-							type: 'ACTION_STATUS',
-							payload: message.payload,
-						}).catch(() => {});
+						chrome.runtime
+							.sendMessage({
+								type: 'ACTION_STATUS',
+								payload: message.payload,
+							})
+							.catch(() => {});
 						break;
 				}
 			} catch (err) {
@@ -106,7 +110,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 	}
 });
 
-async function handleActionRequest(message: { requestId: string; payload: Record<string, unknown> }) {
+async function handleActionRequest(message: {
+	requestId: string;
+	payload: Record<string, unknown>;
+}) {
 	const { requestId, payload } = message;
 	const action = payload.action as string;
 	console.log(`[AFE WS] Action: ${action}`, payload);
@@ -129,16 +136,25 @@ async function handleActionRequest(message: { requestId: string; payload: Record
 		} else if (action === 'click_element') {
 			result = await executeInTab(tab.id, clickInPage, [payload.selector as string]);
 		} else if (action === 'type_text') {
-			result = await executeInTab(tab.id, typeInPage, [payload.selector as string, payload.text as string]);
+			result = await executeInTab(tab.id, typeInPage, [
+				payload.selector as string,
+				payload.text as string,
+			]);
 		} else if (action === 'select_option') {
-			result = await executeInTab(tab.id, selectInPage, [payload.selector as string, payload.value as string]);
+			result = await executeInTab(tab.id, selectInPage, [
+				payload.selector as string,
+				payload.value as string,
+			]);
 		} else if (action === 'get_page_state') {
 			result = await executeInTab(tab.id, getPageStateInPage, []);
 		} else if (action === 'screenshot') {
 			const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 75 });
 			// Strip the data:image/jpeg;base64, prefix — backend gets raw base64
 			const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-			result = { success: true, data: { image: base64, format: 'jpeg', url: tab.url, title: tab.title } };
+			result = {
+				success: true,
+				data: { image: base64, format: 'jpeg', url: tab.url, title: tab.title },
+			};
 		} else {
 			result = { success: false, error: `Unknown action: ${action}` };
 		}
@@ -156,7 +172,11 @@ async function handleActionRequest(message: { requestId: string; payload: Record
  * Execute a function in the tab's page context via chrome.scripting.executeScript.
  * This works regardless of whether the content script is loaded.
  */
-async function executeInTab(tabId: number, func: (...args: string[]) => unknown, args: string[]): Promise<unknown> {
+async function executeInTab(
+	tabId: number,
+	func: (...args: string[]) => unknown,
+	args: string[],
+): Promise<unknown> {
 	const results = await chrome.scripting.executeScript({
 		target: { tabId },
 		func,
@@ -173,7 +193,14 @@ function clickInPage(selector: string) {
 	if (!(el instanceof HTMLElement)) return { success: false, error: `Not clickable: ${selector}` };
 	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	el.click();
-	return { success: true, data: { clicked: selector, tag: el.tagName.toLowerCase(), text: el.textContent?.trim().slice(0, 100) } };
+	return {
+		success: true,
+		data: {
+			clicked: selector,
+			tag: el.tagName.toLowerCase(),
+			text: el.textContent?.trim().slice(0, 100),
+		},
+	};
 }
 
 function typeInPage(selector: string, text: string) {
@@ -195,7 +222,8 @@ function typeInPage(selector: string, text: string) {
 function selectInPage(selector: string, value: string) {
 	const el = document.querySelector(selector);
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
-	if (!(el instanceof HTMLSelectElement)) return { success: false, error: `Not a select: ${selector}` };
+	if (!(el instanceof HTMLSelectElement))
+		return { success: false, error: `Not a select: ${selector}` };
 	el.value = value;
 	el.dispatchEvent(new Event('change', { bubbles: true }));
 	return { success: true, data: { selected: value, selector } };
@@ -204,7 +232,8 @@ function selectInPage(selector: string, value: string) {
 function getPageStateInPage() {
 	// Lightweight page indexer — inline version for action context
 	const elements: { type: string; label: string; selector: string }[] = [];
-	const interactiveSelectors = 'a, button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick]';
+	const interactiveSelectors =
+		'a, button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick]';
 
 	document.querySelectorAll(interactiveSelectors).forEach((el) => {
 		if (!(el instanceof HTMLElement)) return;
@@ -213,20 +242,23 @@ function getPageStateInPage() {
 		if (getComputedStyle(el).display === 'none') return;
 
 		const type = el.tagName.toLowerCase();
-		const label = el.getAttribute('aria-label')
-			|| el.textContent?.trim().slice(0, 60)
-			|| el.getAttribute('placeholder')
-			|| el.getAttribute('title')
-			|| '';
+		const label =
+			el.getAttribute('aria-label') ||
+			el.textContent?.trim().slice(0, 60) ||
+			el.getAttribute('placeholder') ||
+			el.getAttribute('title') ||
+			'';
 
 		if (!label) return;
 
 		// Build a selector
 		let selector = '';
 		if (el.id) selector = `#${el.id}`;
-		else if (el.getAttribute('data-testid')) selector = `[data-testid="${el.getAttribute('data-testid')}"]`;
+		else if (el.getAttribute('data-testid'))
+			selector = `[data-testid="${el.getAttribute('data-testid')}"]`;
 		else if (el.getAttribute('name')) selector = `${type}[name="${el.getAttribute('name')}"]`;
-		else if (el.className && typeof el.className === 'string') selector = `${type}.${el.className.split(' ').filter(Boolean)[0]}`;
+		else if (el.className && typeof el.className === 'string')
+			selector = `${type}.${el.className.split(' ').filter(Boolean)[0]}`;
 		else selector = type;
 
 		elements.push({ type, label, selector });
@@ -260,12 +292,14 @@ function waitForTabLoad(tabId: number): Promise<void> {
 
 function sendResult(requestId: string, result: unknown) {
 	if (ws && ws.readyState === WebSocket.OPEN) {
-		ws.send(JSON.stringify({
-			type: 'action_result',
-			requestId,
-			payload: result,
-			timestamp: Date.now(),
-		}));
+		ws.send(
+			JSON.stringify({
+				type: 'action_result',
+				requestId,
+				payload: result,
+				timestamp: Date.now(),
+			}),
+		);
 	} else {
 		console.error('[AFE WS] Cannot send result — WS not open');
 	}
@@ -273,13 +307,15 @@ function sendResult(requestId: string, result: unknown) {
 
 export function sendApproval(requestId: string, approved: boolean, reason?: string) {
 	if (ws && ws.readyState === WebSocket.OPEN) {
-		ws.send(JSON.stringify({
-			type: 'approval_response',
-			requestId,
-			approved,
-			reason,
-			timestamp: Date.now(),
-		}));
+		ws.send(
+			JSON.stringify({
+				type: 'approval_response',
+				requestId,
+				approved,
+				reason,
+				timestamp: Date.now(),
+			}),
+		);
 	}
 }
 

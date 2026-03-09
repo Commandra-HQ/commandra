@@ -4,13 +4,20 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { LLMProvider, ChatParams, StreamEvent, Tool, Message, ContentBlock } from '../types.js';
+import type {
+	ChatParams,
+	ContentBlock,
+	LLMProvider,
+	Message,
+	StreamEvent,
+	Tool,
+} from '../types.js';
 
 // Model aliases → actual Anthropic model IDs
 const MODEL_MAP: Record<string, string> = {
-	'sonnet': 'claude-sonnet-4-20250514',
-	'haiku': 'claude-haiku-4-5-20251001',
-	'opus': 'claude-opus-4-20250514',
+	sonnet: 'claude-sonnet-4-20250514',
+	haiku: 'claude-haiku-4-5-20251001',
+	opus: 'claude-opus-4-20250514',
 };
 
 function resolveModel(model: string): string {
@@ -55,12 +62,20 @@ export class AnthropicProvider implements LLMProvider {
 					yield { type: 'text', text: event.delta.text };
 				} else if (event.delta.type === 'input_json_delta') {
 					toolJson += event.delta.partial_json;
-					yield { type: 'tool_use_delta', id: currentToolId, partialJson: event.delta.partial_json };
+					yield {
+						type: 'tool_use_delta',
+						id: currentToolId,
+						partialJson: event.delta.partial_json,
+					};
 				}
 			} else if (event.type === 'content_block_stop') {
 				if (currentToolId) {
 					let input: Record<string, unknown> = {};
-					try { input = JSON.parse(toolJson || '{}'); } catch { /* empty */ }
+					try {
+						input = JSON.parse(toolJson || '{}');
+					} catch {
+						/* empty */
+					}
 					yield { type: 'tool_use_end', id: currentToolId, name: currentToolName, input };
 					currentToolId = '';
 					currentToolName = '';
@@ -70,7 +85,12 @@ export class AnthropicProvider implements LLMProvider {
 				const reason = event.delta.stop_reason;
 				yield {
 					type: 'message_end',
-					stopReason: reason === 'tool_use' ? 'tool_use' : reason === 'max_tokens' ? 'max_tokens' : 'end_turn',
+					stopReason:
+						reason === 'tool_use'
+							? 'tool_use'
+							: reason === 'max_tokens'
+								? 'max_tokens'
+								: 'end_turn',
 				};
 			}
 		}
@@ -82,9 +102,7 @@ export class AnthropicProvider implements LLMProvider {
 function toAnthropicMessages(messages: Message[]): Anthropic.MessageParam[] {
 	return messages.map((m) => ({
 		role: m.role,
-		content: typeof m.content === 'string'
-			? m.content
-			: m.content.map(toAnthropicBlock),
+		content: typeof m.content === 'string' ? m.content : m.content.map(toAnthropicBlock),
 	}));
 }
 

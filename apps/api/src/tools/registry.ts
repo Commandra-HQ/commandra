@@ -3,13 +3,13 @@
  */
 
 import type { Tool } from '../llm/types.js';
-import type { ExecutableTool, ToolContext, ToolResult } from './types.js';
 import { clickElement } from './browser/click.js';
-import { typeText } from './browser/type.js';
-import { selectOption } from './browser/select.js';
 import { navigate } from './browser/navigate.js';
 import { getPageState } from './browser/page-state.js';
 import { screenshot } from './browser/screenshot.js';
+import { selectOption } from './browser/select.js';
+import { typeText } from './browser/type.js';
+import type { ExecutableTool, ToolContext, ToolResult } from './types.js';
 
 const tools = new Map<string, ExecutableTool>();
 

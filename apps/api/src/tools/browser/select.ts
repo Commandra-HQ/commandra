@@ -1,5 +1,5 @@
-import type { ExecutableTool } from '../types.js';
 import { sendActionRequest } from '../../ws/handler.js';
+import type { ExecutableTool } from '../types.js';
 
 export const selectOption: ExecutableTool = {
 	name: 'select_option',

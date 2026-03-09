@@ -1,5 +1,5 @@
+import { type ActionPayload, executeAction } from './actions.js';
 import { indexPage } from './indexer.js';
-import { executeAction, type ActionPayload } from './actions.js';
 
 /**
  * Content script — runs on every page.

@@ -35,7 +35,13 @@ interface PageContext {
 	pageType?: string;
 	elements?: { type: string; label: string; selector: string }[];
 	navigationLinks?: { label: string; href: string }[];
-	sitePages?: { url: string; urlPattern: string; title: string; pageType: string; elementCount: number }[];
+	sitePages?: {
+		url: string;
+		urlPattern: string;
+		title: string;
+		pageType: string;
+		elementCount: number;
+	}[];
 }
 
 export function buildSystemPrompt(
@@ -49,21 +55,22 @@ export function buildSystemPrompt(
 
 	const pi = pageIndex as PageContext;
 
-	const elementsSummary = pi.elements
-		? formatElements(pi.elements)
-		: 'No elements indexed.';
+	const elementsSummary = pi.elements ? formatElements(pi.elements) : 'No elements indexed.';
 
 	const navSummary = pi.navigationLinks?.length
 		? pi.navigationLinks
-			.slice(0, 20)
-			.map((l) => `  - ${l.label || '(no label)'} → ${l.href}`)
-			.join('\n')
+				.slice(0, 20)
+				.map((l) => `  - ${l.label || '(no label)'} → ${l.href}`)
+				.join('\n')
 		: 'No navigation links found.';
 
 	let siteSummary = '';
 	if (pi.sitePages?.length) {
 		siteSummary = `\n\n## Other Indexed Pages (${pi.sitePages.length} total)\nYou also know about these pages on the same site:\n${pi.sitePages
-			.map((p) => `  - ${p.title || p.urlPattern} (${p.pageType}, ${p.elementCount} elements) — ${p.url}`)
+			.map(
+				(p) =>
+					`  - ${p.title || p.urlPattern} (${p.pageType}, ${p.elementCount} elements) — ${p.url}`,
+			)
 			.join('\n')}`;
 	}
 
@@ -71,7 +78,9 @@ export function buildSystemPrompt(
 	if (selectedElements?.length) {
 		if (selectedElements.length === 1) {
 			const el = selectedElements[0];
-			const attrs = Object.entries(el.attributes).map(([k, v]) => `${k}="${v}"`).join(', ');
+			const attrs = Object.entries(el.attributes)
+				.map(([k, v]) => `${k}="${v}"`)
+				.join(', ');
 			selectedSummary = `\n\n## Selected Element
 The user has pointed at a specific element on the page:
 - **Tag:** <${el.tag}>
@@ -83,9 +92,11 @@ ${attrs ? `- **Attributes:** ${attrs}` : ''}
 
 When the user says "this element", "that", "it", or refers to something they selected, they mean THIS element. Use the provided selector.`;
 		} else {
-			const elementList = selectedElements.map((el, i) => {
-				return `${i + 1}. <${el.tag}> "${el.label}" — selector: \`${el.selector}\``;
-			}).join('\n');
+			const elementList = selectedElements
+				.map((el, i) => {
+					return `${i + 1}. <${el.tag}> "${el.label}" — selector: \`${el.selector}\``;
+				})
+				.join('\n');
 			selectedSummary = `\n\n## Selected Elements (${selectedElements.length})
 The user has selected ${selectedElements.length} elements on the page by dragging over an area:
 ${elementList}
@@ -113,9 +124,7 @@ ${elementsSummary}
 ${navSummary}${siteSummary}${selectedSummary}${memorySummary}`;
 }
 
-function formatElements(
-	elements: { type: string; label: string; selector: string }[],
-): string {
+function formatElements(elements: { type: string; label: string; selector: string }[]): string {
 	if (elements.length === 0) return 'No interactive elements found.';
 
 	const grouped: Record<string, { label: string; selector: string }[]> = {};

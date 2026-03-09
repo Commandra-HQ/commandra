@@ -1,6 +1,6 @@
-import { db, getOrCreateSite, storePage } from '../storage/db.js';
 import type { PageIndex } from '@afe/shared';
 import type { CrawlProgress } from '@afe/shared';
+import { db, getOrCreateSite, storePage } from '../storage/db.js';
 
 const CRAWL_DELAY_MS = 1500;
 const MAX_PAGES_DEFAULT = 25;
@@ -35,9 +35,7 @@ function normalizeUrl(href: string, origin: string): string | null {
 }
 
 function toUrlPattern(pathname: string): string {
-	return pathname
-		.replace(/\/\d+/g, '/:id')
-		.replace(/\/[a-f0-9-]{36}/g, '/:id');
+	return pathname.replace(/\/\d+/g, '/:id').replace(/\/[a-f0-9-]{36}/g, '/:id');
 }
 
 function broadcastProgress(progress: CrawlProgress) {
@@ -54,13 +52,33 @@ async function indexTabPage(tabId: number): Promise<PageIndex | null> {
 				// This runs in the page context — we need to re-import the indexer logic inline
 				// since we can't import modules in executeScript
 				const INTERACTIVE_SELECTORS = [
-					'button', 'a[href]', 'input', 'select', 'textarea',
-					'[role="button"]', '[role="link"]', '[role="checkbox"]',
-					'[role="radio"]', '[role="tab"]', '[role="menuitem"]',
-					'[onclick]', 'table', 'form',
+					'button',
+					'a[href]',
+					'input',
+					'select',
+					'textarea',
+					'[role="button"]',
+					'[role="link"]',
+					'[role="checkbox"]',
+					'[role="radio"]',
+					'[role="tab"]',
+					'[role="menuitem"]',
+					'[onclick]',
+					'table',
+					'form',
 				];
 
-				type ElemType = 'button' | 'link' | 'input' | 'select' | 'textarea' | 'checkbox' | 'radio' | 'table' | 'form' | 'other';
+				type ElemType =
+					| 'button'
+					| 'link'
+					| 'input'
+					| 'select'
+					| 'textarea'
+					| 'checkbox'
+					| 'radio'
+					| 'table'
+					| 'form'
+					| 'other';
 
 				function getElemType(el: Element): ElemType {
 					const tag = el.tagName.toLowerCase();
@@ -81,12 +99,14 @@ async function indexTabPage(tabId: number): Promise<PageIndex | null> {
 				}
 
 				function getLabel(el: Element): string {
-					return el.getAttribute('aria-label')
-						|| el.getAttribute('title')
-						|| el.textContent?.trim().slice(0, 100)
-						|| el.getAttribute('placeholder')
-						|| el.getAttribute('name')
-						|| el.tagName.toLowerCase();
+					return (
+						el.getAttribute('aria-label') ||
+						el.getAttribute('title') ||
+						el.textContent?.trim().slice(0, 100) ||
+						el.getAttribute('placeholder') ||
+						el.getAttribute('name') ||
+						el.tagName.toLowerCase()
+					);
 				}
 
 				function buildSel(el: Element): string {
@@ -130,9 +150,11 @@ async function indexTabPage(tabId: number): Promise<PageIndex | null> {
 				const navLinks = Array.from(document.querySelectorAll('a[href]'))
 					.filter((a) => {
 						const href = a.getAttribute('href') || '';
-						return (href.startsWith('/') || href.startsWith(window.location.origin))
-							&& !href.startsWith('javascript:')
-							&& !href.match(/\.(pdf|png|jpg|jpeg|gif|svg|css|js|zip|csv)$/i);
+						return (
+							(href.startsWith('/') || href.startsWith(window.location.origin)) &&
+							!href.startsWith('javascript:') &&
+							!href.match(/\.(pdf|png|jpg|jpeg|gif|svg|css|js|zip|csv)$/i)
+						);
 					})
 					.map((a) => ({
 						label: a.textContent?.trim().slice(0, 80) || '',
@@ -143,10 +165,15 @@ async function indexTabPage(tabId: number): Promise<PageIndex | null> {
 				const path = window.location.pathname;
 				let pageType = 'other';
 				if (path.includes('settings') || path.includes('preferences')) pageType = 'settings';
-				else if (document.querySelectorAll('form').length > 0 && document.querySelectorAll('table').length === 0) pageType = 'form';
+				else if (
+					document.querySelectorAll('form').length > 0 &&
+					document.querySelectorAll('table').length === 0
+				)
+					pageType = 'form';
 				else if (document.querySelectorAll('table').length > 0) pageType = 'table';
 				else if (path.match(/\/\d+$/) || path.match(/\/[a-f0-9-]{36}$/)) pageType = 'detail';
-				else if (path === '/' || path.includes('dashboard') || path.includes('home')) pageType = 'dashboard';
+				else if (path === '/' || path.includes('dashboard') || path.includes('home'))
+					pageType = 'dashboard';
 
 				return {
 					url: window.location.href,
@@ -244,7 +271,9 @@ export async function startCrawl(
 	}
 
 	isCrawling = true;
-	console.log(`[AFE Crawler] Starting crawl of ${domain} scoped to ${pathScope} (max ${maxPages} pages, depth ${maxDepth})`);
+	console.log(
+		`[AFE Crawler] Starting crawl of ${domain} scoped to ${pathScope} (max ${maxPages} pages, depth ${maxDepth})`,
+	);
 
 	// Initialize site
 	await getOrCreateSite(domain);
@@ -329,7 +358,9 @@ export async function startCrawl(
 		}
 	} finally {
 		if (crawlTabId) {
-			try { await chrome.tabs.remove(crawlTabId); } catch {}
+			try {
+				await chrome.tabs.remove(crawlTabId);
+			} catch {}
 			crawlTabId = null;
 		}
 

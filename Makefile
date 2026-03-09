@@ -3,7 +3,7 @@
 include .env
 export
 
-.PHONY: setup dev stop db-migrate db-generate db-reset build lint clean
+.PHONY: setup dev stop db-migrate db-generate db-reset build lint clean test test-watch test-coverage test-api test-ext test-shared
 
 # ---------- First-time setup ----------
 setup:
@@ -67,6 +67,33 @@ lint:
 
 lint-fix:
 	pnpm lint:fix
+
+# ---------- Tests ----------
+test:
+	pnpm --filter @afe/shared build
+	pnpm test
+
+test-watch:
+	pnpm --filter @afe/shared build
+	pnpm test:watch
+
+test-coverage:
+	pnpm --filter @afe/shared build
+	pnpm test:coverage
+
+test-api:
+	pnpm --filter @afe/shared build
+	pnpm --filter @afe/api test
+
+test-ext:
+	pnpm --filter @afe/shared build
+	pnpm --filter @afe/extension test
+
+test-shared:
+	pnpm --filter @afe/shared test
+
+# ---------- CI (runs all checks) ----------
+ci: lint test build
 
 # ---------- Docker ----------
 up:

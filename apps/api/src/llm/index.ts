@@ -3,10 +3,23 @@
  * Returns a configured provider based on environment variables.
  */
 
-import type { LLMProvider } from './types.js';
 import { AnthropicProvider } from './providers/anthropic.js';
+import type { LLMProvider } from './types.js';
 
-export type { LLMProvider, ChatParams, StreamEvent, ChatResponse, Message, ContentBlock, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, Tool, JsonSchema } from './types.js';
+export type {
+	LLMProvider,
+	ChatParams,
+	StreamEvent,
+	ChatResponse,
+	Message,
+	ContentBlock,
+	TextBlock,
+	ImageBlock,
+	ToolUseBlock,
+	ToolResultBlock,
+	Tool,
+	JsonSchema,
+} from './types.js';
 export { collectStream } from './types.js';
 
 let cachedProvider: LLMProvider | null = null;

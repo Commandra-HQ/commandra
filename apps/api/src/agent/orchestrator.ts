@@ -5,12 +5,12 @@
  * Handles: tool dispatch, safety classification, audit logging, kill switch, streaming.
  */
 
-import { getProvider, getStrongModel, collectStream } from '../llm/index.js';
-import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock } from '../llm/types.js';
-import { getToolDefinitions, executeTool } from '../tools/registry.js';
-import { classifyAction } from '../safety/classifier.js';
+import { collectStream, getProvider, getStrongModel } from '../llm/index.js';
+import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { logAction } from '../safety/audit.js';
-import { sendApprovalRequest, isKilled } from '../ws/handler.js';
+import { classifyAction } from '../safety/classifier.js';
+import { executeTool, getToolDefinitions } from '../tools/registry.js';
+import { isKilled, sendApprovalRequest } from '../ws/handler.js';
 import { buildSystemPrompt } from './prompts.js';
 
 export interface OrchestratorParams {
@@ -18,7 +18,14 @@ export interface OrchestratorParams {
 	connectionId: string;
 	messages: { role: 'user' | 'assistant'; content: string }[];
 	pageIndex?: unknown;
-	selectedElements?: { selector: string; fallbackSelectors: string[]; tag: string; label: string; type?: string; attributes: Record<string, string> }[];
+	selectedElements?: {
+		selector: string;
+		fallbackSelectors: string[];
+		tag: string;
+		label: string;
+		type?: string;
+		attributes: Record<string, string>;
+	}[];
 	domainMemory?: string;
 	onText: (text: string) => Promise<void>;
 	maxIterations?: number;
@@ -132,7 +139,11 @@ export async function runSimpleChat(params: {
 }): Promise<string> {
 	const provider = getProvider();
 	const model = getStrongModel();
-	const systemPrompt = buildSystemPrompt(params.pageIndex, params.selectedElements, params.domainMemory);
+	const systemPrompt = buildSystemPrompt(
+		params.pageIndex,
+		params.selectedElements,
+		params.domainMemory,
+	);
 
 	let fullResponse = '';
 
@@ -182,15 +193,26 @@ async function handleToolCall(
 
 	// Safety classification
 	const classification = classifyAction({ toolName: name, args: toolArgs, elementLabel });
-	console.log(`[Safety] ${name} "${elementLabel}" → ${classification.level} (${classification.reason})`);
+	console.log(
+		`[Safety] ${name} "${elementLabel}" → ${classification.level} (${classification.reason})`,
+	);
 
 	// Blocked
 	if (classification.level === 'blocked') {
 		const msg = `\n[Blocked: ${classification.reason}]\n`;
 		await onText(msg);
-		await logAction({ userId, action: name, safetyLevel: 'blocked', approved: false, metadata: { args: toolArgs, reason: classification.reason } });
+		await logAction({
+			userId,
+			action: name,
+			safetyLevel: 'blocked',
+			approved: false,
+			metadata: { args: toolArgs, reason: classification.reason },
+		});
 		return {
-			data: { success: false, error: `Blocked: ${classification.reason}. Ask the user to confirm this action explicitly.` },
+			data: {
+				success: false,
+				error: `Blocked: ${classification.reason}. Ask the user to confirm this action explicitly.`,
+			},
 			isError: true,
 			statusText: msg,
 		};
@@ -212,7 +234,13 @@ async function handleToolCall(
 			if (!approval.approved) {
 				const rejectMsg = `\n[User rejected: ${approval.reason || 'No reason given'}]\n`;
 				await onText(rejectMsg);
-				await logAction({ userId, action: name, safetyLevel: 'review', approved: false, metadata: { args: toolArgs, reason: approval.reason } });
+				await logAction({
+					userId,
+					action: name,
+					safetyLevel: 'review',
+					approved: false,
+					metadata: { args: toolArgs, reason: approval.reason },
+				});
 				return {
 					data: { success: false, error: `User rejected this action. ${approval.reason || ''}` },
 					isError: true,
@@ -220,7 +248,13 @@ async function handleToolCall(
 				};
 			}
 		} catch {
-			await logAction({ userId, action: name, safetyLevel: 'review', approved: false, metadata: { args: toolArgs, error: 'Approval failed' } });
+			await logAction({
+				userId,
+				action: name,
+				safetyLevel: 'review',
+				approved: false,
+				metadata: { args: toolArgs, error: 'Approval failed' },
+			});
 			return {
 				data: { success: false, error: 'Could not get user approval' },
 				isError: true,
@@ -235,11 +269,23 @@ async function handleToolCall(
 
 	try {
 		const result = await executeTool(name, toolArgs, context);
-		await logAction({ userId, action: name, safetyLevel: classification.level, approved: true, metadata: { args: toolArgs, result } });
+		await logAction({
+			userId,
+			action: name,
+			safetyLevel: classification.level,
+			approved: true,
+			metadata: { args: toolArgs, result },
+		});
 		return { data: result, isError: false, statusText: statusMsg };
 	} catch (err) {
 		const errorMsg = err instanceof Error ? err.message : String(err);
-		await logAction({ userId, action: name, safetyLevel: classification.level, approved: true, metadata: { args: toolArgs, error: errorMsg } });
+		await logAction({
+			userId,
+			action: name,
+			safetyLevel: classification.level,
+			approved: true,
+			metadata: { args: toolArgs, error: errorMsg },
+		});
 		return {
 			data: { success: false, error: errorMsg },
 			isError: true,

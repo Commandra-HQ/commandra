@@ -1,6 +1,6 @@
-import type { WebSocket } from 'ws';
 import { randomUUID } from 'node:crypto';
 import { jwtVerify } from 'jose';
+import type { WebSocket } from 'ws';
 
 interface Connection {
 	ws: WebSocket;
@@ -10,11 +10,14 @@ interface Connection {
 }
 
 const connections = new Map<string, Connection>();
-const pendingRequests = new Map<string, {
-	resolve: (result: unknown) => void;
-	reject: (error: Error) => void;
-	timer: ReturnType<typeof setTimeout>;
-}>();
+const pendingRequests = new Map<
+	string,
+	{
+		resolve: (result: unknown) => void;
+		reject: (error: Error) => void;
+		timer: ReturnType<typeof setTimeout>;
+	}
+>();
 
 // Listeners for action status updates (side panel activity feed)
 const statusListeners = new Map<string, (update: unknown) => void>();
@@ -49,7 +52,10 @@ export function handleWsConnection(ws: WebSocket) {
 
 				case 'action_result': {
 					const { requestId } = message;
-					console.log(`[WS] Received action_result for ${requestId}:`, JSON.stringify(message.payload));
+					console.log(
+						`[WS] Received action_result for ${requestId}:`,
+						JSON.stringify(message.payload),
+					);
 					const pending = pendingRequests.get(requestId);
 					if (pending) {
 						clearTimeout(pending.timer);
@@ -128,7 +134,9 @@ export function sendActionRequest(
 ): Promise<unknown> {
 	const conn = connections.get(connectionId);
 	if (!conn || conn.ws.readyState !== conn.ws.OPEN) {
-		console.error(`[WS] sendActionRequest failed: connection ${connectionId} not open (state: ${conn?.ws.readyState})`);
+		console.error(
+			`[WS] sendActionRequest failed: connection ${connectionId} not open (state: ${conn?.ws.readyState})`,
+		);
 		return Promise.reject(new Error('Extension not connected'));
 	}
 
@@ -151,12 +159,14 @@ export function sendActionRequest(
 
 		pendingRequests.set(requestId, { resolve, reject, timer });
 
-		conn.ws.send(JSON.stringify({
-			type: 'action_request',
-			requestId,
-			payload: { action, ...args },
-			timestamp: Date.now(),
-		}));
+		conn.ws.send(
+			JSON.stringify({
+				type: 'action_request',
+				requestId,
+				payload: { action, ...args },
+				timestamp: Date.now(),
+			}),
+		);
 
 		// Broadcast status update to any listening side panels
 		broadcastStatus(connectionId, {
@@ -240,12 +250,14 @@ export function sendApprovalRequest(
 
 		pendingRequests.set(requestId, { resolve: resolve as (v: unknown) => void, reject, timer });
 
-		conn.ws.send(JSON.stringify({
-			type: 'approval_request',
-			requestId,
-			payload: details,
-			timestamp: Date.now(),
-		}));
+		conn.ws.send(
+			JSON.stringify({
+				type: 'approval_request',
+				requestId,
+				payload: details,
+				timestamp: Date.now(),
+			}),
+		);
 
 		broadcastStatus(connectionId, {
 			requestId,

@@ -1,11 +1,12 @@
 {
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "types": ["chrome"]
-  },
-  "include": ["src"],
-  "references": [{ "path": "../../packages/shared" }]
+	"extends": "../../tsconfig.json",
+	"compilerOptions": {
+		"jsx": "react-jsx",
+		"outDir": "./dist",
+		"rootDir": "./src",
+		"types": ["chrome"]
+	},
+	"include": ["src"],
+	"exclude": ["src/**/*.test.ts"],
+	"references": [{ "path": "../../packages/shared" }]
 }

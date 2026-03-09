@@ -1,9 +1,8 @@
+import { createClerkClient, verifyToken } from '@clerk/backend';
 import { Hono } from 'hono';
 import { SignJWT } from 'jose';
-import { verifyToken, createClerkClient } from '@clerk/backend';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
 
 let _clerk: ReturnType<typeof createClerkClient> | null = null;
 function getClerk() {

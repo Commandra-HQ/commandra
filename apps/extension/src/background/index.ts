@@ -1,7 +1,7 @@
-import { startCrawl, stopCrawl } from './crawler.js';
-import { db, getOrCreateSite, storePage, clearSite } from '../storage/db.js';
-import { connectWebSocket, disconnectWebSocket, isConnected, sendApproval, sendKill } from './ws-client.js';
 import { startSelectorInPage, stopSelectorInPage } from '../content/selector.js';
+import { clearSite, db, getOrCreateSite, storePage } from '../storage/db.js';
+import { startCrawl, stopCrawl } from './crawler.js';
+import { connectWebSocket, isConnected, sendApproval, sendKill } from './ws-client.js';
 
 // Open side panel when extension icon is clicked
 chrome.sidePanel
@@ -74,7 +74,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		}
 
 		case 'APPROVAL_RESPONSE': {
-			const { requestId, approved, reason } = message as { requestId: string; approved: boolean; reason?: string };
+			const { requestId, approved, reason } = message as {
+				requestId: string;
+				approved: boolean;
+				reason?: string;
+			};
 			sendApproval(requestId, approved, reason);
 			sendResponse({ ok: true });
 			break;
@@ -82,21 +86,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 		case 'SELECTOR_START': {
 			const { tabId } = message.payload as { tabId: number };
-			chrome.scripting.executeScript({
-				target: { tabId },
-				func: startSelectorInPage,
-			}).then(() => sendResponse({ ok: true }))
-			.catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+			chrome.scripting
+				.executeScript({
+					target: { tabId },
+					func: startSelectorInPage,
+				})
+				.then(() => sendResponse({ ok: true }))
+				.catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
 			return true; // async
 		}
 
 		case 'SELECTOR_STOP': {
 			const { tabId } = message.payload as { tabId: number };
-			chrome.scripting.executeScript({
-				target: { tabId },
-				func: stopSelectorInPage,
-			}).then(() => sendResponse({ ok: true }))
-			.catch(() => sendResponse({ ok: false }));
+			chrome.scripting
+				.executeScript({
+					target: { tabId },
+					func: stopSelectorInPage,
+				})
+				.then(() => sendResponse({ ok: true }))
+				.catch(() => sendResponse({ ok: false }));
 			return true; // async
 		}
 

@@ -1,5 +1,5 @@
-import Dexie, { type EntityTable } from 'dexie';
 import type { IndexedElement, PageIndex } from '@afe/shared';
+import Dexie, { type EntityTable } from 'dexie';
 
 export interface StoredSite {
 	domain: string;
@@ -60,9 +60,7 @@ export async function getOrCreateSite(domain: string): Promise<StoredSite> {
 
 /** Store a page index, deduplicating by URL pattern */
 export async function storePage(domain: string, pageIndex: PageIndex): Promise<void> {
-	const existing = await db.pages
-		.where({ domain, urlPattern: pageIndex.urlPattern })
-		.first();
+	const existing = await db.pages.where({ domain, urlPattern: pageIndex.urlPattern }).first();
 
 	if (existing) {
 		await db.pages.update(existing.id!, {

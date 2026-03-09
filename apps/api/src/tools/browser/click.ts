@@ -1,9 +1,10 @@
-import type { ExecutableTool } from '../types.js';
 import { sendActionRequest } from '../../ws/handler.js';
+import type { ExecutableTool } from '../types.js';
 
 export const clickElement: ExecutableTool = {
 	name: 'click_element',
-	description: 'Click an interactive element on the page. Use the CSS selector from the page index.',
+	description:
+		'Click an interactive element on the page. Use the CSS selector from the page index.',
 	parameters: {
 		type: 'object',
 		properties: {

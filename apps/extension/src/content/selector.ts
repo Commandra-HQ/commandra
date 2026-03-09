@@ -110,11 +110,13 @@ export function startSelectorInPage() {
 			const lbl = document.querySelector(`label[for="${elId}"]`);
 			if (lbl?.textContent?.trim()) return lbl.textContent.trim().slice(0, 80);
 		}
-		return el.getAttribute('title')
-			|| el.textContent?.trim()?.slice(0, 80)
-			|| el.getAttribute('placeholder')
-			|| el.getAttribute('name')
-			|| '';
+		return (
+			el.getAttribute('title') ||
+			el.textContent?.trim()?.slice(0, 80) ||
+			el.getAttribute('placeholder') ||
+			el.getAttribute('name') ||
+			''
+		);
 	}
 
 	function buildSelector(el: Element): string {
@@ -170,7 +172,9 @@ export function startSelectorInPage() {
 			fallbackSelectors: buildFallbacks(el),
 			tag: el.tagName.toLowerCase(),
 			label: getLabel(el),
-			type: el.getAttribute('role') || (el.tagName === 'INPUT' ? (el as HTMLInputElement).type : undefined),
+			type:
+				el.getAttribute('role') ||
+				(el.tagName === 'INPUT' ? (el as HTMLInputElement).type : undefined),
 			attributes: getAttrs(el),
 			rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
 		};
@@ -187,15 +191,15 @@ export function startSelectorInPage() {
 		// Tooltip content: <tag>#id.class "label" WxH
 		const tag = el.tagName.toLowerCase();
 		const idPart = el.id ? `#${el.id}` : '';
-		const clsPart = !idPart && el.classList.length
-			? `.${Array.from(el.classList).slice(0, 2).join('.')}`
-			: '';
+		const clsPart =
+			!idPart && el.classList.length ? `.${Array.from(el.classList).slice(0, 2).join('.')}` : '';
 		const label = getLabel(el);
 		const dims = `${Math.round(rect.width)}×${Math.round(rect.height)}`;
 		tooltip.textContent = `${tag}${idPart}${clsPart}${label ? ` "${label.slice(0, 35)}"` : ''} ${dims}`;
 		tooltip.style.display = 'block';
 		tooltip.style.left = `${Math.max(0, rect.left)}px`;
-		if (rect.top > 56) { // account for banner
+		if (rect.top > 56) {
+			// account for banner
 			tooltip.style.top = `${rect.top - 24}px`;
 		} else {
 			tooltip.style.top = `${rect.bottom + 4}px`;
@@ -272,7 +276,8 @@ export function startSelectorInPage() {
 			const right = Math.max(dragStart.x, e.clientX);
 			const bottom = Math.max(dragStart.y, e.clientY);
 
-			const selectors = 'a[href], button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="checkbox"], [role="radio"], [role="menuitem"], [onclick]';
+			const selectors =
+				'a[href], button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="checkbox"], [role="radio"], [role="menuitem"], [onclick]';
 			const elements: ReturnType<typeof captureElement>[] = [];
 			const seen = new Set<Element>();
 

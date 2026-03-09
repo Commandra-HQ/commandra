@@ -1,12 +1,16 @@
 import type { SafetyLevel } from '@afe/shared';
 
-const SAFE_LABELS = /\b(next|back|previous|view|details|show|open|close|cancel|search|filter|sort|page|tab|expand|collapse|toggle|more|less|menu|nav|home|help|about|learn|read|see|go|visit|browse|explore|copy|download|print|refresh|reload)\b/i;
+const SAFE_LABELS =
+	/\b(next|back|previous|view|details|show|open|close|cancel|search|filter|sort|page|tab|expand|collapse|toggle|more|less|menu|nav|home|help|about|learn|read|see|go|visit|browse|explore|copy|download|print|refresh|reload)\b/i;
 
-const REVIEW_LABELS = /\b(submit|save|send|create|update|edit|confirm|apply|post|publish|upload|import|export|connect|authorize|enable|activate|accept|agree|checkout|pay|purchase|buy|order|transfer|change|modify|set|assign|add|insert|new|compose|write|reply|comment|share|invite)\b/i;
+const REVIEW_LABELS =
+	/\b(submit|save|send|create|update|edit|confirm|apply|post|publish|upload|import|export|connect|authorize|enable|activate|accept|agree|checkout|pay|purchase|buy|order|transfer|change|modify|set|assign|add|insert|new|compose|write|reply|comment|share|invite)\b/i;
 
-const BLOCKED_LABELS = /\b(delete|remove|destroy|drop|reset|revoke|disable|block|ban|terminate|purge|wipe|erase|uninstall|deactivate|suspend|archive|permanently|force|irreversible)\b/i;
+const BLOCKED_LABELS =
+	/\b(delete|remove|destroy|drop|reset|revoke|disable|block|ban|terminate|purge|wipe|erase|uninstall|deactivate|suspend|archive|permanently|force|irreversible)\b/i;
 
-const SENSITIVE_INPUT_PATTERNS = /\b(password|passwd|secret|token|ssn|social.security|credit.card|card.number|cvv|cvc|expir|routing|account.number|pin)\b/i;
+const SENSITIVE_INPUT_PATTERNS =
+	/\b(password|passwd|secret|token|ssn|social.security|credit.card|card.number|cvv|cvc|expir|routing|account.number|pin)\b/i;
 
 interface ClassifyInput {
 	toolName: string;

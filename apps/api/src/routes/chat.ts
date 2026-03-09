@@ -1,11 +1,11 @@
+import { asc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { stream } from 'hono/streaming';
+import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';
-import { eq, asc } from 'drizzle-orm';
-import { requireAuth, type AuthUser } from '../middleware/auth.js';
+import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
-import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
@@ -18,7 +18,14 @@ chatRoutes.post('/', async (c) => {
 		message: string;
 		pageIndex?: unknown;
 		conversationId?: string;
-		selectedElements?: { selector: string; fallbackSelectors: string[]; tag: string; label: string; type?: string; attributes: Record<string, string> }[];
+		selectedElements?: {
+			selector: string;
+			fallbackSelectors: string[];
+			tag: string;
+			label: string;
+			type?: string;
+			attributes: Record<string, string>;
+		}[];
 	};
 
 	if (!message?.trim()) return c.json({ error: 'Message required' }, 400);
@@ -69,7 +76,9 @@ chatRoutes.post('/', async (c) => {
 					messages: chatMessages,
 					pageIndex,
 					selectedElements,
-					onText: async (text) => { await s.write(text); },
+					onText: async (text) => {
+						await s.write(text);
+					},
 				});
 				fullResponse = result.response;
 			} else {
@@ -77,7 +86,9 @@ chatRoutes.post('/', async (c) => {
 					messages: chatMessages,
 					pageIndex,
 					selectedElements,
-					onText: async (text) => { await s.write(text); },
+					onText: async (text) => {
+						await s.write(text);
+					},
 				});
 			}
 

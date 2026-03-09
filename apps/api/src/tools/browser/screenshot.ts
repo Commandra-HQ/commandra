@@ -1,9 +1,10 @@
-import type { ExecutableTool } from '../types.js';
 import { sendActionRequest } from '../../ws/handler.js';
+import type { ExecutableTool } from '../types.js';
 
 export const screenshot: ExecutableTool = {
 	name: 'screenshot',
-	description: 'Capture a screenshot of the current page. Returns a JPEG image. Use to verify actions worked, understand visual layout, or read content not available in the DOM.',
+	description:
+		'Capture a screenshot of the current page. Returns a JPEG image. Use to verify actions worked, understand visual layout, or read content not available in the DOM.',
 	parameters: {
 		type: 'object',
 		properties: {},
