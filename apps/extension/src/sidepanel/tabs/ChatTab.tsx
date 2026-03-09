@@ -10,6 +10,7 @@ interface ChatMessage {
 	id: string;
 	role: 'user' | 'assistant';
 	content: string;
+	selectedElements?: SelectedElement[];
 }
 
 interface ActivityItem {
@@ -201,9 +202,11 @@ export function ChatTab() {
 			id: crypto.randomUUID(),
 			role: 'user',
 			content: input.trim(),
+			selectedElements: selectedElements.length > 0 ? selectedElements : undefined,
 		};
 		setChatMessages((prev) => [...prev, userMsg]);
 		setInput('');
+		setSelectedElements([]);
 		setIsStreaming(true);
 
 		// Build page context from stored site data + live page state
@@ -472,6 +475,26 @@ export function ChatTab() {
 									: 'bg-secondary text-foreground'
 							}`}
 						>
+							{/* Element attachment chips */}
+							{msg.selectedElements && msg.selectedElements.length > 0 && (
+								<div className="flex flex-wrap gap-1 mb-1.5">
+									{msg.selectedElements.length === 1 ? (
+										<span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs font-mono">
+											<span className="opacity-70">&lt;{msg.selectedElements[0].tag}&gt;</span>
+											<span className="truncate max-w-[160px]">
+												{msg.selectedElements[0].label || msg.selectedElements[0].selector}
+											</span>
+										</span>
+									) : (
+										msg.selectedElements.map((el, i) => (
+											<span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs font-mono">
+												<span className="opacity-70">&lt;{el.tag}&gt;</span>
+												<span className="truncate max-w-[100px]">{el.label || el.selector}</span>
+											</span>
+										))
+									)}
+								</div>
+							)}
 							{msg.content || (
 								<span className="inline-flex items-center gap-1">
 									<span className="h-1.5 w-1.5 bg-current rounded-full animate-pulse" />
