@@ -304,22 +304,37 @@ Still a thin client. Three additions:
 ## Implementation Order
 
 ```
-Step 1: Provider layer (types + Anthropic adapter)
+Step 1: Provider layer (types + Anthropic adapter)                    ✅ DONE
         ↓ replaces direct Anthropic SDK usage in chat.ts
-Step 2: Tool registry (extract tools from chat.ts into typed definitions)
+        → src/llm/types.ts, src/llm/index.ts, src/llm/providers/anthropic.ts
+
+Step 2: Tool registry (extract tools from chat.ts into typed defs)   ✅ DONE
         ↓ tools are provider-agnostic
-Step 3: Orchestrator (extract runAgentLoop into proper module)
+        → src/tools/types.ts, src/tools/registry.ts, src/tools/browser/*.ts
+
+Step 3: Orchestrator (extract runAgentLoop into proper module)        ✅ DONE
         ↓ chat.ts becomes thin: receive request → call orchestrator → stream response
-Step 4: Safety hooks (wire classifier into orchestrator pre/post)
+        → src/agent/orchestrator.ts, src/agent/prompts.ts
+
+Step 4: Safety hooks (wire classifier into orchestrator pre/post)     ✅ DONE
         ↓ same classification, cleaner integration
+        → handleToolCall() in orchestrator.ts
+
 Step 5: Screenshot tool (extension handler + tool definition)
         ↓ agent can see the page
+        → extension ws-client.ts handler + tool already registered
+
 Step 6: Conversation memory (summarization for long conversations)
         ↓ agent handles 50+ message conversations
+        → src/memory/conversation.ts
+
 Step 7: Domain memory (per-domain knowledge persistence)
         ↓ agent gets better at each app over time
+        → src/memory/domain.ts + DB schema + migration
+
 Step 8: Planning (structured plan output + UI)
         ↓ agent plans before executing complex tasks
+        → orchestrator plan mode + ChatTab plan UI
 Step 9: OpenAI adapter (second provider, proves the abstraction works)
         ↓ users can choose Claude or GPT-4o
 ```
