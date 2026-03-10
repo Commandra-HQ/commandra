@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
+import { cancelRecording, isRecording, startRecording, stopRecording } from '../agent/recorder.js';
 import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
@@ -13,6 +14,66 @@ import { getConnectionByUser, resetKill } from '../ws/handler.js';
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
 chatRoutes.use('*', requireAuth);
+
+// Start recording mode
+chatRoutes.post('/record/start', async (c) => {
+	const user = c.get('user');
+	const body = await c.req.json();
+	const { domain } = body as { domain: string };
+
+	if (!domain?.trim()) return c.json({ error: 'Domain required' }, 400);
+
+	const connectionId = getConnectionByUser(user.id);
+	if (!connectionId) return c.json({ error: 'Extension not connected' }, 400);
+
+	if (isRecording(connectionId)) {
+		return c.json({ error: 'Already recording' }, 400);
+	}
+
+	// Create a dummy onEvent that does nothing — real events go through the chat SSE stream
+	startRecording(connectionId, user.id, domain, async () => {});
+
+	return c.json({ ok: true, recording: true });
+});
+
+// Stop recording and save flow
+chatRoutes.post('/record/stop', async (c) => {
+	const user = c.get('user');
+	const body = await c.req.json();
+	const { name, description } = body as { name: string; description?: string };
+
+	if (!name?.trim()) return c.json({ error: 'Flow name required' }, 400);
+
+	const connectionId = getConnectionByUser(user.id);
+	if (!connectionId) return c.json({ error: 'Extension not connected' }, 400);
+
+	if (!isRecording(connectionId)) {
+		return c.json({ error: 'Not recording' }, 400);
+	}
+
+	const flowId = await stopRecording(connectionId, name, description);
+	if (!flowId) {
+		return c.json({ error: 'No steps recorded' }, 400);
+	}
+
+	return c.json({ ok: true, flowId });
+});
+
+// Cancel recording without saving
+chatRoutes.post('/record/cancel', async (c) => {
+	const user = c.get('user');
+	const connectionId = getConnectionByUser(user.id);
+	if (connectionId) cancelRecording(connectionId);
+	return c.json({ ok: true });
+});
+
+// Check recording status
+chatRoutes.get('/record/status', async (c) => {
+	const user = c.get('user');
+	const connectionId = getConnectionByUser(user.id);
+	const recording = connectionId ? isRecording(connectionId) : false;
+	return c.json({ recording });
+});
 
 chatRoutes.post('/', async (c) => {
 	const user = c.get('user');

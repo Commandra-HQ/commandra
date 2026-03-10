@@ -17,6 +17,7 @@ import type {
 	ToolUseBlock,
 } from '../llm/types.js';
 import { compressHistory } from '../memory/conversation.js';
+import { isRecording, recordStep } from './recorder.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
@@ -379,6 +380,19 @@ async function handleToolCall(
 			result: screenshotImage ? { success: true } : result,
 			screenshot: screenshotImage,
 		});
+
+		// Record step if in teach mode (skip read-only tools like screenshot/get_page_state)
+		if (isRecording(connectionId) && !['screenshot', 'get_page_state'].includes(name)) {
+			await recordStep(
+				connectionId,
+				name,
+				toolArgs,
+				{ success: true, data: result },
+				'', // URL pattern will be filled by page context
+				'',
+			);
+		}
+
 		return { data: result, isError: false };
 	} catch (err) {
 		const errorMsg = err instanceof Error ? err.message : String(err);

@@ -87,8 +87,28 @@ export const flows = pgTable('flows', {
 	description: text('description'),
 	steps: jsonb('steps').$type<unknown[]>().default([]),
 	parameters: jsonb('parameters').$type<unknown[]>().default([]),
+	status: text('status').default('draft').notNull(),
+	lastRunAt: timestamp('last_run_at'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const flowRuns = pgTable('flow_runs', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	flowId: uuid('flow_id')
+		.references(() => flows.id)
+		.notNull(),
+	userId: uuid('user_id')
+		.references(() => users.id)
+		.notNull(),
+	parameterValues: jsonb('parameter_values').$type<Record<string, string>>().default({}),
+	stepResults: jsonb('step_results').$type<unknown[]>().default([]),
+	status: text('status').notNull(),
+	stepsCompleted: integer('steps_completed').default(0),
+	totalSteps: integer('total_steps').notNull(),
+	error: text('error'),
+	startedAt: timestamp('started_at').defaultNow().notNull(),
+	completedAt: timestamp('completed_at'),
 });
 
 export const domainMemory = pgTable('domain_memory', {
