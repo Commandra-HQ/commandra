@@ -5,19 +5,37 @@ import type { StoredPage, StoredSite } from '../../storage/db.js';
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 
 type ViewMode = 'onboarding' | 'indexing' | 'crawling' | 'chat';
-type StreamStatus = 'idle' | 'thinking' | 'streaming' | 'tool_executing';
 
 interface Plan {
 	steps: string[];
 	description?: string;
 }
 
+// --- Block-based message model ---
+// Each assistant message is a sequence of blocks rendered in order.
+
+type MessageBlock =
+	| { type: 'thinking' }
+	| { type: 'text'; content: string }
+	| {
+			type: 'tool_call';
+			toolName: string;
+			label?: string;
+			args?: Record<string, unknown>;
+			status: 'running' | 'success' | 'error';
+			error?: string;
+			result?: unknown;
+			screenshot?: string;
+	  }
+	| { type: 'blocked'; toolName: string; reason: string }
+	| { type: 'plan'; plan: Plan };
+
 interface ChatMessage {
 	id: string;
 	role: 'user' | 'assistant';
-	content: string;
+	content: string; // plain text for user messages / final text for storage
 	selectedElements?: SelectedElement[];
-	plan?: Plan;
+	blocks?: MessageBlock[]; // sequential blocks for assistant messages
 }
 
 interface ApprovalRequest {
@@ -46,9 +64,31 @@ const TOOL_LABELS: Record<string, string> = {
 	read_table: 'Reading table',
 };
 
+const TOOL_ICONS: Record<string, string> = {
+	click_element: '👆',
+	type_text: '⌨',
+	select_option: '☰',
+	navigate: '→',
+	get_page_state: '◎',
+	screenshot: '📷',
+	scroll: '↕',
+	wait: '⏳',
+	read_text: '¶',
+	read_table: '▤',
+};
+
 function formatToolLabel(toolName: string, label?: string): string {
 	const verb = TOOL_LABELS[toolName] || toolName;
 	return label ? `${verb}: ${label}` : verb;
+}
+
+function formatToolArgs(toolName: string, args?: Record<string, unknown>): string | null {
+	if (!args) return null;
+	if (toolName === 'navigate' && args.url) return String(args.url);
+	if (toolName === 'click_element' && args.selector) return String(args.selector);
+	if (toolName === 'type_text' && args.text) return `"${String(args.text).slice(0, 60)}"`;
+	if (toolName === 'select_option' && args.value) return String(args.value);
+	return null;
 }
 
 function parsePlan(text: string): Plan | null {
@@ -73,7 +113,7 @@ function stripPlanBlock(text: string): string {
 function parseSSEBuffer(buffer: string): [SSEEvent[], string] {
 	const events: SSEEvent[] = [];
 	const frames = buffer.split('\n\n');
-	const remaining = frames.pop()!; // Last one may be incomplete
+	const remaining = frames.pop()!;
 
 	for (const frame of frames) {
 		for (const line of frame.split('\n')) {
@@ -101,8 +141,7 @@ export function ChatTab() {
 	// Chat state
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 	const [input, setInput] = useState('');
-	const [streamStatus, setStreamStatus] = useState<StreamStatus>('idle');
-	const [activeToolLabel, setActiveToolLabel] = useState<string | null>(null);
+	const [isActive, setIsActive] = useState(false);
 	const [conversationId, setConversationId] = useState<string | null>(null);
 	const [showContext, setShowContext] = useState(false);
 	const [wsConnected, setWsConnected] = useState(false);
@@ -111,11 +150,12 @@ export function ChatTab() {
 	const [selectorActive, setSelectorActive] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
-	// Streaming refs — avoid per-token re-renders
+	// Streaming refs
 	const abortRef = useRef<AbortController | null>(null);
+	const assistantMsgIdRef = useRef<string>('');
+	const blocksRef = useRef<MessageBlock[]>([]);
 	const textAccumRef = useRef('');
 	const rafRef = useRef<number>(0);
-	const assistantMsgIdRef = useRef<string>('');
 
 	const loadSiteData = useCallback((d: string) => {
 		chrome.runtime.sendMessage({ type: 'GET_SITE_DATA', payload: { domain: d } }, (response) => {
@@ -224,44 +264,62 @@ export function ChatTab() {
 	}
 
 	/**
-	 * Flush accumulated text into React state. Called via rAF or on stream end.
+	 * Flush accumulated blocks into React state via rAF batching.
 	 */
-	function flushText() {
+	function flushBlocks() {
 		const id = assistantMsgIdRef.current;
-		const text = textAccumRef.current;
 		if (!id) return;
 
-		const plan = parsePlan(text);
-		const cleanText = stripPlanBlock(text);
+		// If there's pending text, make sure the last text block is up to date
+		const blocks = [...blocksRef.current];
 
 		setChatMessages((prev) =>
-			prev.map((m) =>
-				m.id === id ? { ...m, content: cleanText, plan: plan ?? undefined } : m,
-			),
+			prev.map((m) => (m.id === id ? { ...m, blocks: [...blocks] } : m)),
 		);
 		rafRef.current = 0;
+	}
+
+	function scheduleFlush() {
+		if (!rafRef.current) {
+			rafRef.current = requestAnimationFrame(flushBlocks);
+		}
+	}
+
+	/**
+	 * Append or update the current text block in the blocks array.
+	 */
+	function appendText(text: string) {
+		textAccumRef.current += text;
+		const blocks = blocksRef.current;
+		const last = blocks[blocks.length - 1];
+
+		if (last && last.type === 'text') {
+			last.content = textAccumRef.current;
+		} else {
+			blocks.push({ type: 'text', content: textAccumRef.current });
+		}
 	}
 
 	/**
 	 * Core streaming function. Sends a message and consumes the SSE stream.
 	 */
 	async function sendMessage(text: string, extraBody?: Record<string, unknown>) {
-		// Get auth token
 		const stored = await chrome.storage.local.get(['authToken']);
 		const token = stored.authToken;
 
-		// Create assistant message placeholder
+		// Create assistant message placeholder with empty blocks
 		const assistantMsg: ChatMessage = {
 			id: crypto.randomUUID(),
 			role: 'assistant',
 			content: '',
+			blocks: [],
 		};
 		assistantMsgIdRef.current = assistantMsg.id;
+		blocksRef.current = [];
 		textAccumRef.current = '';
 		setChatMessages((prev) => [...prev, assistantMsg]);
-		setStreamStatus('thinking');
+		setIsActive(true);
 
-		// Set up abort controller
 		const controller = new AbortController();
 		abortRef.current = controller;
 
@@ -301,53 +359,82 @@ export function ChatTab() {
 					for (const event of events) {
 						switch (event.type) {
 							case 'text_delta':
-								if (streamStatus !== 'streaming') {
-									setStreamStatus('streaming');
+								appendText(event.text);
+								scheduleFlush();
+								break;
+
+							case 'thinking': {
+								// Remove previous thinking block if it's the last one (new iteration)
+								const lastBlock =
+									blocksRef.current[blocksRef.current.length - 1];
+								if (!lastBlock || lastBlock.type !== 'thinking') {
+									// Reset text accumulator — new thinking phase means new text block after
+									textAccumRef.current = '';
+									blocksRef.current.push({ type: 'thinking' });
+									scheduleFlush();
 								}
-								textAccumRef.current += event.text;
-								// Batch UI updates with rAF
-								if (!rafRef.current) {
-									rafRef.current = requestAnimationFrame(flushText);
+								break;
+							}
+
+							case 'tool_start': {
+								// Remove trailing thinking block — tool call replaces it
+								const blocks = blocksRef.current;
+								if (
+									blocks.length > 0 &&
+									blocks[blocks.length - 1].type === 'thinking'
+								) {
+									blocks.pop();
 								}
+								// Reset text accumulator for the next text block after tools
+								textAccumRef.current = '';
+								blocks.push({
+									type: 'tool_call',
+									toolName: event.toolName,
+									label: event.label,
+									args: event.args,
+									status: 'running',
+								});
+								scheduleFlush();
 								break;
+							}
 
-							case 'thinking':
-								setStreamStatus('thinking');
+							case 'tool_end': {
+								// Update the matching tool_call block
+								const blocks = blocksRef.current;
+								for (let i = blocks.length - 1; i >= 0; i--) {
+									const b = blocks[i];
+									if (
+										b.type === 'tool_call' &&
+										b.toolName === event.toolName &&
+										b.status === 'running'
+									) {
+										b.status = event.success ? 'success' : 'error';
+										b.error = event.error;
+										b.result = event.result;
+										b.screenshot = event.screenshot;
+										break;
+									}
+								}
+								scheduleFlush();
 								break;
-
-							case 'tool_start':
-								setStreamStatus('tool_executing');
-								setActiveToolLabel(
-									formatToolLabel(event.toolName, event.label),
-								);
-								break;
-
-							case 'tool_end':
-								setActiveToolLabel(null);
-								setStreamStatus('thinking');
-								break;
+							}
 
 							case 'blocked':
-								// Show blocked message inline
-								textAccumRef.current += `\n⚠ Blocked: ${event.reason}\n`;
-								if (!rafRef.current) {
-									rafRef.current = requestAnimationFrame(flushText);
-								}
+								blocksRef.current.push({
+									type: 'blocked',
+									toolName: event.toolName,
+									reason: event.reason,
+								});
+								scheduleFlush();
 								break;
 
 							case 'plan': {
-								// Plan arrives as a separate event
 								const planData: Plan = {
 									steps: event.steps,
 									description: event.description,
 								};
-								setChatMessages((prev) =>
-									prev.map((m) =>
-										m.id === assistantMsg.id
-											? { ...m, plan: planData }
-											: m,
-									),
-								);
+								blocksRef.current.push({ type: 'plan', plan: planData });
+								scheduleFlush();
 								break;
 							}
 
@@ -356,35 +443,63 @@ export function ChatTab() {
 								break;
 
 							case 'error':
-								textAccumRef.current = event.message;
-								flushText();
+								blocksRef.current.push({
+									type: 'text',
+									content: event.message,
+								});
+								scheduleFlush();
 								break;
 						}
 					}
 				}
 			}
 		} catch (err) {
-			if (controller.signal.aborted) {
-				// User cancelled — just stop
-				return;
-			}
-			textAccumRef.current = 'Failed to get a response. Make sure the API is running.';
-			flushText();
+			if (controller.signal.aborted) return;
+			blocksRef.current.push({
+				type: 'text',
+				content: 'Failed to get a response. Make sure the API is running.',
+			});
 		} finally {
-			// Final flush to ensure all text is rendered
 			if (rafRef.current) {
 				cancelAnimationFrame(rafRef.current);
 			}
-			flushText();
-			setStreamStatus('idle');
-			setActiveToolLabel(null);
+			flushBlocks();
+
+			// Also extract final plain text content for storage
+			const finalText = blocksRef.current
+				.filter((b) => b.type === 'text')
+				.map((b) => (b as { content: string }).content)
+				.join('\n');
+
+			// Check for plan in text
+			const plan = parsePlan(finalText);
+			if (plan) {
+				const cleanText = stripPlanBlock(finalText);
+				setChatMessages((prev) =>
+					prev.map((m) =>
+						m.id === assistantMsgIdRef.current
+							? { ...m, content: cleanText }
+							: m,
+					),
+				);
+			} else {
+				setChatMessages((prev) =>
+					prev.map((m) =>
+						m.id === assistantMsgIdRef.current
+							? { ...m, content: finalText }
+							: m,
+					),
+				);
+			}
+
+			setIsActive(false);
 			abortRef.current = null;
 			assistantMsgIdRef.current = '';
 		}
 	}
 
 	async function handleSend() {
-		if (!input.trim() || streamStatus !== 'idle') return;
+		if (!input.trim() || isActive) return;
 
 		const text = input.trim();
 		const userMsg: ChatMessage = {
@@ -396,8 +511,19 @@ export function ChatTab() {
 		setChatMessages((prev) => [...prev, userMsg]);
 		setInput('');
 
-		// Build page context
+		// Build page context — send current page + all indexed pages with elements
 		let pageIndex: unknown = null;
+		let currentUrl = '';
+
+		// Get current tab URL for matching
+		if (tabId) {
+			try {
+				const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+				if (tabs[0]?.url) currentUrl = tabs[0].url;
+			} catch {}
+		}
+
+		// Try live page state from content script first
 		if (tabId) {
 			try {
 				const response = await new Promise<{ pageIndex?: unknown }>((resolve) => {
@@ -410,8 +536,12 @@ export function ChatTab() {
 			} catch {}
 		}
 
+		// Fallback: find the stored page matching the current URL (not just pages[0])
 		if (!pageIndex && siteData.pages.length > 0) {
-			const currentPage = siteData.pages[0];
+			const matchingPage = currentUrl
+				? siteData.pages.find((p) => currentUrl.startsWith(p.url) || p.url.startsWith(currentUrl))
+				: null;
+			const currentPage = matchingPage || siteData.pages[0];
 			pageIndex = {
 				url: currentPage.url,
 				title: currentPage.title,
@@ -422,14 +552,25 @@ export function ChatTab() {
 			};
 		}
 
-		if (siteData.pages.length > 1 && pageIndex) {
-			(pageIndex as Record<string, unknown>).sitePages = siteData.pages.map((p) => ({
-				url: p.url,
-				urlPattern: p.urlPattern,
-				title: p.title,
-				pageType: p.pageType,
-				elementCount: p.elements.length,
-			}));
+		// Include ALL indexed pages with their key elements so the agent knows the full app
+		if (siteData.pages.length > 0 && pageIndex) {
+			const currentPageUrl = (pageIndex as { url?: string }).url;
+			(pageIndex as Record<string, unknown>).sitePages = siteData.pages
+				.filter((p) => p.url !== currentPageUrl) // exclude current (already detailed)
+				.map((p) => ({
+					url: p.url,
+					urlPattern: p.urlPattern,
+					title: p.title,
+					pageType: p.pageType,
+					elementCount: p.elements.length,
+					// Include key elements so agent knows what's available on each page
+					keyElements: p.elements.slice(0, 20).map((el) => ({
+						type: el.type,
+						label: el.label,
+						selector: el.selector,
+					})),
+					navigationLinks: p.navigationLinks.slice(0, 10),
+				}));
 		}
 
 		const els = selectedElements.length > 0 ? selectedElements : undefined;
@@ -450,8 +591,7 @@ export function ChatTab() {
 
 	function handleStop() {
 		abortRef.current?.abort();
-		setStreamStatus('idle');
-		setActiveToolLabel(null);
+		setIsActive(false);
 	}
 
 	function handleApproval(requestId: string, approved: boolean) {
@@ -508,9 +648,6 @@ export function ChatTab() {
 		return <CrawlingView progress={crawlProgress} domain={domain} onStop={handleStopCrawl} />;
 	}
 
-	const isActive = streamStatus !== 'idle';
-
-	// Chat mode
 	return (
 		<div className="flex flex-col h-full">
 			{/* Context bar */}
@@ -575,93 +712,14 @@ export function ChatTab() {
 					</div>
 				)}
 				{chatMessages.map((msg) => (
-					<div
-						key={msg.id}
-						className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-					>
-						<div
-							className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
-								msg.role === 'user'
-									? 'bg-primary text-primary-foreground'
-									: 'bg-secondary text-foreground'
-							}`}
-						>
-							{/* Element attachment chips */}
-							{msg.selectedElements && msg.selectedElements.length > 0 && (
-								<div className="flex flex-wrap gap-1 mb-1.5">
-									{msg.selectedElements.length === 1 ? (
-										<span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs font-mono">
-											<span className="opacity-70">&lt;{msg.selectedElements[0].tag}&gt;</span>
-											<span className="truncate max-w-[160px]">
-												{msg.selectedElements[0].label || msg.selectedElements[0].selector}
-											</span>
-										</span>
-									) : (
-										msg.selectedElements.map((el, i) => (
-											<span
-												key={i}
-												className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs font-mono"
-											>
-												<span className="opacity-70">&lt;{el.tag}&gt;</span>
-												<span className="truncate max-w-[100px]">{el.label || el.selector}</span>
-											</span>
-										))
-									)}
-								</div>
-							)}
-							{/* Plan UI */}
-							{msg.plan && (
-								<div className="mb-2 space-y-1.5">
-									{msg.plan.description && (
-										<p className="text-xs font-medium opacity-80">{msg.plan.description}</p>
-									)}
-									<div className="space-y-1">
-										{msg.plan.steps.map((step, i) => (
-											<div key={i} className="flex items-start gap-2 text-xs">
-												<span className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-[10px] font-medium mt-0.5">
-													{i + 1}
-												</span>
-												<span>{step}</span>
-											</div>
-										))}
-									</div>
-									{!isActive && (
-										<div className="flex gap-2 pt-1">
-											<button
-												onClick={() => handlePlanApproval()}
-												className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
-											>
-												Execute
-											</button>
-											<button
-												onClick={() => setInput('I want to change the plan: ')}
-												className="px-3 py-1 text-xs font-medium text-foreground border border-border rounded hover:bg-secondary"
-											>
-												Edit
-											</button>
-										</div>
-									)}
-								</div>
-							)}
-							{msg.content ||
-								(!msg.plan && msg.role === 'assistant' && !isActive && (
-									<span className="text-muted-foreground text-xs">No response</span>
-								))}
-						</div>
+					<div key={msg.id}>
+						{msg.role === 'user' ? (
+							<UserMessage msg={msg} />
+						) : (
+							<AssistantMessage msg={msg} isActive={isActive} onPlanApproval={handlePlanApproval} onEditPlan={() => setInput('I want to change the plan: ')} />
+						)}
 					</div>
 				))}
-
-				{/* Status indicator — below messages */}
-				{isActive && (
-					<div className="flex items-center gap-2 text-xs text-muted-foreground py-1 pl-1">
-						<div className="h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-						<span>
-							{streamStatus === 'thinking' && 'Thinking...'}
-							{streamStatus === 'tool_executing' && (activeToolLabel || 'Executing...')}
-							{streamStatus === 'streaming' && 'Writing...'}
-						</span>
-					</div>
-				)}
 
 				<div ref={messagesEndRef} />
 			</div>
@@ -770,6 +828,258 @@ export function ChatTab() {
 }
 
 // --- Sub-components ---
+
+function UserMessage({ msg }: { msg: ChatMessage }) {
+	return (
+		<div className="flex justify-end">
+			<div className="max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-primary text-primary-foreground">
+				{msg.selectedElements && msg.selectedElements.length > 0 && (
+					<div className="flex flex-wrap gap-1 mb-1.5">
+						{msg.selectedElements.length === 1 ? (
+							<span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs font-mono">
+								<span className="opacity-70">&lt;{msg.selectedElements[0].tag}&gt;</span>
+								<span className="truncate max-w-[160px]">
+									{msg.selectedElements[0].label || msg.selectedElements[0].selector}
+								</span>
+							</span>
+						) : (
+							msg.selectedElements.map((el, i) => (
+								<span
+									key={i}
+									className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs font-mono"
+								>
+									<span className="opacity-70">&lt;{el.tag}&gt;</span>
+									<span className="truncate max-w-[100px]">{el.label || el.selector}</span>
+								</span>
+							))
+						)}
+					</div>
+				)}
+				{msg.content}
+			</div>
+		</div>
+	);
+}
+
+function AssistantMessage({
+	msg,
+	isActive,
+	onPlanApproval,
+	onEditPlan,
+}: {
+	msg: ChatMessage;
+	isActive: boolean;
+	onPlanApproval: () => void;
+	onEditPlan: () => void;
+}) {
+	const blocks = msg.blocks;
+
+	// No blocks yet — show nothing (or a subtle placeholder)
+	if (!blocks || blocks.length === 0) {
+		return null;
+	}
+
+	// Check if the last block is a thinking block (still waiting for response)
+	const lastBlock = blocks[blocks.length - 1];
+	const isThinkingAtEnd = lastBlock.type === 'thinking';
+
+	return (
+		<div className="flex justify-start">
+			<div className="max-w-[90%] space-y-2">
+				{blocks.map((block, i) => {
+					switch (block.type) {
+						case 'thinking':
+							return <ThinkingBlock key={i} />;
+						case 'text':
+							return <TextBlock key={i} content={block.content} />;
+						case 'tool_call':
+							return <ToolCallBlock key={i} block={block} />;
+						case 'blocked':
+							return <BlockedBlock key={i} toolName={block.toolName} reason={block.reason} />;
+						case 'plan':
+							return (
+								<PlanBlock
+									key={i}
+									plan={block.plan}
+									isActive={isActive}
+									onApprove={onPlanApproval}
+									onEdit={onEditPlan}
+								/>
+							);
+						default:
+							return null;
+					}
+				})}
+
+				{/* If no visible content yet and we're thinking */}
+				{blocks.length === 0 && isActive && <ThinkingBlock />}
+			</div>
+		</div>
+	);
+}
+
+function ThinkingBlock() {
+	return (
+		<div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+			<div className="h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+			<span>Thinking...</span>
+		</div>
+	);
+}
+
+function TextBlock({ content }: { content: string }) {
+	if (!content.trim()) return null;
+	return (
+		<div className="rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-secondary text-foreground">
+			{content}
+		</div>
+	);
+}
+
+function ToolCallBlock({
+	block,
+}: {
+	block: Extract<MessageBlock, { type: 'tool_call' }>;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const icon = TOOL_ICONS[block.toolName] || '⚙';
+	const label = formatToolLabel(block.toolName, block.label);
+	const argsPreview = formatToolArgs(block.toolName, block.args);
+
+	const statusColor =
+		block.status === 'running'
+			? 'border-blue-500/40 bg-blue-500/5'
+			: block.status === 'success'
+				? 'border-green-500/30 bg-green-500/5'
+				: 'border-red-500/30 bg-red-500/5';
+
+	const statusIcon =
+		block.status === 'running' ? (
+			<div className="h-3 w-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
+		) : block.status === 'success' ? (
+			<span className="text-green-400 text-xs shrink-0">✓</span>
+		) : (
+			<span className="text-red-400 text-xs shrink-0">✕</span>
+		);
+
+	return (
+		<div className={`border rounded-md text-xs ${statusColor}`}>
+			<button
+				onClick={() => setExpanded(!expanded)}
+				className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
+			>
+				<span className="shrink-0">{icon}</span>
+				<span className="flex-1 truncate text-foreground">
+					{label}
+					{argsPreview && (
+						<span className="text-muted-foreground ml-1 font-mono">{argsPreview}</span>
+					)}
+				</span>
+				{statusIcon}
+			</button>
+
+			{expanded && (
+				<div className="px-2.5 pb-2 space-y-1.5 border-t border-border/30 pt-1.5">
+					{block.args && (
+						<div>
+							<span className="text-muted-foreground">Args: </span>
+							<code className="text-[10px] text-foreground/70 font-mono break-all">
+								{JSON.stringify(block.args)}
+							</code>
+						</div>
+					)}
+					{block.error && (
+						<div className="text-red-400">Error: {block.error}</div>
+					)}
+					{block.result && !block.screenshot && (
+						<div>
+							<span className="text-muted-foreground">Result: </span>
+							<code className="text-[10px] text-foreground/70 font-mono break-all">
+								{typeof block.result === 'string'
+									? block.result.slice(0, 300)
+									: JSON.stringify(block.result).slice(0, 300)}
+							</code>
+						</div>
+					)}
+				</div>
+			)}
+
+			{/* Screenshot thumbnail — always visible (not inside expanded) */}
+			{block.screenshot && (
+				<div className="px-2.5 pb-2">
+					<img
+						src={`data:image/jpeg;base64,${block.screenshot}`}
+						alt="Screenshot"
+						className="rounded border border-border/30 max-h-40 w-full object-contain cursor-pointer"
+						onClick={() => {
+							// Open full screenshot in new tab
+							const img = new Image();
+							img.src = `data:image/jpeg;base64,${block.screenshot}`;
+							const w = window.open('');
+							w?.document.body.appendChild(img);
+						}}
+					/>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function BlockedBlock({ toolName, reason }: { toolName: string; reason: string }) {
+	return (
+		<div className="border border-red-500/30 bg-red-500/5 rounded-md px-2.5 py-1.5 text-xs">
+			<span className="text-red-400 font-medium">Blocked: </span>
+			<span className="text-foreground">{TOOL_LABELS[toolName] || toolName}</span>
+			<span className="text-muted-foreground"> — {reason}</span>
+		</div>
+	);
+}
+
+function PlanBlock({
+	plan,
+	isActive,
+	onApprove,
+	onEdit,
+}: {
+	plan: Plan;
+	isActive: boolean;
+	onApprove: () => void;
+	onEdit: () => void;
+}) {
+	return (
+		<div className="rounded-lg px-3 py-2 bg-secondary text-foreground space-y-1.5">
+			{plan.description && (
+				<p className="text-xs font-medium opacity-80">{plan.description}</p>
+			)}
+			<div className="space-y-1">
+				{plan.steps.map((step, i) => (
+					<div key={i} className="flex items-start gap-2 text-xs">
+						<span className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-[10px] font-medium mt-0.5">
+							{i + 1}
+						</span>
+						<span>{step}</span>
+					</div>
+				))}
+			</div>
+			{!isActive && (
+				<div className="flex gap-2 pt-1">
+					<button
+						onClick={onApprove}
+						className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
+					>
+						Execute
+					</button>
+					<button
+						onClick={onEdit}
+						className="px-3 py-1 text-xs font-medium text-foreground border border-border rounded hover:bg-secondary"
+					>
+						Edit
+					</button>
+				</div>
+			)}
+		</div>
+	);
+}
 
 function OnboardingView({
 	domain,

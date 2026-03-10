@@ -43,6 +43,8 @@ interface PageContext {
 		title: string;
 		pageType: string;
 		elementCount: number;
+		keyElements?: { type: string; label: string; selector: string }[];
+		navigationLinks?: { label: string; href: string }[];
 	}[];
 }
 
@@ -68,12 +70,25 @@ export function buildSystemPrompt(
 
 	let siteSummary = '';
 	if (pi.sitePages?.length) {
-		siteSummary = `\n\n## Other Indexed Pages (${pi.sitePages.length} total)\nYou also know about these pages on the same site:\n${pi.sitePages
-			.map(
-				(p) =>
-					`  - ${p.title || p.urlPattern} (${p.pageType}, ${p.elementCount} elements) — ${p.url}`,
-			)
-			.join('\n')}`;
+		const pageDetails = pi.sitePages.map((p) => {
+			let detail = `### ${p.title || p.urlPattern} (${p.pageType})\n  URL: ${p.url}`;
+			if (p.keyElements?.length) {
+				const grouped: Record<string, string[]> = {};
+				for (const el of p.keyElements) {
+					if (!grouped[el.type]) grouped[el.type] = [];
+					grouped[el.type].push(`"${el.label}" [${el.selector}]`);
+				}
+				for (const [type, els] of Object.entries(grouped)) {
+					detail += `\n  ${type}s: ${els.slice(0, 8).join(', ')}${els.length > 8 ? ` (+${els.length - 8} more)` : ''}`;
+				}
+			}
+			if (p.navigationLinks?.length) {
+				detail += `\n  Links: ${p.navigationLinks.map((l) => `${l.label || '(no label)'} → ${l.href}`).join(', ')}`;
+			}
+			return detail;
+		});
+
+		siteSummary = `\n\n## Other Indexed Pages (${pi.sitePages.length} total)\nYou know these pages and their elements. Use navigate to go to them, then use their selectors.\n\n${pageDetails.join('\n\n')}`;
 	}
 
 	let selectedSummary = '';

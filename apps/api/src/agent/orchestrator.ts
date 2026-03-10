@@ -366,7 +366,7 @@ async function handleToolCall(
 		});
 
 		// Extract screenshot for the frontend if this was a screenshot tool
-		const resultData = result as Record<string, unknown> | undefined;
+		const resultData = result as unknown as Record<string, unknown> | undefined;
 		const screenshotImage =
 			name === 'screenshot' && resultData?.success
 				? ((resultData.data as Record<string, unknown>)?.image as string | undefined)
