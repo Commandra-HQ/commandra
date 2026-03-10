@@ -46,12 +46,38 @@ export const pages = pgTable('pages', {
 export const elementEmbeddings = pgTable('element_embeddings', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	pageId: uuid('page_id')
-		.references(() => pages.id)
+		.references(() => pages.id, { onDelete: 'cascade' })
 		.notNull(),
 	elementLabel: text('element_label').notNull(),
 	elementType: text('element_type').notNull(),
 	selector: text('selector').notNull(),
-	embedding: vector('embedding', { dimensions: 256 }),
+	labelHash: text('label_hash'),
+	embeddingModel: text('embedding_model'),
+	embedding: vector('embedding', { dimensions: 1536 }),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const flowEmbeddings = pgTable('flow_embeddings', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	flowId: uuid('flow_id')
+		.references(() => flows.id, { onDelete: 'cascade' })
+		.notNull(),
+	text: text('text').notNull(),
+	embeddingModel: text('embedding_model'),
+	embedding: vector('embedding', { dimensions: 1536 }),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const memoryEmbeddings = pgTable('memory_embeddings', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	siteId: uuid('site_id')
+		.references(() => sites.id, { onDelete: 'cascade' })
+		.notNull(),
+	memoryKey: text('memory_key').notNull(),
+	memoryText: text('memory_text').notNull(),
+	embeddingModel: text('embedding_model'),
+	embedding: vector('embedding', { dimensions: 1536 }),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 export const conversations = pgTable('conversations', {
