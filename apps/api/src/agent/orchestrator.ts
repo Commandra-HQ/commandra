@@ -347,8 +347,13 @@ async function handleToolCall(
 		}
 	}
 
-	// Execute tool — emit start/end events
-	await onEvent({ type: 'tool_start', toolName: name, label: elementLabel || undefined });
+	// Execute tool — emit start/end events with args and results
+	await onEvent({
+		type: 'tool_start',
+		toolName: name,
+		label: elementLabel || undefined,
+		args: toolArgs,
+	});
 
 	try {
 		const result = await executeTool(name, toolArgs, context);
@@ -359,7 +364,21 @@ async function handleToolCall(
 			approved: true,
 			metadata: { args: toolArgs, result },
 		});
-		await onEvent({ type: 'tool_end', toolName: name, success: true });
+
+		// Extract screenshot for the frontend if this was a screenshot tool
+		const resultData = result as Record<string, unknown> | undefined;
+		const screenshotImage =
+			name === 'screenshot' && resultData?.success
+				? ((resultData.data as Record<string, unknown>)?.image as string | undefined)
+				: undefined;
+
+		await onEvent({
+			type: 'tool_end',
+			toolName: name,
+			success: true,
+			result: screenshotImage ? { success: true } : result,
+			screenshot: screenshotImage,
+		});
 		return { data: result, isError: false };
 	} catch (err) {
 		const errorMsg = err instanceof Error ? err.message : String(err);
@@ -370,7 +389,12 @@ async function handleToolCall(
 			approved: true,
 			metadata: { args: toolArgs, error: errorMsg },
 		});
-		await onEvent({ type: 'tool_end', toolName: name, success: false, error: errorMsg });
+		await onEvent({
+			type: 'tool_end',
+			toolName: name,
+			success: false,
+			error: errorMsg,
+		});
 		return {
 			data: { success: false, error: errorMsg },
 			isError: true,
