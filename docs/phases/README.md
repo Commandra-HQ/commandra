@@ -23,11 +23,11 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 
 ## Automation
 
-| Phase | Name                | What Ships                                                                            | Status |
-| ----- | ------------------- | ------------------------------------------------------------------------------------- | ------ |
-| 10    | Flows + Teach Mode  | Record action sequences, parameterize, replay. Flow library UI                        | ✅ Done |
-| 11    | Task Triggers       | Dashboard-triggered tasks, Inngest scheduled runs, execute in employee browser        |        |
-| 12    | Embeddings + Search | pgvector embeddings for elements/pages, smart element lookup, incremental re-indexing |        |
+| Phase | Name                      | What Ships                                                                            | Status |
+| ----- | ------------------------- | ------------------------------------------------------------------------------------- | ------ |
+| 10    | Flows + Teach Mode        | Record action sequences, parameterize, replay. Flow library UI                        | ✅ Done |
+| 12    | Backend Indexing + Search | Kill IndexedDB, sync pages to Postgres, selector resilience, incremental re-indexing  | Next   |
+| 11    | Task Triggers             | Dashboard-triggered tasks, Inngest scheduled runs, task queue, execute in browser      |        |
 
 ## Scale
 
