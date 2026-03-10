@@ -15,6 +15,13 @@
       "when": 1773037577049,
       "tag": "0001_perpetual_tenebrous",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773134171329,
+      "tag": "0002_sturdy_maverick",
+      "breakpoints": true
     }
   ]
 }
