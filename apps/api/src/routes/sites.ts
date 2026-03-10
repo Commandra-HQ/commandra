@@ -2,6 +2,7 @@ import { and, count, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
 import { pages, sites } from '../db/schema.js';
+import { inngest } from '../inngest/client.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 
 export const siteRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -97,8 +98,8 @@ interface PageIndexPayload {
 	navigationLinks?: unknown[];
 }
 
-/** Upsert a page by siteId + urlPattern */
-export async function upsertPage(siteId: string, pageIndex: PageIndexPayload) {
+/** Upsert a page by siteId + urlPattern. Returns the page ID. */
+export async function upsertPage(siteId: string, pageIndex: PageIndexPayload): Promise<string> {
 	const urlPattern =
 		pageIndex.urlPattern ||
 		new URL(pageIndex.url).pathname.replace(/\/\d+/g, '/:id').replace(/\/[a-f0-9-]{36}/g, '/:id');
@@ -109,7 +110,10 @@ export async function upsertPage(siteId: string, pageIndex: PageIndexPayload) {
 		.where(and(eq(pages.siteId, siteId), eq(pages.urlPattern, urlPattern)))
 		.limit(1);
 
+	let pageId: string;
+
 	if (existing) {
+		pageId = existing.id;
 		await db
 			.update(pages)
 			.set({
@@ -122,7 +126,7 @@ export async function upsertPage(siteId: string, pageIndex: PageIndexPayload) {
 			})
 			.where(eq(pages.id, existing.id));
 	} else {
-		await db.insert(pages).values({
+		const [inserted] = await db.insert(pages).values({
 			siteId,
 			url: pageIndex.url,
 			urlPattern,
@@ -130,8 +134,14 @@ export async function upsertPage(siteId: string, pageIndex: PageIndexPayload) {
 			pageType: pageIndex.pageType || null,
 			elements: pageIndex.elements || [],
 			navigationLinks: pageIndex.navigationLinks || [],
-		});
+		}).returning({ id: pages.id });
+		pageId = inserted.id;
 	}
+
+	// Fire background embedding job (non-blocking)
+	inngest.send({ name: 'page/upserted', data: { pageId } }).catch(() => {});
+
+	return pageId;
 }
 
 /** Recalculate site totals from its pages */

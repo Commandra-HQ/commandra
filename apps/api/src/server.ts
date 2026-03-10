@@ -44,6 +44,7 @@ app.route('/api/sites', siteRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/stats', statsRoutes);
 app.route('/api/flows', flowRoutes);
+app.route('/api/inngest', inngestServe({ client: inngest, functions: [embedPageElements, embedFlow] }));
 
 const PORT = Number(process.env.PORT) || 3001;
 const WS_PORT = Number(process.env.WS_PORT) || 3002;

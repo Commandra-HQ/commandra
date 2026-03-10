@@ -71,6 +71,11 @@ export function connectWebSocket() {
 							})
 							.catch(() => {});
 						break;
+					case 'find_element_result': {
+						const cb = vectorSearchCallbacks.get(message.requestId);
+						if (cb) cb(message.result);
+						break;
+					}
 				}
 			} catch (err) {
 				console.error('[AFE WS] Message handler error:', err);
@@ -133,6 +138,33 @@ async function handleActionRequest(message: {
 	const elementLabel = (payload.label as string) || (payload.description as string) || '';
 	const elementType = (payload.elementType as string) || '';
 
+	// Helper: retry an action with a vector-searched selector if the first attempt fails with "not found"
+	async function withVectorFallback(
+		tabId: number,
+		action: string,
+		firstResult: unknown,
+		label: string,
+		elementType: string,
+	): Promise<unknown> {
+		const r = firstResult as { success?: boolean; error?: string } | null;
+		if (r?.success || !r?.error?.includes('not found') || !label) return r;
+
+		// Ask backend for vector search match
+		const vectorSelector = await requestVectorSearch(label, elementType);
+		if (!vectorSelector) return r;
+
+		console.log(`[AFE WS] Vector search found: ${vectorSelector} for "${label}"`);
+
+		if (action === 'click_element') {
+			return executeInTab(tabId, clickInPage, [vectorSelector, '', label, elementType]);
+		} else if (action === 'type_text') {
+			return executeInTab(tabId, typeInPage, [vectorSelector, message.payload.text as string, '', label]);
+		} else if (action === 'select_option') {
+			return executeInTab(tabId, selectInPage, [vectorSelector, message.payload.value as string, '', label]);
+		}
+		return r;
+	}
+
 	try {
 		let result: unknown;
 
@@ -147,6 +179,7 @@ async function handleActionRequest(message: {
 				elementLabel,
 				elementType,
 			]);
+			result = await withVectorFallback(tab.id, action, result, elementLabel, elementType);
 		} else if (action === 'type_text') {
 			result = await executeInTab(tab.id, typeInPage, [
 				payload.selector as string,
@@ -154,6 +187,7 @@ async function handleActionRequest(message: {
 				fallbacksStr,
 				elementLabel,
 			]);
+			result = await withVectorFallback(tab.id, action, result, elementLabel, 'input');
 		} else if (action === 'select_option') {
 			result = await executeInTab(tab.id, selectInPage, [
 				payload.selector as string,
@@ -161,6 +195,7 @@ async function handleActionRequest(message: {
 				fallbacksStr,
 				elementLabel,
 			]);
+			result = await withVectorFallback(tab.id, action, result, elementLabel, 'select');
 		} else if (action === 'get_page_state') {
 			result = await executeInTab(tab.id, getPageStateInPage, []);
 		} else if (action === 'screenshot') {
@@ -771,6 +806,61 @@ export function sendPageIndexed(domain: string, pageIndex: unknown) {
 		);
 	}
 }
+
+/**
+ * Request vector search from backend — 4th tier of selector resilience.
+ * Returns the best matching selector, or null if nothing found.
+ */
+function requestVectorSearch(label: string, elementType: string): Promise<string | null> {
+	return new Promise((resolve) => {
+		if (!ws || ws.readyState !== WebSocket.OPEN) {
+			resolve(null);
+			return;
+		}
+
+		// Get current tab domain
+		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+			const tab = tabs[0];
+			if (!tab?.url) {
+				resolve(null);
+				return;
+			}
+
+			let domain: string;
+			try {
+				domain = new URL(tab.url).hostname;
+			} catch {
+				resolve(null);
+				return;
+			}
+
+			const requestId = `vs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+			const timeout = setTimeout(() => {
+				vectorSearchCallbacks.delete(requestId);
+				resolve(null);
+			}, 5000);
+
+			vectorSearchCallbacks.set(requestId, (result) => {
+				clearTimeout(timeout);
+				vectorSearchCallbacks.delete(requestId);
+				resolve(result?.selector || null);
+			});
+
+			ws!.send(JSON.stringify({
+				type: 'find_element',
+				label,
+				elementType,
+				domain,
+				requestId,
+				timestamp: Date.now(),
+			}));
+		});
+	});
+}
+
+// Callbacks for pending vector search requests
+const vectorSearchCallbacks = new Map<string, (result: { selector: string } | null) => void>();
 
 export function sendManualAction(action: string, args: Record<string, unknown>, url: string) {
 	if (ws && ws.readyState === WebSocket.OPEN) {

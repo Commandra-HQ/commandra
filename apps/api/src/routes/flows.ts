@@ -5,6 +5,8 @@ import { streamSSE } from 'hono/streaming';
 import { runFlowExecution } from '../agent/flow-executor.js';
 import { db } from '../db/index.js';
 import { flowRuns, flows, sites } from '../db/schema.js';
+import { searchFlows as vectorSearchFlows } from '../db/vector-search.js';
+import { inngest } from '../inngest/client.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 
@@ -135,6 +137,9 @@ flowRoutes.post('/', async (c) => {
 		})
 		.returning();
 
+	// Embed flow for semantic search (non-blocking)
+	inngest.send({ name: 'flow/saved', data: { flowId: flow.id } }).catch(() => {});
+
 	return c.json({ flow }, 201);
 });
 
@@ -166,6 +171,11 @@ flowRoutes.put('/:id', async (c) => {
 			updatedAt: new Date(),
 		})
 		.where(eq(flows.id, flowId));
+
+	// Re-embed flow if name/steps changed (non-blocking)
+	if (name || steps) {
+		inngest.send({ name: 'flow/saved', data: { flowId } }).catch(() => {});
+	}
 
 	return c.json({ ok: true });
 });
@@ -244,6 +254,21 @@ flowRoutes.post('/:id/run', async (c) => {
 			}
 		}
 	});
+});
+
+// Semantic flow search
+flowRoutes.get('/search', async (c) => {
+	const user = c.get('user');
+	const query = c.req.query('q');
+	if (!query) return c.json({ results: [] });
+
+	try {
+		const results = await vectorSearchFlows(query, user.id, 10);
+		return c.json({ results });
+	} catch (err) {
+		console.error('[Flows] Vector search failed:', err);
+		return c.json({ results: [] });
+	}
 });
 
 // List runs for a flow
