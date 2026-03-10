@@ -345,7 +345,6 @@ function scrollInPage(direction: string, selector: string, amountStr: string) {
 		case 'up':
 			window.scrollBy({ top: -amount, behavior: 'smooth' });
 			break;
-		case 'down':
 		default:
 			window.scrollBy({ top: amount, behavior: 'smooth' });
 			break;
@@ -499,9 +498,7 @@ function readTableInPage(selector: string, maxRowsStr: string, includeLinksStr: 
 	// Extract headers
 	const headers: string[] = [];
 	const thead = table.querySelector('thead');
-	const headerRow = thead
-		? thead.querySelector('tr')
-		: table.querySelector('tr');
+	const headerRow = thead ? thead.querySelector('tr') : table.querySelector('tr');
 
 	if (headerRow) {
 		for (const cell of headerRow.querySelectorAll('th, td')) {
@@ -511,9 +508,7 @@ function readTableInPage(selector: string, maxRowsStr: string, includeLinksStr: 
 
 	// Extract rows from tbody (or all tr except first if no thead)
 	const tbody = table.querySelector('tbody');
-	const allRows = tbody
-		? tbody.querySelectorAll('tr')
-		: table.querySelectorAll('tr');
+	const allRows = tbody ? tbody.querySelectorAll('tr') : table.querySelectorAll('tr');
 
 	const startIdx = !thead && headerRow ? 1 : 0; // skip header row if no thead
 	const rows: Record<string, string>[] = [];
@@ -572,9 +567,7 @@ function readDataGrid(
 	// First row is usually headers
 	const headers: string[] = [];
 	const headerRow = gridRows[0];
-	for (const cell of headerRow.querySelectorAll(
-		'[role="columnheader"], [role="cell"], th, td',
-	)) {
+	for (const cell of headerRow.querySelectorAll('[role="columnheader"], [role="cell"], th, td')) {
 		headers.push((cell.textContent || '').trim());
 	}
 

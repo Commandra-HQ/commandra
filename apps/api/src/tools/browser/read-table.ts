@@ -15,11 +15,13 @@ export const readTable: ExecutableTool = {
 			},
 			maxRows: {
 				type: 'number',
-				description: 'Max rows to return (default 100). Use for large tables to limit payload size.',
+				description:
+					'Max rows to return (default 100). Use for large tables to limit payload size.',
 			},
 			includeLinks: {
 				type: 'boolean',
-				description: 'If true, include href values for any links found in table cells. Default: false.',
+				description:
+					'If true, include href values for any links found in table cells. Default: false.',
 			},
 		},
 		required: ['selector'],

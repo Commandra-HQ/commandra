@@ -275,9 +275,7 @@ export function ChatTab() {
 		// If there's pending text, make sure the last text block is up to date
 		const blocks = [...blocksRef.current];
 
-		setChatMessages((prev) =>
-			prev.map((m) => (m.id === id ? { ...m, blocks: [...blocks] } : m)),
-		);
+		setChatMessages((prev) => prev.map((m) => (m.id === id ? { ...m, blocks: [...blocks] } : m)));
 		rafRef.current = 0;
 	}
 
@@ -367,8 +365,7 @@ export function ChatTab() {
 
 							case 'thinking': {
 								// Remove previous thinking block if it's the last one (new iteration)
-								const lastBlock =
-									blocksRef.current[blocksRef.current.length - 1];
+								const lastBlock = blocksRef.current[blocksRef.current.length - 1];
 								if (!lastBlock || lastBlock.type !== 'thinking') {
 									// Reset text accumulator — new thinking phase means new text block after
 									textAccumRef.current = '';
@@ -381,10 +378,7 @@ export function ChatTab() {
 							case 'tool_start': {
 								// Remove trailing thinking block — tool call replaces it
 								const blocks = blocksRef.current;
-								if (
-									blocks.length > 0 &&
-									blocks[blocks.length - 1].type === 'thinking'
-								) {
+								if (blocks.length > 0 && blocks[blocks.length - 1].type === 'thinking') {
 									blocks.pop();
 								}
 								// Reset text accumulator for the next text block after tools
@@ -478,19 +472,11 @@ export function ChatTab() {
 			if (plan) {
 				const cleanText = stripPlanBlock(finalText);
 				setChatMessages((prev) =>
-					prev.map((m) =>
-						m.id === assistantMsgIdRef.current
-							? { ...m, content: cleanText }
-							: m,
-					),
+					prev.map((m) => (m.id === assistantMsgIdRef.current ? { ...m, content: cleanText } : m)),
 				);
 			} else {
 				setChatMessages((prev) =>
-					prev.map((m) =>
-						m.id === assistantMsgIdRef.current
-							? { ...m, content: finalText }
-							: m,
-					),
+					prev.map((m) => (m.id === assistantMsgIdRef.current ? { ...m, content: finalText } : m)),
 				);
 			}
 
@@ -682,7 +668,8 @@ export function ChatTab() {
 					className="border-b border-yellow-500/30 bg-yellow-500/5 px-4 py-3 space-y-2"
 				>
 					<p className="text-xs font-medium text-foreground">
-						Agent wants to: <span className="font-semibold">{TOOL_LABELS[req.action] || req.action}</span>
+						Agent wants to:{' '}
+						<span className="font-semibold">{TOOL_LABELS[req.action] || req.action}</span>
 						{req.label ? ` "${req.label}"` : ''}
 					</p>
 					<p className="text-xs text-muted-foreground">{req.reason}</p>
@@ -718,7 +705,12 @@ export function ChatTab() {
 						{msg.role === 'user' ? (
 							<UserMessage msg={msg} />
 						) : (
-							<AssistantMessage msg={msg} isActive={isActive} onPlanApproval={handlePlanApproval} onEditPlan={() => setInput('I want to change the plan: ')} />
+							<AssistantMessage
+								msg={msg}
+								isActive={isActive}
+								onPlanApproval={handlePlanApproval}
+								onEditPlan={() => setInput('I want to change the plan: ')}
+							/>
 						)}
 					</div>
 				))}
@@ -990,9 +982,7 @@ function ToolCallBlock({
 							</code>
 						</div>
 					)}
-					{block.error && (
-						<div className="text-red-400">Error: {block.error}</div>
-					)}
+					{block.error && <div className="text-red-400">Error: {block.error}</div>}
 					{block.result && !block.screenshot && (
 						<div>
 							<span className="text-muted-foreground">Result: </span>
@@ -1014,13 +1004,36 @@ function ToolCallBlock({
 						alt="Screenshot"
 						className="rounded border border-border/30 max-h-40 w-full object-contain cursor-pointer"
 						onClick={() => {
-							// Open full screenshot in new tab
 							const img = new Image();
 							img.src = `data:image/jpeg;base64,${block.screenshot}`;
 							const w = window.open('');
 							w?.document.body.appendChild(img);
 						}}
 					/>
+				</div>
+			)}
+
+			{/* Download button for export_data results */}
+			{block.toolName === 'export_data' && block.status === 'success' && block.result && (
+				<div className="px-2.5 pb-2">
+					<button
+						onClick={() => {
+							const r = block.result as { content?: string; filename?: string; format?: string };
+							if (!r.content) return;
+							const mimeType = r.format === 'json' ? 'application/json' : 'text/csv';
+							const blob = new Blob([r.content], { type: mimeType });
+							const url = URL.createObjectURL(blob);
+							const a = document.createElement('a');
+							a.href = url;
+							a.download = r.filename || 'export.csv';
+							a.click();
+							URL.revokeObjectURL(url);
+						}}
+						className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-foreground bg-secondary border border-border rounded hover:bg-secondary/80"
+					>
+						<span>📥</span>
+						<span>Download {(block.result as { filename?: string }).filename || 'export'}</span>
+					</button>
 				</div>
 			)}
 		</div>
@@ -1050,9 +1063,7 @@ function PlanBlock({
 }) {
 	return (
 		<div className="rounded-lg px-3 py-2 bg-secondary text-foreground space-y-1.5">
-			{plan.description && (
-				<p className="text-xs font-medium opacity-80">{plan.description}</p>
-			)}
+			{plan.description && <p className="text-xs font-medium opacity-80">{plan.description}</p>}
 			<div className="space-y-1">
 				{plan.steps.map((step, i) => (
 					<div key={i} className="flex items-start gap-2 text-xs">
