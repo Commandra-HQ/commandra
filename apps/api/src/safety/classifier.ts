@@ -30,8 +30,16 @@ export interface ClassifyResult {
  * Layer 2: Context-aware label/arg analysis (overrides Layer 1)
  */
 export function classifyAction({ toolName, args, elementLabel }: ClassifyInput): ClassifyResult {
-	// get_page_state is always safe
-	if (toolName === 'get_page_state') {
+	// Read-only tools are always safe
+	if (
+		toolName === 'get_page_state' ||
+		toolName === 'scroll' ||
+		toolName === 'wait_for_element' ||
+		toolName === 'read_text' ||
+		toolName === 'read_table' ||
+		toolName === 'export_data' ||
+		toolName === 'screenshot'
+	) {
 		return { level: 'safe', reason: 'Read-only action' };
 	}
 

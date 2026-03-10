@@ -6,9 +6,14 @@ import type { Tool } from '../llm/types.js';
 import { clickElement } from './browser/click.js';
 import { navigate } from './browser/navigate.js';
 import { getPageState } from './browser/page-state.js';
+import { readTable } from './browser/read-table.js';
+import { readText } from './browser/read-text.js';
 import { screenshot } from './browser/screenshot.js';
+import { scroll } from './browser/scroll.js';
 import { selectOption } from './browser/select.js';
 import { typeText } from './browser/type.js';
+import { waitForElement } from './browser/wait.js';
+import { exportData } from './export.js';
 import type { ExecutableTool, ToolContext, ToolResult } from './types.js';
 
 const tools = new Map<string, ExecutableTool>();
@@ -24,6 +29,11 @@ register(selectOption);
 register(navigate);
 register(getPageState);
 register(screenshot);
+register(scroll);
+register(waitForElement);
+register(readText);
+register(readTable);
+register(exportData);
 
 /**
  * Get all tool definitions (for passing to the LLM).

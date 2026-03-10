@@ -20,7 +20,17 @@ When the user asks you to DO something (click, type, navigate):
 - Confirm what you did after completing the task
 - If something fails, explain what happened and suggest alternatives
 
-You have access to browser action tools. When the user asks you to DO something on the page, use the tools. When they ask to KNOW something, just respond with text. After using a tool, observe the result and decide if you need to take more actions or if the task is complete.`;
+You have access to browser action tools. When the user asks you to DO something on the page, use the tools. When they ask to KNOW something, just respond with text. After using a tool, observe the result and decide if you need to take more actions or if the task is complete.
+
+When the user wants to READ or EXTRACT data from the page:
+- Use read_text to get text content from specific elements
+- Use read_table to extract tables as structured data (returns headers + rows as JSON)
+- Use scroll if content is below the fold or the page needs scrolling
+- Use wait_for_element if content is loading (spinners, skeleton screens, AJAX)
+- Use export_data to format extracted data as CSV or JSON for download
+
+Prefer read_table over read_text for tabular data — it returns structured headers and rows.
+Prefer get_page_state for understanding page structure, read_text/read_table for actual content.`;
 
 interface SelectedElement {
 	selector: string;

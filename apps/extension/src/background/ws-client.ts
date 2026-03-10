@@ -149,12 +149,35 @@ async function handleActionRequest(message: {
 			result = await executeInTab(tab.id, getPageStateInPage, []);
 		} else if (action === 'screenshot') {
 			const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 75 });
-			// Strip the data:image/jpeg;base64, prefix — backend gets raw base64
 			const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
 			result = {
 				success: true,
 				data: { image: base64, format: 'jpeg', url: tab.url, title: tab.title },
 			};
+		} else if (action === 'scroll') {
+			result = await executeInTab(tab.id, scrollInPage, [
+				(payload.direction as string) || '',
+				(payload.selector as string) || '',
+				String(payload.amount ?? 500),
+			]);
+		} else if (action === 'wait_for_element') {
+			result = await executeInTabAsync(tab.id, waitForElementInPage, [
+				payload.selector as string,
+				(payload.state as string) || 'visible',
+				String(Math.min(Number(payload.timeout) || 10000, 30000)),
+			]);
+		} else if (action === 'read_text') {
+			result = await executeInTab(tab.id, readTextInPage, [
+				payload.selector as string,
+				String(payload.all ?? false),
+				String(payload.maxLength ?? 2000),
+			]);
+		} else if (action === 'read_table') {
+			result = await executeInTab(tab.id, readTableInPage, [
+				payload.selector as string,
+				String(payload.maxRows ?? 100),
+				String(payload.includeLinks ?? false),
+			]);
 		} else {
 			result = { success: false, error: `Unknown action: ${action}` };
 		}
@@ -175,6 +198,23 @@ async function handleActionRequest(message: {
 async function executeInTab(
 	tabId: number,
 	func: (...args: string[]) => unknown,
+	args: string[],
+): Promise<unknown> {
+	const results = await chrome.scripting.executeScript({
+		target: { tabId },
+		func,
+		args,
+	});
+	return results[0]?.result;
+}
+
+/**
+ * Execute an async function in the tab's page context.
+ * Used for wait_for_element which needs to poll asynchronously.
+ */
+async function executeInTabAsync(
+	tabId: number,
+	func: (...args: string[]) => Promise<unknown>,
 	args: string[],
 ): Promise<unknown> {
 	const results = await chrome.scripting.executeScript({
@@ -271,6 +311,299 @@ function getPageStateInPage() {
 			title: document.title,
 			elements: elements.slice(0, 100),
 		},
+	};
+}
+
+function scrollInPage(direction: string, selector: string, amountStr: string) {
+	const amount = Number(amountStr) || 500;
+
+	// If selector provided, scroll that element into view
+	if (selector) {
+		const el = document.querySelector(selector);
+		if (!el) return { success: false, error: `Element not found: ${selector}` };
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		return {
+			success: true,
+			data: {
+				scrolledTo: selector,
+				scrollY: window.scrollY,
+				pageHeight: document.documentElement.scrollHeight,
+				viewportHeight: window.innerHeight,
+			},
+		};
+	}
+
+	// Directional scroll
+	const before = window.scrollY;
+	switch (direction) {
+		case 'top':
+			window.scrollTo({ top: 0, behavior: 'smooth' });
+			break;
+		case 'bottom':
+			window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+			break;
+		case 'up':
+			window.scrollBy({ top: -amount, behavior: 'smooth' });
+			break;
+		case 'down':
+		default:
+			window.scrollBy({ top: amount, behavior: 'smooth' });
+			break;
+	}
+
+	return {
+		success: true,
+		data: {
+			direction: direction || 'down',
+			scrolledFrom: before,
+			scrollY: window.scrollY,
+			pageHeight: document.documentElement.scrollHeight,
+			viewportHeight: window.innerHeight,
+			hasMoreBelow:
+				window.scrollY + window.innerHeight < document.documentElement.scrollHeight - 10,
+		},
+	};
+}
+
+async function waitForElementInPage(
+	selector: string,
+	state: string,
+	timeoutStr: string,
+): Promise<unknown> {
+	const timeout = Number(timeoutStr) || 10000;
+	const interval = 200;
+	const start = Date.now();
+
+	return new Promise((resolve) => {
+		function check() {
+			const el = document.querySelector(selector);
+			const elapsed = Date.now() - start;
+
+			if (state === 'visible') {
+				if (el instanceof HTMLElement) {
+					const rect = el.getBoundingClientRect();
+					const style = getComputedStyle(el);
+					const isVisible =
+						rect.width > 0 &&
+						rect.height > 0 &&
+						style.display !== 'none' &&
+						style.visibility !== 'hidden';
+					if (isVisible) {
+						return resolve({
+							success: true,
+							data: {
+								found: true,
+								selector,
+								elapsed,
+								text: el.textContent?.trim().slice(0, 200),
+							},
+						});
+					}
+				}
+			} else if (state === 'hidden') {
+				if (!el) {
+					return resolve({
+						success: true,
+						data: { found: false, selector, elapsed, state: 'removed' },
+					});
+				}
+				if (el instanceof HTMLElement) {
+					const style = getComputedStyle(el);
+					if (style.display === 'none' || style.visibility === 'hidden') {
+						return resolve({
+							success: true,
+							data: { found: false, selector, elapsed, state: 'hidden' },
+						});
+					}
+				}
+			} else if (state === 'attached') {
+				if (el) {
+					return resolve({
+						success: true,
+						data: {
+							found: true,
+							selector,
+							elapsed,
+							text: (el as HTMLElement).textContent?.trim().slice(0, 200),
+						},
+					});
+				}
+			}
+
+			if (elapsed >= timeout) {
+				return resolve({
+					success: false,
+					error: `Timeout after ${timeout}ms waiting for "${selector}" to be ${state}`,
+				});
+			}
+
+			setTimeout(check, interval);
+		}
+
+		check();
+	});
+}
+
+function readTextInPage(selector: string, allStr: string, maxLengthStr: string) {
+	const all = allStr === 'true';
+	const maxLength = Number(maxLengthStr) || 2000;
+
+	if (all) {
+		const elements = document.querySelectorAll(selector);
+		if (elements.length === 0) {
+			return { success: false, error: `No elements found matching: ${selector}` };
+		}
+		const texts = Array.from(elements).map((el) => ({
+			text: (el.textContent || '').trim().slice(0, maxLength),
+			tag: el.tagName.toLowerCase(),
+		}));
+		return {
+			success: true,
+			data: { selector, matchCount: elements.length, texts },
+		};
+	}
+
+	const el = document.querySelector(selector);
+	if (!el) return { success: false, error: `Element not found: ${selector}` };
+
+	return {
+		success: true,
+		data: {
+			selector,
+			text: (el.textContent || '').trim().slice(0, maxLength),
+			tag: el.tagName.toLowerCase(),
+		},
+	};
+}
+
+function readTableInPage(selector: string, maxRowsStr: string, includeLinksStr: string) {
+	const maxRows = Number(maxRowsStr) || 100;
+	const includeLinks = includeLinksStr === 'true';
+
+	// Find the table — try direct match first, then look inside a container
+	let table = document.querySelector(selector);
+	if (table && table.tagName.toLowerCase() !== 'table') {
+		const inner = table.querySelector('table');
+		if (inner) table = inner;
+	}
+
+	// Try role="grid" data grids
+	if (table && table.tagName.toLowerCase() !== 'table' && !table.querySelector('table')) {
+		return readDataGrid(table, maxRows, includeLinks, selector);
+	}
+
+	if (!table || table.tagName.toLowerCase() !== 'table') {
+		return { success: false, error: `No table found at: ${selector}` };
+	}
+
+	// Extract headers
+	const headers: string[] = [];
+	const thead = table.querySelector('thead');
+	const headerRow = thead
+		? thead.querySelector('tr')
+		: table.querySelector('tr');
+
+	if (headerRow) {
+		for (const cell of headerRow.querySelectorAll('th, td')) {
+			headers.push((cell.textContent || '').trim());
+		}
+	}
+
+	// Extract rows from tbody (or all tr except first if no thead)
+	const tbody = table.querySelector('tbody');
+	const allRows = tbody
+		? tbody.querySelectorAll('tr')
+		: table.querySelectorAll('tr');
+
+	const startIdx = !thead && headerRow ? 1 : 0; // skip header row if no thead
+	const rows: Record<string, string>[] = [];
+	let totalRows = 0;
+
+	for (let i = startIdx; i < allRows.length; i++) {
+		totalRows++;
+		if (rows.length >= maxRows) continue; // count but don't extract past limit
+
+		const row = allRows[i];
+		const cells = row.querySelectorAll('td, th');
+		const rowData: Record<string, string> = {};
+
+		cells.forEach((cell, j) => {
+			const header = headers[j] || `column_${j}`;
+			let value = (cell.textContent || '').trim();
+
+			if (includeLinks) {
+				const link = cell.querySelector('a[href]');
+				if (link) {
+					const href = link.getAttribute('href') || '';
+					value = `${value} [${href}]`;
+				}
+			}
+
+			rowData[header] = value;
+		});
+
+		rows.push(rowData);
+	}
+
+	return {
+		success: true,
+		data: {
+			selector,
+			headers,
+			rows,
+			totalRows,
+			truncated: totalRows > maxRows,
+		},
+	};
+}
+
+/** Handle div-based data grids (role="grid", role="row", role="cell") */
+function readDataGrid(
+	container: Element,
+	maxRows: number,
+	includeLinks: boolean,
+	selector: string,
+) {
+	const gridRows = container.querySelectorAll('[role="row"]');
+	if (gridRows.length === 0) {
+		return { success: false, error: `No table or data grid found at: ${selector}` };
+	}
+
+	// First row is usually headers
+	const headers: string[] = [];
+	const headerRow = gridRows[0];
+	for (const cell of headerRow.querySelectorAll(
+		'[role="columnheader"], [role="cell"], th, td',
+	)) {
+		headers.push((cell.textContent || '').trim());
+	}
+
+	const rows: Record<string, string>[] = [];
+	let totalRows = 0;
+
+	for (let i = 1; i < gridRows.length; i++) {
+		totalRows++;
+		if (rows.length >= maxRows) continue;
+
+		const cells = gridRows[i].querySelectorAll('[role="cell"], [role="gridcell"], td');
+		const rowData: Record<string, string> = {};
+
+		cells.forEach((cell, j) => {
+			const header = headers[j] || `column_${j}`;
+			let value = (cell.textContent || '').trim();
+			if (includeLinks) {
+				const link = cell.querySelector('a[href]');
+				if (link) value = `${value} [${link.getAttribute('href') || ''}]`;
+			}
+			rowData[header] = value;
+		});
+
+		rows.push(rowData);
+	}
+
+	return {
+		success: true,
+		data: { selector, headers, rows, totalRows, truncated: totalRows > maxRows },
 	};
 }
 

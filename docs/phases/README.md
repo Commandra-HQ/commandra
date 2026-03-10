@@ -15,11 +15,11 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 
 ## Intelligence (Next)
 
-| Phase | Name                    | What Ships                                                                                | Status |
-| ----- | ----------------------- | ----------------------------------------------------------------------------------------- | ------ |
-| 7     | **Agent Core + Vision** | Agent SDK, MCP browser-bridge, screenshot tool, planning, memory, sessions, model routing |        |
-| 8     | Data Tools              | read_text, read_table, extract_data, scroll, wait tools. CSV/JSON export                  |        |
-| 9     | Dashboard Agents        | Trigger agent runs from dashboard, execute in employee browser, progress streaming        |        |
+| Phase | Name                    | What Ships                                                                                | Status  |
+| ----- | ----------------------- | ----------------------------------------------------------------------------------------- | ------- |
+| 7     | **Agent Core + Vision** | Agent SDK, MCP browser-bridge, screenshot tool, planning, memory, sessions, model routing | ✅ Done |
+| 8     | Data Tools              | read_text, read_table, extract_data, scroll, wait tools. CSV/JSON export                  | ✅ Done |
+| 9     | Dashboard Agents        | Trigger agent runs from dashboard, execute in employee browser, progress streaming        |         |
 
 ## Automation
 

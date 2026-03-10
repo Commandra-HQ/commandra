@@ -59,9 +59,10 @@ const TOOL_LABELS: Record<string, string> = {
 	get_page_state: 'Reading page',
 	screenshot: 'Taking screenshot',
 	scroll: 'Scrolling',
-	wait: 'Waiting',
+	wait_for_element: 'Waiting for element',
 	read_text: 'Reading text',
 	read_table: 'Reading table',
+	export_data: 'Exporting data',
 };
 
 const TOOL_ICONS: Record<string, string> = {
@@ -72,9 +73,10 @@ const TOOL_ICONS: Record<string, string> = {
 	get_page_state: '◎',
 	screenshot: '📷',
 	scroll: '↕',
-	wait: '⏳',
+	wait_for_element: '⏳',
 	read_text: '¶',
 	read_table: '▤',
+	export_data: '📥',
 };
 
 function formatToolLabel(toolName: string, label?: string): string {
