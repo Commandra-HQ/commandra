@@ -1,8 +1,16 @@
 import { startRecorderInPage, stopRecorderInPage } from '../content/recorder.js';
 import { startSelectorInPage, stopSelectorInPage } from '../content/selector.js';
-import { clearSite, db, getOrCreateSite, storePage } from '../storage/db.js';
 import { startCrawl, stopCrawl } from './crawler.js';
-import { connectWebSocket, isConnected, sendApproval, sendKill, sendManualAction } from './ws-client.js';
+import {
+	connectWebSocket,
+	isConnected,
+	sendApproval,
+	sendKill,
+	sendManualAction,
+	sendPageIndexed,
+} from './ws-client.js';
+
+const API_URL = 'http://localhost:3001';
 
 // Open side panel when extension icon is clicked
 chrome.sidePanel
@@ -45,27 +53,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			return true; // async
 		}
 
-		case 'GET_CRAWL_STATUS': {
-			const { domain } = message.payload as { domain: string };
-			db.sites.get(domain).then((site) => {
-				sendResponse({
-					status: site?.crawlStatus ?? 'idle',
-					totalPages: site?.totalPages ?? 0,
-					totalElements: site?.totalElements ?? 0,
-				});
-			});
-			return true; // async
-		}
-
 		case 'GET_SITE_DATA': {
 			const { domain } = message.payload as { domain: string };
 			handleGetSiteData(domain).then(sendResponse);
-			return true; // async
-		}
-
-		case 'CLEAR_SITE': {
-			const { domain } = message.payload as { domain: string };
-			clearSite(domain).then(() => sendResponse({ ok: true }));
 			return true; // async
 		}
 
@@ -161,13 +151,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleIndexSingle(tabId: number) {
 	try {
-		// Send INDEX_PAGE to the content script on that tab
 		const response = await chrome.tabs.sendMessage(tabId, { type: 'INDEX_PAGE' });
 		const pageIndex = response?.pageIndex;
 		if (pageIndex) {
 			const domain = new URL(pageIndex.url).hostname;
-			await getOrCreateSite(domain);
-			await storePage(domain, pageIndex);
+			// Push to backend via WS
+			sendPageIndexed(domain, pageIndex);
 			return { ok: true, pageIndex };
 		}
 		return { ok: false, error: 'No page index returned' };
@@ -177,8 +166,53 @@ async function handleIndexSingle(tabId: number) {
 }
 
 async function handleGetSiteData(domain: string) {
-	const site = await db.sites.get(domain);
-	if (!site) return { site: null, pages: [] };
-	const pages = await db.pages.where({ domain }).toArray();
-	return { site, pages };
+	try {
+		const stored = await chrome.storage.local.get(['authToken']);
+		const token = stored.authToken;
+		if (!token) return { site: null, pages: [] };
+
+		const res = await fetch(`${API_URL}/api/sites/${encodeURIComponent(domain)}`, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+
+		if (!res.ok) return { site: null, pages: [] };
+
+		const data = await res.json();
+		// Map backend format to what ChatTab expects
+		const site = data.site
+			? {
+					domain: data.site.domain,
+					totalPages: data.site.totalPages || 0,
+					totalElements: data.site.totalElements || 0,
+					lastIndexedAt: data.site.lastCrawledAt ? new Date(data.site.lastCrawledAt).getTime() : 0,
+					crawlStatus: 'idle' as const,
+				}
+			: null;
+
+		const pages = (data.pages || []).map(
+			(p: {
+				url: string;
+				urlPattern: string;
+				title: string;
+				pageType: string;
+				elements: unknown[];
+				navigationLinks: { label: string; href: string }[];
+				lastIndexedAt: string;
+			}) => ({
+				domain,
+				url: p.url,
+				urlPattern: p.urlPattern || '',
+				title: p.title || '',
+				pageType: p.pageType || 'other',
+				elements: p.elements || [],
+				navigationLinks: p.navigationLinks || [],
+				indexedAt: p.lastIndexedAt ? new Date(p.lastIndexedAt).getTime() : 0,
+			}),
+		);
+
+		return { site, pages };
+	} catch (err) {
+		console.error('[AFE] Failed to fetch site data from backend:', err);
+		return { site: null, pages: [] };
+	}
 }

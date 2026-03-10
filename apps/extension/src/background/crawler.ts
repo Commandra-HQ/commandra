@@ -1,6 +1,6 @@
 import type { PageIndex } from '@afe/shared';
 import type { CrawlProgress } from '@afe/shared';
-import { db, getOrCreateSite, storePage } from '../storage/db.js';
+import { sendPageIndexed } from './ws-client.js';
 
 const CRAWL_DELAY_MS = 1500;
 const MAX_PAGES_DEFAULT = 25;
@@ -275,13 +275,11 @@ export async function startCrawl(
 		`[AFE Crawler] Starting crawl of ${domain} scoped to ${pathScope} (max ${maxPages} pages, depth ${maxDepth})`,
 	);
 
-	// Initialize site
-	await getOrCreateSite(domain);
 	const visitedPatterns = new Set<string>();
 	const visited = new Set<string>();
 	const queue: QueueEntry[] = [{ url: tab.url, depth: 0 }];
 
-	await db.sites.update(domain, { crawlStatus: 'crawling' });
+	// Crawl state is in-memory only — no IndexedDB
 
 	broadcastProgress({
 		domain,
@@ -334,7 +332,8 @@ export async function startCrawl(
 				const pageIndex = await indexTabPage(crawlTabId);
 
 				if (pageIndex) {
-					await storePage(domain, pageIndex);
+					// Push to backend via WS
+					sendPageIndexed(domain, pageIndex);
 
 					// Only follow links if we haven't hit depth limit
 					if (depth < maxDepth) {
@@ -366,12 +365,6 @@ export async function startCrawl(
 
 		const finalStatus = isCrawling ? 'complete' : 'stopped';
 		isCrawling = false;
-
-		await db.sites.update(domain, {
-			crawlStatus: finalStatus,
-			crawlQueue: [],
-			crawlVisited: [],
-		});
 
 		broadcastProgress({
 			domain,

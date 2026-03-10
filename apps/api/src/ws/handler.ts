@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
 import { jwtVerify } from 'jose';
 import type { WebSocket } from 'ws';
 import { isRecording, recordStep } from '../agent/recorder.js';
+import { db } from '../db/index.js';
+import { sites } from '../db/schema.js';
+import { updateSiteTotals, upsertPage } from '../routes/sites.js';
 
 interface Connection {
 	ws: WebSocket;
@@ -127,6 +131,52 @@ export function handleWsConnection(ws: WebSocket) {
 							'',
 						).catch((err) => console.warn('[WS] Failed to record manual step:', err));
 					}
+					break;
+				}
+
+				case 'page_indexed': {
+					// Extension pushed a page index — store in Postgres
+					const conn = connections.get(connectionId);
+					if (!conn?.userId) break;
+
+					const { domain, pageIndex } = message as {
+						domain: string;
+						pageIndex: {
+							url: string;
+							urlPattern?: string;
+							title?: string;
+							pageType?: string;
+							elements?: unknown[];
+							navigationLinks?: unknown[];
+						};
+					};
+
+					if (!domain || !pageIndex?.url) break;
+
+					// Async — don't block WS
+					(async () => {
+						try {
+							// Get or create site
+							let [site] = await db
+								.select()
+								.from(sites)
+								.where(and(eq(sites.domain, domain), eq(sites.userId, conn.userId!)))
+								.limit(1);
+
+							if (!site) {
+								[site] = await db
+									.insert(sites)
+									.values({ userId: conn.userId!, domain })
+									.returning();
+							}
+
+							await upsertPage(site.id, pageIndex);
+							await updateSiteTotals(site.id);
+							console.log(`[WS] Page indexed: ${domain} ${pageIndex.urlPattern || pageIndex.url}`);
+						} catch (err) {
+							console.error('[WS] Failed to store page index:', err);
+						}
+					})();
 					break;
 				}
 

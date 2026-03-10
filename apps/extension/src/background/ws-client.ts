@@ -126,6 +126,13 @@ async function handleActionRequest(message: {
 		return;
 	}
 
+	// Extract fallback selectors and label for resilient element finding
+	const fallbacksStr = Array.isArray(payload.fallbackSelectors)
+		? (payload.fallbackSelectors as string[]).join('|||')
+		: '';
+	const elementLabel = (payload.label as string) || (payload.description as string) || '';
+	const elementType = (payload.elementType as string) || '';
+
 	try {
 		let result: unknown;
 
@@ -134,16 +141,25 @@ async function handleActionRequest(message: {
 			await waitForTabLoad(tab.id);
 			result = { success: true, data: { navigatedTo: payload.url } };
 		} else if (action === 'click_element') {
-			result = await executeInTab(tab.id, clickInPage, [payload.selector as string]);
+			result = await executeInTab(tab.id, clickInPage, [
+				payload.selector as string,
+				fallbacksStr,
+				elementLabel,
+				elementType,
+			]);
 		} else if (action === 'type_text') {
 			result = await executeInTab(tab.id, typeInPage, [
 				payload.selector as string,
 				payload.text as string,
+				fallbacksStr,
+				elementLabel,
 			]);
 		} else if (action === 'select_option') {
 			result = await executeInTab(tab.id, selectInPage, [
 				payload.selector as string,
 				payload.value as string,
+				fallbacksStr,
+				elementLabel,
 			]);
 		} else if (action === 'get_page_state') {
 			result = await executeInTab(tab.id, getPageStateInPage, []);
@@ -227,8 +243,99 @@ async function executeInTabAsync(
 
 // --- Functions that run IN the page context (injected via executeScript) ---
 
-function clickInPage(selector: string) {
-	const el = document.querySelector(selector);
+/**
+ * Resilient element finder. Tries:
+ * 1. Primary selector
+ * 2. Fallback selectors
+ * 3. Fuzzy match by label + element type
+ */
+function findElementInPage(
+	selector: string,
+	fallbacksStr: string,
+	label: string,
+	elementType: string,
+): { element: Element | null; usedSelector: string; method: string } {
+	// 1. Try primary selector
+	let el = document.querySelector(selector);
+	if (el) return { element: el, usedSelector: selector, method: 'primary' };
+
+	// 2. Try fallback selectors
+	const fallbacks = fallbacksStr ? fallbacksStr.split('|||') : [];
+	for (const fb of fallbacks) {
+		if (!fb) continue;
+		el = document.querySelector(fb);
+		if (el) return { element: el, usedSelector: fb, method: 'fallback' };
+	}
+
+	// 3. Fuzzy match by label + type
+	if (!label) return { element: null, usedSelector: selector, method: 'none' };
+
+	const typeSelectors: Record<string, string> = {
+		button: 'button, [role="button"], input[type="submit"], input[type="button"]',
+		link: 'a[href], [role="link"]',
+		input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])',
+		select: 'select',
+		textarea: 'textarea',
+		checkbox: 'input[type="checkbox"], [role="checkbox"]',
+		radio: 'input[type="radio"], [role="radio"]',
+		tab: '[role="tab"]',
+	};
+
+	const querySelector = typeSelectors[elementType] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+	const candidates = document.querySelectorAll(querySelector);
+	const labelLower = label.toLowerCase().trim();
+
+	let bestMatch: Element | null = null;
+	let bestScore = 0;
+
+	for (const candidate of candidates) {
+		if (!(candidate instanceof HTMLElement)) continue;
+		const rect = candidate.getBoundingClientRect();
+		if (rect.width === 0 || rect.height === 0) continue;
+
+		const candidateLabel = (
+			candidate.getAttribute('aria-label') ||
+			candidate.getAttribute('title') ||
+			candidate.textContent?.trim().slice(0, 100) ||
+			candidate.getAttribute('placeholder') ||
+			candidate.getAttribute('name') ||
+			''
+		).toLowerCase().trim();
+
+		if (!candidateLabel) continue;
+
+		// Exact match
+		if (candidateLabel === labelLower) {
+			return { element: candidate, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
+		}
+
+		// Score: substring match
+		let score = 0;
+		if (candidateLabel.includes(labelLower) || labelLower.includes(candidateLabel)) {
+			score = 0.8;
+		} else {
+			// Word overlap
+			const labelWords = labelLower.split(/\s+/);
+			const candidateWords = candidateLabel.split(/\s+/);
+			const overlap = labelWords.filter((w) => candidateWords.includes(w)).length;
+			score = overlap / Math.max(labelWords.length, 1);
+		}
+
+		if (score > bestScore && score > 0.4) {
+			bestScore = score;
+			bestMatch = candidate;
+		}
+	}
+
+	if (bestMatch) {
+		return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
+	}
+
+	return { element: null, usedSelector: selector, method: 'none' };
+}
+
+function clickInPage(selector: string, fallbacks: string, label: string, elementType: string) {
+	const { element: el, usedSelector, method } = findElementInPage(selector, fallbacks, label, elementType);
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLElement)) return { success: false, error: `Not clickable: ${selector}` };
 	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -236,15 +343,16 @@ function clickInPage(selector: string) {
 	return {
 		success: true,
 		data: {
-			clicked: selector,
+			clicked: usedSelector,
+			method,
 			tag: el.tagName.toLowerCase(),
 			text: el.textContent?.trim().slice(0, 100),
 		},
 	};
 }
 
-function typeInPage(selector: string, text: string) {
-	const el = document.querySelector(selector);
+function typeInPage(selector: string, text: string, fallbacks: string, label: string) {
+	const { element: el, usedSelector, method } = findElementInPage(selector, fallbacks, label, 'input');
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {
 		return { success: false, error: `Not a text input: ${selector}` };
@@ -256,17 +364,17 @@ function typeInPage(selector: string, text: string) {
 	el.value = text;
 	el.dispatchEvent(new Event('input', { bubbles: true }));
 	el.dispatchEvent(new Event('change', { bubbles: true }));
-	return { success: true, data: { typed: text, selector } };
+	return { success: true, data: { typed: text, selector: usedSelector, method } };
 }
 
-function selectInPage(selector: string, value: string) {
-	const el = document.querySelector(selector);
+function selectInPage(selector: string, value: string, fallbacks: string, label: string) {
+	const { element: el, usedSelector, method } = findElementInPage(selector, fallbacks, label, 'select');
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLSelectElement))
 		return { success: false, error: `Not a select: ${selector}` };
 	el.value = value;
 	el.dispatchEvent(new Event('change', { bubbles: true }));
-	return { success: true, data: { selected: value, selector } };
+	return { success: true, data: { selected: value, selector: usedSelector, method } };
 }
 
 function getPageStateInPage() {
@@ -648,6 +756,19 @@ export function sendApproval(requestId: string, approved: boolean, reason?: stri
 export function sendKill() {
 	if (ws && ws.readyState === WebSocket.OPEN) {
 		ws.send(JSON.stringify({ type: 'kill', timestamp: Date.now() }));
+	}
+}
+
+export function sendPageIndexed(domain: string, pageIndex: unknown) {
+	if (ws && ws.readyState === WebSocket.OPEN) {
+		ws.send(
+			JSON.stringify({
+				type: 'page_indexed',
+				domain,
+				pageIndex,
+				timestamp: Date.now(),
+			}),
+		);
 	}
 }
 

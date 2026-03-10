@@ -20,7 +20,26 @@ import {
 	X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { StoredPage, StoredSite } from '../../storage/db.js';
+
+/** Site data shapes returned by backend API (via background script) */
+interface StoredSite {
+	domain: string;
+	totalPages: number;
+	totalElements: number;
+	lastIndexedAt: number;
+	crawlStatus: 'idle' | 'crawling' | 'complete' | 'stopped';
+}
+
+interface StoredPage {
+	domain: string;
+	url: string;
+	urlPattern: string;
+	title: string;
+	pageType: string;
+	elements: { id: string; type: string; label: string; selector: string; fallbackSelectors: string[]; attributes: Record<string, string>; visible: boolean; pageUrl: string }[];
+	navigationLinks: { label: string; href: string }[];
+	indexedAt: number;
+}
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 

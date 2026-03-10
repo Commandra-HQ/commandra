@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
 import { pages, sites } from '../db/schema.js';
@@ -27,7 +27,7 @@ siteRoutes.get('/', async (c) => {
 	return c.json({ sites: rows });
 });
 
-// Get site with pages
+// Get site with pages (includes elements for each page)
 siteRoutes.get('/:domain', async (c) => {
 	const user = c.get('user');
 	const domain = c.req.param('domain');
@@ -49,6 +49,8 @@ siteRoutes.get('/:domain', async (c) => {
 			urlPattern: pages.urlPattern,
 			title: pages.title,
 			pageType: pages.pageType,
+			elements: pages.elements,
+			navigationLinks: pages.navigationLinks,
 			lastIndexedAt: pages.lastIndexedAt,
 		})
 		.from(pages)
@@ -56,3 +58,97 @@ siteRoutes.get('/:domain', async (c) => {
 
 	return c.json({ site, pages: sitePages });
 });
+
+// Upsert a page (called by extension after indexing)
+siteRoutes.post('/:domain/pages', async (c) => {
+	const user = c.get('user');
+	const domain = c.req.param('domain');
+	const body = await c.req.json();
+	const { pageIndex } = body as { pageIndex: PageIndexPayload };
+
+	if (!pageIndex?.url) return c.json({ error: 'pageIndex required' }, 400);
+
+	// Get or create site
+	let [site] = await db
+		.select()
+		.from(sites)
+		.where(and(eq(sites.domain, domain), eq(sites.userId, user.id)))
+		.limit(1);
+
+	if (!site) {
+		[site] = await db
+			.insert(sites)
+			.values({ userId: user.id, domain })
+			.returning();
+	}
+
+	await upsertPage(site.id, pageIndex);
+	await updateSiteTotals(site.id);
+
+	return c.json({ ok: true });
+});
+
+interface PageIndexPayload {
+	url: string;
+	urlPattern?: string;
+	title?: string;
+	pageType?: string;
+	elements?: unknown[];
+	navigationLinks?: unknown[];
+}
+
+/** Upsert a page by siteId + urlPattern */
+export async function upsertPage(siteId: string, pageIndex: PageIndexPayload) {
+	const urlPattern =
+		pageIndex.urlPattern ||
+		new URL(pageIndex.url).pathname.replace(/\/\d+/g, '/:id').replace(/\/[a-f0-9-]{36}/g, '/:id');
+
+	const [existing] = await db
+		.select({ id: pages.id })
+		.from(pages)
+		.where(and(eq(pages.siteId, siteId), eq(pages.urlPattern, urlPattern)))
+		.limit(1);
+
+	if (existing) {
+		await db
+			.update(pages)
+			.set({
+				url: pageIndex.url,
+				title: pageIndex.title || null,
+				pageType: pageIndex.pageType || null,
+				elements: pageIndex.elements || [],
+				navigationLinks: pageIndex.navigationLinks || [],
+				lastIndexedAt: new Date(),
+			})
+			.where(eq(pages.id, existing.id));
+	} else {
+		await db.insert(pages).values({
+			siteId,
+			url: pageIndex.url,
+			urlPattern,
+			title: pageIndex.title || null,
+			pageType: pageIndex.pageType || null,
+			elements: pageIndex.elements || [],
+			navigationLinks: pageIndex.navigationLinks || [],
+		});
+	}
+}
+
+/** Recalculate site totals from its pages */
+export async function updateSiteTotals(siteId: string) {
+	const sitePages = await db
+		.select({ elements: pages.elements })
+		.from(pages)
+		.where(eq(pages.siteId, siteId));
+
+	const totalPages = sitePages.length;
+	const totalElements = sitePages.reduce(
+		(sum, p) => sum + ((p.elements as unknown[])?.length || 0),
+		0,
+	);
+
+	await db
+		.update(sites)
+		.set({ totalPages, totalElements, lastCrawledAt: new Date() })
+		.where(eq(sites.id, siteId));
+}
