@@ -242,26 +242,27 @@ Prefer get_page_state for understanding page structure, read_text/read_table for
 ## Implementation Order
 
 ```
-Step 1: scroll tool (backend def + extension handler)
+Step 1: scroll tool (backend def + extension handler)                    ✅ DONE
         → simplest new tool, validates the pattern for adding tools
 
-Step 2: wait_for_element tool (backend def + extension handler)
-        → MutationObserver pattern, needed by read_table for loading states
+Step 2: wait_for_element tool (backend def + extension handler)          ✅ DONE
+        → Polling loop with timeout, needed by read_table for loading states
 
-Step 3: read_text tool (backend def + extension handler)
+Step 3: read_text tool (backend def + extension handler)                 ✅ DONE
         → basic extraction, validates read pattern
 
-Step 4: read_table tool (backend def + extension handler)
-        → the big one — table parsing logic + role="grid" support
+Step 4: read_table tool (backend def + extension handler)                ✅ DONE
+        → table parsing logic + role="grid" data grid support
 
-Step 5: export_data tool (backend only, no WS)
-        → CSV/JSON generation + download UI in ChatTab
+Step 5: export_data tool (backend only, no WS)                           ✅ DONE
+        → CSV/JSON generation + download button in ChatTab
 
-Step 6: Safety + prompts update
-        → Add all tools to classifier, update system prompt
+Step 6: Safety + prompts update                                          ✅ DONE
+        → All tools classified safe, system prompt updated with data tool guidance
 
-Step 7: Integration test
-        → End-to-end: chat asks to read a table → agent calls read_table → export_data → download
+Step 7: Block-based chat UI                                              ✅ DONE
+        → Sequential blocks (thinking → tool calls → text), Lucide icons,
+          inline screenshots, expandable tool details, download button
 ```
 
 ## What's NOT in Phase 8

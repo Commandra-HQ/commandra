@@ -1,4 +1,22 @@
 import type { CrawlProgress, SSEEvent, SelectedElement } from '@afe/shared';
+import {
+	ArrowRight,
+	Camera,
+	Check,
+	Clock,
+	Download,
+	Eye,
+	FileDown,
+	Keyboard,
+	List,
+	Loader2,
+	MousePointer,
+	MoveVertical,
+	Pilcrow,
+	Settings2,
+	Table2,
+	X,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StoredPage, StoredSite } from '../../storage/db.js';
 
@@ -65,18 +83,18 @@ const TOOL_LABELS: Record<string, string> = {
 	export_data: 'Exporting data',
 };
 
-const TOOL_ICONS: Record<string, string> = {
-	click_element: '👆',
-	type_text: '⌨',
-	select_option: '☰',
-	navigate: '→',
-	get_page_state: '◎',
-	screenshot: '📷',
-	scroll: '↕',
-	wait_for_element: '⏳',
-	read_text: '¶',
-	read_table: '▤',
-	export_data: '📥',
+const TOOL_ICON_COMPONENTS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+	click_element: MousePointer,
+	type_text: Keyboard,
+	select_option: List,
+	navigate: ArrowRight,
+	get_page_state: Eye,
+	screenshot: Camera,
+	scroll: MoveVertical,
+	wait_for_element: Clock,
+	read_text: Pilcrow,
+	read_table: Table2,
+	export_data: FileDown,
 };
 
 function formatToolLabel(toolName: string, label?: string): string {
@@ -915,7 +933,7 @@ function AssistantMessage({
 function ThinkingBlock() {
 	return (
 		<div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
-			<div className="h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+			<Loader2 size={12} className="animate-spin" />
 			<span>Thinking...</span>
 		</div>
 	);
@@ -936,7 +954,7 @@ function ToolCallBlock({
 	block: Extract<MessageBlock, { type: 'tool_call' }>;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const icon = TOOL_ICONS[block.toolName] || '⚙';
+	const IconComponent = TOOL_ICON_COMPONENTS[block.toolName] || Settings2;
 	const label = formatToolLabel(block.toolName, block.label);
 	const argsPreview = formatToolArgs(block.toolName, block.args);
 
@@ -949,11 +967,11 @@ function ToolCallBlock({
 
 	const statusIcon =
 		block.status === 'running' ? (
-			<div className="h-3 w-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
+			<Loader2 size={12} className="text-blue-400 animate-spin shrink-0" />
 		) : block.status === 'success' ? (
-			<span className="text-green-400 text-xs shrink-0">✓</span>
+			<Check size={12} className="text-green-400 shrink-0" />
 		) : (
-			<span className="text-red-400 text-xs shrink-0">✕</span>
+			<X size={12} className="text-red-400 shrink-0" />
 		);
 
 	return (
@@ -962,7 +980,7 @@ function ToolCallBlock({
 				onClick={() => setExpanded(!expanded)}
 				className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
 			>
-				<span className="shrink-0">{icon}</span>
+				<IconComponent size={13} className="shrink-0 text-muted-foreground" />
 				<span className="flex-1 truncate text-foreground">
 					{label}
 					{argsPreview && (
@@ -1031,7 +1049,7 @@ function ToolCallBlock({
 						}}
 						className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-foreground bg-secondary border border-border rounded hover:bg-secondary/80"
 					>
-						<span>📥</span>
+						<Download size={13} />
 						<span>Download {(block.result as { filename?: string }).filename || 'export'}</span>
 					</button>
 				</div>
