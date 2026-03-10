@@ -254,54 +254,45 @@ GET    /api/flows/:id/runs       List run history
 ## Implementation Order
 
 ```
-Step 1: Flow data model + CRUD API
-        Update flows table (add status, lastRunAt)
-        Add flow_runs table + migration
+Step 1: Flow data model + CRUD API                          ✅ Done
+        Updated flows table (added status, lastRunAt)
+        Added flow_runs table + migration
         Flow CRUD routes (/api/flows)
-        → Can create/list/edit/delete flows from API
 
-Step 2: AI-assisted recording
-        Recording state management in orchestrator
-        "Teach mode" prompt that captures steps
-        flow_step_recorded SSE event
-        LLM generates intent for each step
-        Save flow on recording_stop
-        → Chat can record flows
+Step 2: AI-assisted recording                               ✅ Done
+        Recording state management (recorder.ts)
+        Orchestrator hooks capture tool calls as FlowSteps
+        Intent generation from tool calls
+        Start/stop/cancel recording endpoints
 
-Step 3: Recording UI in extension
-        Recording banner in ChatTab
-        Step cards during recording
-        Stop recording button
-        Flow editor (name, review steps, mark parameters)
-        → User can record through chat
+Step 3: Recording UI in extension                           ✅ Done
+        Recording banner in ChatTab (red pulse + step count)
+        Record button in input area
+        Stop/save flow dialog with name + description
+        flow_step_recorded SSE handling
 
-Step 4: Flow library UI in extension
+Step 4: Flow library UI in extension                        ✅ Done
         FlowsTab: list flows grouped by domain
         Flow detail view with steps + params
         Delete flow
-        → User can browse saved flows
 
-Step 5: Flow execution
-        POST /api/flows/:id/run endpoint
-        Execution orchestrator (flow steps as system prompt context)
+Step 5: Flow execution                                     ✅ Done
+        POST /api/flows/:id/run endpoint (SSE stream)
+        AI-guided flow executor (flow steps as system prompt)
         Parameter substitution
-        Step-by-step progress SSE events
-        flow_runs logging
-        → User can replay flows
+        Step-by-step progress + flow_runs logging
 
-Step 6: Execution UI in extension
+Step 6: Execution UI in extension                           ✅ Done
         Run button in flow detail
         Parameter input form
-        Live execution view (step progress, approvals)
-        Completion summary
+        Live execution view (step progress, log, approvals)
         Run history list
-        → Full record → replay loop
 
 Step 7: Manual recording (stretch)
         DOM event interception in extension
         manual_action WS message
         Convert DOM events to FlowSteps
-        → User can record by clicking
+        → Deferred: AI-assisted recording covers primary use case
 ```
 
 ## What's NOT in Phase 10
