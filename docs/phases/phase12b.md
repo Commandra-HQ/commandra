@@ -105,41 +105,45 @@ CREATE TABLE memory_embeddings (
 ## Implementation Order
 
 ```
-Step 1: Embedding provider layer
+Step 1: Embedding provider layer                               ✅ Done
         apps/api/src/llm/embeddings.ts — provider-agnostic embed() function
         EmbeddingProvider interface: embed(texts: string[]) → number[][]
         OpenAI adapter (text-embedding-3-small)
         Ollama adapter (nomic-embed-text)
         Provider selection from LLM settings (same config pattern as chat models)
 
-Step 2: Schema migration
-        Update element_embeddings: vector dim, add embeddingModel + labelHash columns
+Step 2: Schema migration                                        ✅ Done
+        Update element_embeddings: vector dim 1536, add embeddingModel + labelHash columns
         Create flow_embeddings table
         Create memory_embeddings table
         Add HNSW indexes on all embedding columns
 
-Step 3: Background embedding job (Inngest)
-        Event: page.upserted → triggers element embedding job
+Step 3: Background embedding job (Inngest)                      ✅ Done
+        Event: page/upserted → triggers element embedding job
+        Event: flow/saved → triggers flow embedding job
+        Inngest serve endpoint wired into Hono server
         Batch embed element labels for new/changed elements
         Skip elements with matching labelHash (already embedded)
-        Rate limit: max N embed calls per minute per provider
+        Stale embedding cleanup on re-index
 
-Step 4: Vector search functions
+Step 4: Vector search functions                                 ✅ Done
         apps/api/src/db/vector-search.ts
         searchElements(query, siteId, limit) → cosine similarity on element_embeddings
+        searchElementsOnPage(query, pageId, limit) → scoped to single page
         searchFlows(query, userId, limit) → cosine similarity on flow_embeddings
         searchMemories(query, siteId, limit) → cosine similarity on memory_embeddings
 
-Step 5: Wire into selector resilience
-        New WS message: find_element { label, type, siteId }
+Step 5: Wire into selector resilience                           ✅ Done
+        New WS message: find_element { label, type, domain, requestId }
         Backend embeds label → vector search → returns best selector
         Extension falls back to this after fuzzy match fails (4th tier)
+        5-second timeout on vector search to not block actions
 
-Step 6: Wire into flows + memory
-        Flow create/update → embed name + step intents → store in flow_embeddings
-        FlowsTab search → embed query → vector search → ranked results
-        Domain memory write → embed → store in memory_embeddings
-        Orchestrator context building → vector search relevant memories
+Step 6: Wire into flows + memory                                ✅ Done
+        Flow create → embed name + step intents → Inngest background job
+        Flow update → re-embed if name/steps changed
+        GET /api/flows/search?q= → semantic flow search endpoint
+        Memory embedding table ready (write + search wired, awaits memory system)
 ```
 
 ## What's NOT in Phase 12b
