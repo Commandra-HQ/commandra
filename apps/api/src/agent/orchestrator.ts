@@ -13,6 +13,7 @@ import type {
 	ImageBlock,
 	Message,
 	TextBlock,
+	ThinkingContentBlock,
 	ToolResultBlock,
 	ToolUseBlock,
 } from '../llm/types.js';
@@ -97,14 +98,15 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		// Signal that the LLM is thinking
 		await onEvent({ type: 'thinking' });
 
-		// Call LLM with abort signal
+		// Call LLM with abort signal — enable extended thinking for richer reasoning
 		const streamIter = provider.chat({
 			model,
 			system: systemPrompt,
 			messages: currentMessages,
 			tools: connectionId ? tools : undefined,
-			maxTokens: 4096,
+			maxTokens: 16000,
 			signal,
+			thinking: { budgetTokens: 10000 },
 		});
 
 		// Stream text to client in real time while collecting tool calls
@@ -116,6 +118,15 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				if (signal?.aborted) break;
 
 				switch (event.type) {
+					case 'thinking_delta':
+						await onEvent({ type: 'thinking_delta', text: event.text });
+						// Accumulate thinking content for multi-turn history
+						if (content.length > 0 && content[content.length - 1].type === 'thinking') {
+							(content[content.length - 1] as ThinkingContentBlock).thinking += event.text;
+						} else {
+							content.push({ type: 'thinking', thinking: event.text });
+						}
+						break;
 					case 'text':
 						fullResponse += event.text;
 						await onEvent({ type: 'text_delta', text: event.text });
@@ -237,14 +248,17 @@ export async function runSimpleChat(params: {
 		model,
 		system: systemPrompt,
 		messages: params.messages.map((m) => ({ role: m.role, content: m.content })),
-		maxTokens: 2048,
+		maxTokens: 8000,
 		signal: params.signal,
+		thinking: { budgetTokens: 5000 },
 	});
 
 	try {
 		for await (const event of stream) {
 			if (params.signal?.aborted) break;
-			if (event.type === 'text') {
+			if (event.type === 'thinking_delta') {
+				await params.onEvent({ type: 'thinking_delta', text: event.text });
+			} else if (event.type === 'text') {
 				fullResponse += event.text;
 				await params.onEvent({ type: 'text_delta', text: event.text });
 			}

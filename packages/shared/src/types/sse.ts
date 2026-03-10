@@ -8,6 +8,7 @@ import type { FlowStep } from './flows.js';
 export type SSEEvent =
 	| { type: 'text_delta'; text: string }
 	| { type: 'thinking' }
+	| { type: 'thinking_delta'; text: string }
 	| { type: 'tool_start'; toolName: string; label?: string; args?: Record<string, unknown> }
 	| {
 			type: 'tool_end';

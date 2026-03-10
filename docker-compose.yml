@@ -33,8 +33,9 @@ services:
     image: inngest/inngest:latest
     ports:
       - "8288:8288"
-    environment:
-      INNGEST_EVENT_API_HOST: http://api:3001
+    command: inngest dev -u http://host.docker.internal:3001/api/inngest
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   pgdata:

@@ -17,6 +17,8 @@ export interface ChatParams {
 	tools?: Tool[];
 	maxTokens?: number;
 	signal?: AbortSignal;
+	/** Enable extended thinking / reasoning (Anthropic only for now). */
+	thinking?: { budgetTokens: number };
 }
 
 // --- Messages ---
@@ -28,7 +30,7 @@ export interface Message {
 	content: ContentBlock[] | string;
 }
 
-export type ContentBlock = TextBlock | ImageBlock | ToolUseBlock | ToolResultBlock;
+export type ContentBlock = TextBlock | ImageBlock | ToolUseBlock | ToolResultBlock | ThinkingContentBlock;
 
 export interface TextBlock {
 	type: 'text';
@@ -55,6 +57,11 @@ export interface ToolResultBlock {
 	isError?: boolean;
 }
 
+export interface ThinkingContentBlock {
+	type: 'thinking';
+	thinking: string;
+}
+
 // --- Tools ---
 
 export interface Tool {
@@ -73,6 +80,7 @@ export interface JsonSchema {
 
 export type StreamEvent =
 	| { type: 'text'; text: string }
+	| { type: 'thinking_delta'; text: string }
 	| { type: 'tool_use_start'; id: string; name: string }
 	| { type: 'tool_use_delta'; id: string; partialJson: string }
 	| { type: 'tool_use_end'; id: string; name: string; input: Record<string, unknown> }
@@ -95,6 +103,14 @@ export async function collectStream(stream: AsyncIterable<StreamEvent>): Promise
 
 	for await (const event of stream) {
 		switch (event.type) {
+			case 'thinking_delta':
+				// Merge consecutive thinking blocks
+				if (content.length > 0 && content[content.length - 1].type === 'thinking') {
+					(content[content.length - 1] as ThinkingContentBlock).thinking += event.text;
+				} else {
+					content.push({ type: 'thinking', thinking: event.text });
+				}
+				break;
 			case 'text':
 				// Merge consecutive text blocks
 				if (content.length > 0 && content[content.length - 1].type === 'text') {

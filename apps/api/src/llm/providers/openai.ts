@@ -130,7 +130,7 @@ function toOpenAIMessages(
 			const blocks = m.content as ContentBlock[];
 
 			if (m.role === 'assistant') {
-				// Assistant message with potential tool calls
+				// Assistant message with potential tool calls (strip thinking blocks — OpenAI doesn't use them)
 				const textParts = blocks.filter((b) => b.type === 'text');
 				const toolParts = blocks.filter((b) => b.type === 'tool_use');
 

@@ -3,6 +3,7 @@ import {
 	ArrowRight,
 	Camera,
 	Check,
+	ChevronRight,
 	Circle,
 	Clock,
 	Download,
@@ -54,7 +55,7 @@ interface Plan {
 // Each assistant message is a sequence of blocks rendered in order.
 
 type MessageBlock =
-	| { type: 'thinking' }
+	| { type: 'thinking'; content: string }
 	| { type: 'text'; content: string }
 	| {
 			type: 'tool_call';
@@ -203,6 +204,7 @@ export function ChatTab() {
 	const assistantMsgIdRef = useRef<string>('');
 	const blocksRef = useRef<MessageBlock[]>([]);
 	const textAccumRef = useRef('');
+	const thinkingAccumRef = useRef('');
 	const rafRef = useRef<number>(0);
 
 	const loadSiteData = useCallback((d: string) => {
@@ -347,6 +349,21 @@ export function ChatTab() {
 	}
 
 	/**
+	 * Append or update the current thinking block in the blocks array.
+	 */
+	function appendThinking(text: string) {
+		thinkingAccumRef.current += text;
+		const blocks = blocksRef.current;
+		const last = blocks[blocks.length - 1];
+
+		if (last && last.type === 'thinking') {
+			last.content = thinkingAccumRef.current;
+		} else {
+			blocks.push({ type: 'thinking', content: thinkingAccumRef.current });
+		}
+	}
+
+	/**
 	 * Core streaming function. Sends a message and consumes the SSE stream.
 	 */
 	async function sendMessage(text: string, extraBody?: Record<string, unknown>) {
@@ -410,25 +427,31 @@ export function ChatTab() {
 								break;
 
 							case 'thinking': {
-								// Remove previous thinking block if it's the last one (new iteration)
+								// New thinking phase — reset accumulators
+								textAccumRef.current = '';
+								thinkingAccumRef.current = '';
 								const lastBlock = blocksRef.current[blocksRef.current.length - 1];
 								if (!lastBlock || lastBlock.type !== 'thinking') {
-									// Reset text accumulator — new thinking phase means new text block after
-									textAccumRef.current = '';
-									blocksRef.current.push({ type: 'thinking' });
+									blocksRef.current.push({ type: 'thinking', content: '' });
 									scheduleFlush();
 								}
 								break;
 							}
 
+							case 'thinking_delta':
+								appendThinking(event.text);
+								scheduleFlush();
+								break;
+
 							case 'tool_start': {
-								// Remove trailing thinking block — tool call replaces it
 								const blocks = blocksRef.current;
-								if (blocks.length > 0 && blocks[blocks.length - 1].type === 'thinking') {
+								// Remove trailing thinking block only if it has no content (empty spinner)
+								if (blocks.length > 0 && blocks[blocks.length - 1].type === 'thinking' && !(blocks[blocks.length - 1] as { content: string }).content) {
 									blocks.pop();
 								}
-								// Reset text accumulator for the next text block after tools
+								// Reset accumulators for the next phase
 								textAccumRef.current = '';
+								thinkingAccumRef.current = '';
 								blocks.push({
 									type: 'tool_call',
 									toolName: event.toolName,
@@ -1078,7 +1101,7 @@ function AssistantMessage({
 				{blocks.map((block, i) => {
 					switch (block.type) {
 						case 'thinking':
-							return <ThinkingBlock key={i} />;
+							return <ThinkingBlock key={i} content={block.content} isLast={i === blocks.length - 1} />;
 						case 'text':
 							return <TextBlock key={i} content={block.content} />;
 						case 'tool_call':
@@ -1101,17 +1124,41 @@ function AssistantMessage({
 				})}
 
 				{/* If no visible content yet and we're thinking */}
-				{blocks.length === 0 && isActive && <ThinkingBlock />}
+				{blocks.length === 0 && isActive && <ThinkingBlock content="" isLast />}
 			</div>
 		</div>
 	);
 }
 
-function ThinkingBlock() {
+function ThinkingBlock({ content, isLast }: { content: string; isLast: boolean }) {
+	const [expanded, setExpanded] = useState(false);
+	const isStreaming = isLast && !content; // Will auto-expand once content arrives
+	const hasContent = content.length > 0;
+
+	// Auto-expand while streaming thinking content
+	const showContent = expanded || (isLast && hasContent);
+
 	return (
-		<div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
-			<Loader2 size={12} className="animate-spin" />
-			<span>Thinking...</span>
+		<div className="text-xs text-muted-foreground py-1">
+			<button
+				type="button"
+				className="flex items-center gap-2 hover:text-foreground transition-colors"
+				onClick={() => hasContent && setExpanded(!expanded)}
+			>
+				{isLast && !content ? (
+					<Loader2 size={12} className="animate-spin shrink-0" />
+				) : isLast && hasContent ? (
+					<Loader2 size={12} className="animate-spin shrink-0" />
+				) : (
+					<ChevronRight size={12} className={`shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+				)}
+				<span>Thinking{isLast && hasContent ? '...' : ''}</span>
+			</button>
+			{showContent && hasContent && (
+				<div className="mt-1 ml-5 text-[11px] text-muted-foreground/70 whitespace-pre-wrap max-h-[200px] overflow-y-auto leading-relaxed">
+					{content}
+				</div>
+			)}
 		</div>
 	);
 }
