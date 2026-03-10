@@ -4,9 +4,14 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { WebSocketServer } from 'ws';
+import { auditRoutes } from './routes/audit.js';
 import { authRoutes } from './routes/auth.js';
 import { chatRoutes } from './routes/chat.js';
+import { conversationRoutes } from './routes/conversations.js';
 import { healthRoutes } from './routes/health.js';
+import { settingsRoutes } from './routes/settings.js';
+import { siteRoutes } from './routes/sites.js';
+import { statsRoutes } from './routes/stats.js';
 import { tokenRoutes } from './routes/token.js';
 import { handleWsConnection } from './ws/handler.js';
 
@@ -30,6 +35,11 @@ app.route('/health', healthRoutes);
 app.route('/api/auth', authRoutes);
 app.route('/api/token', tokenRoutes);
 app.route('/api/chat', chatRoutes);
+app.route('/api/conversations', conversationRoutes);
+app.route('/api/audit', auditRoutes);
+app.route('/api/sites', siteRoutes);
+app.route('/api/settings', settingsRoutes);
+app.route('/api/stats', statsRoutes);
 
 const PORT = Number(process.env.PORT) || 3001;
 const WS_PORT = Number(process.env.WS_PORT) || 3002;

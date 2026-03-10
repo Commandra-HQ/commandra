@@ -26,7 +26,7 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | Phase | Name                | What Ships                                                                            | Status |
 | ----- | ------------------- | ------------------------------------------------------------------------------------- | ------ |
 | 10    | Flows + Teach Mode  | Record action sequences, parameterize, replay. Flow library UI                        |        |
-| 11    | Scheduled Agents    | Inngest cron triggers, run in employee browser on schedule, completion notifications  |        |
+| 11    | Task Triggers       | Dashboard-triggered tasks, Inngest scheduled runs, execute in employee browser        |        |
 | 12    | Embeddings + Search | pgvector embeddings for elements/pages, smart element lookup, incremental re-indexing |        |
 
 ## Scale

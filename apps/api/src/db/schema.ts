@@ -104,6 +104,17 @@ export const domainMemory = pgTable('domain_memory', {
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const userSettings = pgTable('user_settings', {
+	userId: uuid('user_id')
+		.primaryKey()
+		.references(() => users.id),
+	llmProvider: text('llm_provider').default('anthropic'),
+	llmApiKey: text('llm_api_key'),
+	llmModelStrong: text('llm_model_strong').default('sonnet'),
+	llmModelFast: text('llm_model_fast').default('haiku'),
+	updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export const auditLogs = pgTable('audit_logs', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	userId: uuid('user_id')

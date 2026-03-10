@@ -1,6 +1,8 @@
 'use client';
 
+import { Copy, Check, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { Button } from '@/components/ui/button';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -12,12 +14,10 @@ export function ExtensionToken() {
 	async function generateToken() {
 		setLoading(true);
 		try {
-			// Get short-lived Clerk token
 			const clerkRes = await fetch('/api/extension/token');
 			if (!clerkRes.ok) throw new Error('Failed to get Clerk token');
 			const { token: clerkToken } = await clerkRes.json();
 
-			// Exchange for long-lived extension JWT
 			const exchangeRes = await fetch(`${API_URL}/api/token/exchange`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -45,36 +45,28 @@ export function ExtensionToken() {
 
 	if (!token) {
 		return (
-			<button
-				onClick={generateToken}
-				disabled={loading}
-				className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-md hover:bg-gray-800 disabled:opacity-50"
-			>
+			<Button onClick={generateToken} disabled={loading}>
+				{loading && <Loader2 size={16} className="mr-2 animate-spin" />}
 				{loading ? 'Generating...' : 'Generate Extension Token'}
-			</button>
+			</Button>
 		);
 	}
 
 	return (
 		<div className="space-y-3">
 			<div className="flex items-center gap-2">
-				<code className="flex-1 text-xs bg-gray-100 p-3 rounded-md break-all select-all max-h-20 overflow-y-auto">
+				<code className="flex-1 text-xs bg-muted p-3 rounded-md break-all select-all max-h-20 overflow-y-auto">
 					{token}
 				</code>
-				<button
-					onClick={copyToken}
-					className="shrink-0 px-3 py-2 text-sm font-medium text-white bg-gray-900 rounded-md hover:bg-gray-800"
-				>
-					{copied ? 'Copied!' : 'Copy'}
-				</button>
+				<Button variant="outline" size="sm" onClick={copyToken}>
+					{copied ? <Check size={14} className="mr-1" /> : <Copy size={14} className="mr-1" />}
+					{copied ? 'Copied' : 'Copy'}
+				</Button>
 			</div>
-			<p className="text-xs text-gray-500">
-				Paste this token in the Chrome extension side panel. Token is valid for 30 days.
+			<p className="text-xs text-muted-foreground">
+				Paste this token in the Chrome extension side panel. Valid for 30 days.
 			</p>
-			<button
-				onClick={generateToken}
-				className="text-xs text-gray-500 underline hover:text-gray-700"
-			>
+			<button onClick={generateToken} className="text-xs text-muted-foreground underline hover:text-foreground">
 				Generate new token
 			</button>
 		</div>
