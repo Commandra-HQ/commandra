@@ -88,7 +88,11 @@ let cachedEmbeddingProvider: EmbeddingProvider | null = null;
 export function getEmbeddingProvider(): EmbeddingProvider {
 	if (cachedEmbeddingProvider) return cachedEmbeddingProvider;
 
-	const providerId = process.env.EMBEDDING_PROVIDER || process.env.LLM_PROVIDER || 'openai';
+	// Anthropic/Google don't have embedding APIs — fall back to OpenAI
+	const llmProvider = process.env.LLM_PROVIDER || 'anthropic';
+	const providerId = process.env.EMBEDDING_PROVIDER || (
+		llmProvider === 'openai' || llmProvider === 'ollama' ? llmProvider : 'openai'
+	);
 	const apiKey = process.env.EMBEDDING_API_KEY || process.env.OPENAI_API_KEY || process.env.LLM_API_KEY;
 
 	switch (providerId) {
@@ -107,6 +111,8 @@ export function getEmbeddingProvider(): EmbeddingProvider {
 		default:
 			throw new Error(`Unknown embedding provider: ${providerId}. Supported: openai, ollama`);
 	}
+
+	console.log(`[Embeddings] Using provider: ${cachedEmbeddingProvider.id} (${cachedEmbeddingProvider.dimensions} dims)`);
 
 	return cachedEmbeddingProvider;
 }
