@@ -122,45 +122,38 @@ All endpoints use existing Clerk auth middleware. Read-only except settings PUT.
 ## Implementation Order
 
 ```
-Step 1: shadcn setup + layout shell
-        npx shadcn@latest init in apps/web
+Step 1: shadcn setup + layout shell                          ✅ Done
+        shadcn/ui init, tailwind config, CSS variables
         Sidebar component, nav items, responsive layout
-        → Navigable shell with empty pages
 
-Step 2: Settings page + API + DB migration
+Step 2: Settings page + API + DB migration                   ✅ Done
         user_settings table, GET/PUT /api/settings
         Settings form with provider/key/model config
-        → User can configure their LLM
 
-Step 3: History page + API
+Step 3: History page + API                                   ✅ Done
         GET /api/conversations, GET /api/conversations/:id
         Conversation list + thread viewer
-        → User can review past chats
 
-Step 4: Audit page + API
+Step 4: Audit page + API                                     ✅ Done
         GET /api/audit with filters
         DataTable with badges and filters
-        → User can see every agent action
 
-Step 5: Sites page + API
+Step 5: Sites page + API                                     ✅ Done
         GET /api/sites, GET /api/sites/:domain
         Site cards + page list detail
-        → User can see what the agent knows about their apps
 
-Step 6: Home page
+Step 6: Home page                                            ✅ Done
         Stats from existing tables (count queries)
-        Extension connection status check
-        Recent activity
-        → Landing page with overview
+        Extension token generator
 
 Step 7: Extension shadcn migration (incremental)
         Swap Button, Input, Badge, Card components
-        → Visual consistency
+        → Visual consistency (deferred — optional polish)
 ```
 
 ## What's NOT in Phase 9
 
-- Task triggers from dashboard (move to Phase 10+ with flows)
+- Task triggers from dashboard (moved to Phase 11)
 - Real-time WS connection to dashboard (just REST APIs + page refresh)
 - Conversation search (basic list + filter is enough for now)
 - Data export from dashboard (audit CSV export, etc.) — future

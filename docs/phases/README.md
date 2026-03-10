@@ -19,7 +19,7 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | ----- | ----------------------- | ----------------------------------------------------------------------------------------- | -------- |
 | 7     | **Agent Core + Vision** | Agent SDK, MCP browser-bridge, screenshot tool, planning, memory, sessions, model routing | ✅ Done  |
 | 8     | Data Tools              | scroll, wait, read_text, read_table tools. export_data (CSV/JSON). Block-based chat UI    | ✅ ,Done |
-| 9     | Dashboard               | shadcn dashboard shell, conversation history, audit log, site management, LLM settings    |          |
+| 9     | Dashboard               | shadcn dashboard shell, conversation history, audit log, site management, LLM settings    | ✅ Done  |
 
 ## Automation
 
