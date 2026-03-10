@@ -55,3 +55,16 @@ document.addEventListener('keydown', (e) => {
 		chrome.runtime.sendMessage({ type: 'kill' });
 	}
 });
+
+// Bridge for manual recording — page context posts messages, we forward to background
+window.addEventListener('message', (e) => {
+	if (e.source !== window) return;
+	if (e.data?.type === '__AFE_RECORDED_ACTION') {
+		chrome.runtime.sendMessage({
+			type: 'RECORDED_ACTION',
+			action: e.data.action,
+			args: e.data.args,
+			url: e.data.url,
+		});
+	}
+});

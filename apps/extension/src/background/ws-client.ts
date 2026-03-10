@@ -651,6 +651,20 @@ export function sendKill() {
 	}
 }
 
+export function sendManualAction(action: string, args: Record<string, unknown>, url: string) {
+	if (ws && ws.readyState === WebSocket.OPEN) {
+		ws.send(
+			JSON.stringify({
+				type: 'manual_action',
+				action,
+				args,
+				url,
+				timestamp: Date.now(),
+			}),
+		);
+	}
+}
+
 export function disconnectWebSocket() {
 	chrome.alarms.clear(KEEPALIVE_ALARM);
 	if (reconnectTimer) {

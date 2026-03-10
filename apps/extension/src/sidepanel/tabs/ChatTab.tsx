@@ -536,6 +536,10 @@ export function ChatTab() {
 			if (res.ok) {
 				setIsRecording(true);
 				setRecordedSteps([]);
+				// Inject manual recorder into the page
+				if (tabId) {
+					chrome.runtime.sendMessage({ type: 'RECORDER_START', payload: { tabId } });
+				}
 			}
 		} catch (err) {
 			console.error('Failed to start recording:', err);
@@ -543,6 +547,11 @@ export function ChatTab() {
 	}
 
 	async function stopRecordingMode() {
+		// Stop the manual recorder in the page
+		if (tabId) {
+			chrome.runtime.sendMessage({ type: 'RECORDER_STOP', payload: { tabId } });
+		}
+
 		if (recordedSteps.length === 0) {
 			// Cancel — no steps recorded
 			const stored = await chrome.storage.local.get(['authToken']);

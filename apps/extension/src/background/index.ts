@@ -1,7 +1,8 @@
+import { startRecorderInPage, stopRecorderInPage } from '../content/recorder.js';
 import { startSelectorInPage, stopSelectorInPage } from '../content/selector.js';
 import { clearSite, db, getOrCreateSite, storePage } from '../storage/db.js';
 import { startCrawl, stopCrawl } from './crawler.js';
-import { connectWebSocket, isConnected, sendApproval, sendKill } from './ws-client.js';
+import { connectWebSocket, isConnected, sendApproval, sendKill, sendManualAction } from './ws-client.js';
 
 // Open side panel when extension icon is clicked
 chrome.sidePanel
@@ -106,6 +107,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 				.then(() => sendResponse({ ok: true }))
 				.catch(() => sendResponse({ ok: false }));
 			return true; // async
+		}
+
+		case 'RECORDER_START': {
+			const { tabId } = message.payload as { tabId: number };
+			chrome.scripting
+				.executeScript({
+					target: { tabId },
+					func: startRecorderInPage,
+				})
+				.then(() => {
+					// Listen for recorded actions from the page via content script bridge
+					sendResponse({ ok: true });
+				})
+				.catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
+			return true; // async
+		}
+
+		case 'RECORDER_STOP': {
+			const { tabId } = message.payload as { tabId: number };
+			chrome.scripting
+				.executeScript({
+					target: { tabId },
+					func: stopRecorderInPage,
+				})
+				.then(() => sendResponse({ ok: true }))
+				.catch(() => sendResponse({ ok: false }));
+			return true; // async
+		}
+
+		case 'RECORDED_ACTION': {
+			// Forwarded from content script — send to backend via WS
+			const { action, args, url } = message as {
+				action: string;
+				args: Record<string, unknown>;
+				url: string;
+			};
+			sendManualAction(action, args, url);
+			sendResponse({ ok: true });
+			break;
 		}
 
 		case 'kill': {

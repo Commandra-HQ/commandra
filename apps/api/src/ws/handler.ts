@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { jwtVerify } from 'jose';
 import type { WebSocket } from 'ws';
+import { isRecording, recordStep } from '../agent/recorder.js';
 
 interface Connection {
 	ws: WebSocket;
@@ -101,6 +102,31 @@ export function handleWsConnection(ws: WebSocket) {
 						error: 'Agent stopped by user',
 						timestamp: Date.now(),
 					});
+					break;
+				}
+
+				case 'manual_action': {
+					// Manual recording — user performed an action in the browser
+					if (isRecording(connectionId)) {
+						const { action, args, url } = message as {
+							action: string;
+							args: Record<string, unknown>;
+							url: string;
+						};
+						let urlPattern = '';
+						try {
+							urlPattern = new URL(url).pathname.replace(/\/\d+/g, '/:id');
+						} catch {}
+
+						recordStep(
+							connectionId,
+							action,
+							args,
+							{ success: true },
+							urlPattern,
+							'',
+						).catch((err) => console.warn('[WS] Failed to record manual step:', err));
+					}
 					break;
 				}
 

@@ -288,11 +288,11 @@ Step 6: Execution UI in extension                           ✅ Done
         Live execution view (step progress, log, approvals)
         Run history list
 
-Step 7: Manual recording (stretch)
-        DOM event interception in extension
-        manual_action WS message
-        Convert DOM events to FlowSteps
-        → Deferred: AI-assisted recording covers primary use case
+Step 7: Manual recording                                   ✅ Done
+        DOM event interception (recorder.ts injected into page)
+        Captures clicks, text input, select changes
+        postMessage bridge → content script → background → WS
+        Backend records manual_action as FlowSteps
 ```
 
 ## What's NOT in Phase 10
