@@ -127,34 +127,34 @@ page_indexed { domain, pageIndex }  →  Upsert page in Postgres, update site to
 ## Implementation Order
 
 ```
-Step 1: Backend page upsert API + WS handler
+Step 1: Backend page upsert API + WS handler                    ✅ Done
         POST /api/sites/:domain/pages endpoint
         WS page_indexed message handler
         Upsert logic: match by siteId + urlPattern
         Update site totals after upsert
 
-Step 2: Extension pushes pages to backend
+Step 2: Extension pushes pages to backend                       ✅ Done
         After single page index → send page_indexed via WS
         After crawl page index → send page_indexed via WS
         After SPA navigation re-index → send page_indexed via WS
 
-Step 3: Extension reads from backend
+Step 3: Extension reads from backend                            ✅ Done
         Replace GET_SITE_DATA with API call to GET /api/sites/:domain
         ChatTab fetches pages from backend on domain detect
         Cache in component state (no IndexedDB)
 
-Step 4: Kill IndexedDB
+Step 4: Kill IndexedDB                                          ✅ Done
         Remove storage/db.ts
         Remove dexie dependency
         Update crawler to not use storePage/getOrCreateSite
         Crawl state (queue, visited) stays in memory (already is)
 
-Step 5: Selector resilience
+Step 5: Selector resilience                                     ✅ Done
         Add findElement() with fallback + fuzzy match to ws-client.ts
         Update action handlers (click, type, select) to use findElement()
         Log fallback/fuzzy usage for domain memory
 
-Step 6: Incremental re-indexing
+Step 6: Incremental re-indexing                                 ✅ Done
         Debounced DOM change detection in content script
         Push updated page to backend on significant changes
         Threshold: element count changed by >20%
