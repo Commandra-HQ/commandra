@@ -1,4 +1,5 @@
 import type { CrawlProgress, FlowStep, SSEEvent, SelectedElement } from '@afe/shared';
+import ReactMarkdown from 'react-markdown';
 import {
 	AlertCircle,
 	ArrowRight,
@@ -1233,8 +1234,8 @@ function TextBlock({ content }: { content: string }) {
 	const cleaned = stripPlanBlock(content);
 	if (!cleaned.trim()) return null;
 	return (
-		<div className="rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-secondary text-foreground">
-			{cleaned}
+		<div className="rounded-lg px-3 py-2 text-sm bg-secondary text-foreground prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-1 prose-code:text-xs">
+			<ReactMarkdown>{cleaned}</ReactMarkdown>
 		</div>
 	);
 }

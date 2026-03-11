@@ -6,7 +6,7 @@
  * At the end, the steps are saved as a flow.
  */
 
-import type { FlowStep, SSEEvent } from '@afe/shared';
+import type { FlowStep } from '@afe/shared';
 import { db } from '../db/index.js';
 import { flows, sites } from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
@@ -19,7 +19,6 @@ const recordings = new Map<
 		userId: string;
 		domain: string;
 		steps: FlowStep[];
-		onEvent: (event: SSEEvent) => Promise<void>;
 	}
 >();
 
@@ -27,9 +26,8 @@ export function startRecording(
 	connectionId: string,
 	userId: string,
 	domain: string,
-	onEvent: (event: SSEEvent) => Promise<void>,
 ) {
-	recordings.set(connectionId, { userId, domain, steps: [], onEvent });
+	recordings.set(connectionId, { userId, domain, steps: [] });
 }
 
 export function isRecording(connectionId: string): boolean {

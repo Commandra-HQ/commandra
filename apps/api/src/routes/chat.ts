@@ -31,8 +31,7 @@ chatRoutes.post('/record/start', async (c) => {
 		return c.json({ error: 'Already recording' }, 400);
 	}
 
-	// Create a dummy onEvent that does nothing — real events go through the chat SSE stream
-	startRecording(connectionId, user.id, domain, async () => {});
+	startRecording(connectionId, user.id, domain);
 
 	return c.json({ ok: true, recording: true });
 });
@@ -199,11 +198,11 @@ chatRoutes.post('/', async (c) => {
 			}
 
 			// Update domain memory and user memory in the background
-			if (domain && fullResponse.length > 50) {
-				const transcript = chatMessages
-					.slice(-10)
-					.map((m) => `${m.role}: ${m.content}`)
-					.join('\n\n');
+			if (domain && fullResponse.length > 20) {
+				const transcript = [
+					...chatMessages.slice(-10).map((m) => `${m.role}: ${m.content}`),
+					`assistant: ${fullResponse}`,
+				].join('\n\n');
 				updateDomainMemory(domain, transcript, getProvider(), getFastModel()).catch((err) =>
 					console.warn('[DomainMemory] Update failed:', err),
 				);
