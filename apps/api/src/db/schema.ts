@@ -161,6 +161,22 @@ export const userSettings = pgTable('user_settings', {
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const userMemory = pgTable('user_memory', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	userId: uuid('user_id')
+		.references(() => users.id)
+		.notNull(),
+	domain: text('domain').notNull(),
+	category: text('category').notNull(), // 'preference' | 'correction' | 'terminology' | 'workflow'
+	content: text('content').notNull(),
+	source: text('source').notNull().default('auto'), // 'auto' | 'explicit'
+	confidence: integer('confidence').default(1),
+	timesReinforced: integer('times_reinforced').default(1),
+	lastUsedAt: timestamp('last_used_at'),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export const auditLogs = pgTable('audit_logs', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	userId: uuid('user_id')

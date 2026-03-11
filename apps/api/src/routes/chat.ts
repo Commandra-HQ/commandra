@@ -8,6 +8,7 @@ import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
 import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
+import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 
@@ -128,16 +129,22 @@ chatRoutes.post('/', async (c) => {
 	const canAct = !!connectionId;
 	if (connectionId) resetKill(connectionId);
 
-	// Load domain memory if we have page context
+	// Load domain memory and user memory if we have page context
 	const pi = pageIndex as { url?: string } | undefined;
 	let domain: string | undefined;
 	let domainMem: string | undefined;
+	let userMem: string | undefined;
 	if (pi?.url) {
 		try {
 			domain = new URL(pi.url).hostname;
-			domainMem = (await loadDomainMemory(domain)) ?? undefined;
+			const [dm, um] = await Promise.all([
+				loadDomainMemory(domain),
+				loadUserMemory(user.id, domain),
+			]);
+			domainMem = dm ?? undefined;
+			userMem = um ?? undefined;
 		} catch {
-			// Invalid URL, skip domain memory
+			// Invalid URL, skip memory
 		}
 	}
 
@@ -162,6 +169,8 @@ chatRoutes.post('/', async (c) => {
 					pageIndex,
 					selectedElements,
 					domainMemory: domainMem,
+					userMemory: userMem,
+					domain,
 					onEvent,
 					signal,
 				});
@@ -172,6 +181,7 @@ chatRoutes.post('/', async (c) => {
 					pageIndex,
 					selectedElements,
 					domainMemory: domainMem,
+					userMemory: userMem,
 					onEvent,
 					signal,
 				});
@@ -188,7 +198,7 @@ chatRoutes.post('/', async (c) => {
 				});
 			}
 
-			// Update domain memory in the background
+			// Update domain memory and user memory in the background
 			if (domain && fullResponse.length > 50) {
 				const transcript = chatMessages
 					.slice(-10)
@@ -197,6 +207,13 @@ chatRoutes.post('/', async (c) => {
 				updateDomainMemory(domain, transcript, getProvider(), getFastModel()).catch((err) =>
 					console.warn('[DomainMemory] Update failed:', err),
 				);
+				extractAndSaveUserMemory(
+					user.id,
+					domain,
+					transcript,
+					getProvider(),
+					getFastModel(),
+				).catch((err) => console.warn('[UserMemory] Extraction failed:', err));
 			}
 
 			// Send done event with conversation ID

@@ -22,6 +22,7 @@ import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { saveUserMemory, type MemoryCategory } from '../memory/user.js';
 import { parsePlan } from './planner.js';
 import { buildSystemPrompt } from './prompts.js';
 import { isRecording, recordStep } from './recorder.js';
@@ -40,6 +41,8 @@ export interface OrchestratorParams {
 		attributes: Record<string, string>;
 	}[];
 	domainMemory?: string;
+	userMemory?: string;
+	domain?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 	maxIterations?: number;
@@ -61,6 +64,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		pageIndex,
 		selectedElements,
 		domainMemory,
+		userMemory,
+		domain,
 		onEvent,
 		signal,
 		maxIterations = 15,
@@ -68,8 +73,32 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
 	const provider = getProvider();
 	const model = getStrongModel();
-	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory);
-	const tools = getToolDefinitions();
+	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory);
+
+	// Add save_memory internal tool alongside browser tools
+	const browserTools = getToolDefinitions();
+	const saveMemoryTool = {
+		name: 'save_memory',
+		description:
+			'Save something to remember about this user for future sessions. Use when the user explicitly asks you to remember something, or when you notice a strong preference or correction worth preserving.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				category: {
+					type: 'string',
+					enum: ['preference', 'correction', 'terminology', 'workflow'],
+					description:
+						'Category: preference (how they like things), correction (something they corrected you on), terminology (their shorthand/jargon), workflow (repeated patterns)',
+				},
+				content: {
+					type: 'string',
+					description: 'What to remember — be specific and concise',
+				},
+			},
+			required: ['category', 'content'],
+		},
+	};
+	const tools = [...browserTools, saveMemoryTool];
 	const context = { connectionId, userId };
 
 	// Compress long conversation histories before sending to LLM
@@ -95,6 +124,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		}
 
 		iterations++;
+		console.log(`[Orchestrator] Iteration ${iterations} starting`);
 
 		// Signal that the LLM is thinking
 		await onEvent({ type: 'thinking' });
@@ -113,6 +143,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		// Stream text to client in real time while collecting tool calls
 		const content: ContentBlock[] = [];
 		let stopReason: 'end_turn' | 'tool_use' | 'max_tokens' = 'end_turn';
+		let thinkingChunks = 0;
+		let textChunks = 0;
 
 		try {
 			for await (const event of streamIter) {
@@ -120,6 +152,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
 				switch (event.type) {
 					case 'thinking_delta':
+						thinkingChunks++;
+						if (thinkingChunks <= 3) console.log(`[Orchestrator] iter=${iterations} thinking_delta (chunk ${thinkingChunks}): "${event.text.slice(0, 50)}..."`);
 						await onEvent({ type: 'thinking_delta', text: event.text });
 						// Accumulate thinking content for multi-turn history
 						if (content.length > 0 && content[content.length - 1].type === 'thinking') {
@@ -129,12 +163,15 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 						}
 						break;
 					case 'thinking_signature': {
+						console.log(`[Orchestrator] iter=${iterations} thinking_signature received (${event.signature.slice(0, 20)}...)`);
 						// Attach signature to the last thinking block (required for Anthropic multi-turn)
 						const lastThinking = [...content].reverse().find((b) => b.type === 'thinking');
 						if (lastThinking) (lastThinking as ThinkingContentBlock).signature = event.signature;
 						break;
 					}
 					case 'text':
+						textChunks++;
+						if (textChunks <= 3) console.log(`[Orchestrator] iter=${iterations} text (chunk ${textChunks}): "${event.text.slice(0, 50)}..."`);
 						fullResponse += event.text;
 						await onEvent({ type: 'text_delta', text: event.text });
 						// Merge consecutive text blocks
@@ -163,6 +200,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			throw err;
 		}
 
+		console.log(`[Orchestrator] iter=${iterations} stream done: thinkingChunks=${thinkingChunks} textChunks=${textChunks} stopReason=${stopReason} contentBlocks=${content.map(b => b.type).join(',')}`);
+
 		if (signal?.aborted) break;
 
 		// Detect plan blocks in accumulated text and emit explicit plan SSE event
@@ -190,6 +229,48 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
 			if (block.type === 'tool_use') {
 				hasToolUse = true;
+
+				// Handle save_memory internally (no WS routing)
+				if (block.name === 'save_memory' && domain) {
+					const args = block.input as { category: string; content: string };
+					try {
+						await saveUserMemory(
+							userId,
+							domain,
+							args.category as MemoryCategory,
+							args.content,
+							'explicit',
+						);
+						await onEvent({
+							type: 'tool_start',
+							toolName: 'save_memory',
+							label: args.content.slice(0, 60),
+							args: block.input,
+						});
+						await onEvent({
+							type: 'tool_end',
+							toolName: 'save_memory',
+							success: true,
+							result: { success: true, saved: args.content },
+						});
+						toolResults.push({
+							type: 'tool_result',
+							toolUseId: block.id,
+							content: JSON.stringify({ success: true, message: 'Memory saved' }),
+							isError: false,
+						});
+					} catch (err) {
+						const errorMsg = err instanceof Error ? err.message : String(err);
+						toolResults.push({
+							type: 'tool_result',
+							toolUseId: block.id,
+							content: JSON.stringify({ success: false, error: errorMsg }),
+							isError: true,
+						});
+					}
+					continue;
+				}
+
 				const result = await handleToolCall(block, context, userId, connectionId, onEvent);
 
 				// Build tool result content — include image for screenshot results
@@ -250,6 +331,7 @@ export async function runSimpleChat(params: {
 	pageIndex?: unknown;
 	selectedElements?: OrchestratorParams['selectedElements'];
 	domainMemory?: string;
+	userMemory?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 }): Promise<string> {
@@ -259,6 +341,7 @@ export async function runSimpleChat(params: {
 		params.pageIndex,
 		params.selectedElements,
 		params.domainMemory,
+		params.userMemory,
 	);
 
 	await params.onEvent({ type: 'thinking' });

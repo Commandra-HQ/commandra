@@ -62,6 +62,7 @@ export function buildSystemPrompt(
 	pageIndex?: unknown,
 	selectedElements?: SelectedElement[],
 	domainMemory?: string,
+	userMemory?: string,
 ): string {
 	if (!pageIndex) {
 		return `${BASE_PROMPT}\n\nNo page is currently indexed. Ask the user to index a page first.`;
@@ -137,6 +138,11 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		memorySummary = `\n\n## What You Know About This App\n${domainMemory}`;
 	}
 
+	let userMemorySummary = '';
+	if (userMemory) {
+		userMemorySummary = `\n\n## What You Know About This User\n${userMemory}`;
+	}
+
 	return `${BASE_PROMPT}
 
 ## Current Page
@@ -148,7 +154,7 @@ When the user refers to "these elements" or "the selected elements", they mean t
 ${elementsSummary}
 
 ## Navigation Links
-${navSummary}${siteSummary}${selectedSummary}${memorySummary}${PLANNING_INSTRUCTIONS}`;
+${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${PLANNING_INSTRUCTIONS}`;
 }
 
 function formatElements(elements: { type: string; label: string; selector: string }[]): string {

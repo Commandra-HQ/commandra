@@ -66,6 +66,7 @@ export class AnthropicProvider implements LLMProvider {
 		for await (const event of response) {
 			if (event.type === 'content_block_start') {
 				const block = event.content_block as { type: string; id?: string; name?: string };
+				console.log(`[Anthropic] content_block_start: type=${block.type}`);
 				currentBlockType = block.type;
 				if (block.type === 'tool_use') {
 					currentToolId = block.id || '';

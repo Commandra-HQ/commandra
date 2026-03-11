@@ -12,6 +12,7 @@ import { chatRoutes } from './routes/chat.js';
 import { conversationRoutes } from './routes/conversations.js';
 import { flowRoutes } from './routes/flows.js';
 import { healthRoutes } from './routes/health.js';
+import { memoryRoutes } from './routes/memory.js';
 import { settingsRoutes } from './routes/settings.js';
 import { siteRoutes } from './routes/sites.js';
 import { statsRoutes } from './routes/stats.js';
@@ -44,6 +45,7 @@ app.route('/api/sites', siteRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/stats', statsRoutes);
 app.route('/api/flows', flowRoutes);
+app.route('/api/memory', memoryRoutes);
 
 // Inngest handler — serve as middleware
 const inngestHandler = inngestServe({ client: inngest, functions: [embedPageElements, embedFlow] });
