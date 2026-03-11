@@ -43,6 +43,13 @@
       "when": 1773202935156,
       "tag": "0005_violet_deathbird",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1773465600000,
+      "tag": "0006_pluggable_auth",
+      "breakpoints": true
     }
   ]
 }
