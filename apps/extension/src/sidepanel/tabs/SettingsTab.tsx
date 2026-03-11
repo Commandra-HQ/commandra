@@ -1,4 +1,4 @@
-import { Globe, Laptop, LogOut, RefreshCw, Server, Wifi, WifiOff } from 'lucide-react';
+import { Brain, Globe, Laptop, LogOut, RefreshCw, Server, Trash2, Wifi, WifiOff } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
@@ -18,6 +18,8 @@ export function SettingsTab({ user }: SettingsTabProps) {
 		totalElements: number;
 		lastCrawledAt: string | null;
 	} | null>(null);
+	const [memoryCount, setMemoryCount] = useState<number>(0);
+	const [clearingMemory, setClearingMemory] = useState(false);
 
 	const checkBackend = useCallback(async () => {
 		try {
@@ -60,6 +62,15 @@ export function SettingsTab({ user }: SettingsTabProps) {
 			} else {
 				setSiteInfo(null);
 			}
+
+			// Load memory count for this domain
+			const memRes = await fetch(`${API_URL}/api/memory?domain=${domain}`, {
+				headers: { Authorization: `Bearer ${stored.authToken}` },
+			});
+			if (memRes.ok) {
+				const memData = await memRes.json();
+				setMemoryCount(memData.memories?.length ?? 0);
+			}
 		} catch {
 			setSiteInfo(null);
 		}
@@ -74,6 +85,24 @@ export function SettingsTab({ user }: SettingsTabProps) {
 	async function handleDisconnect() {
 		await chrome.storage.local.remove(['authToken', 'user']);
 		window.dispatchEvent(new Event('auth-changed'));
+	}
+
+	async function handleClearMemory() {
+		if (!currentDomain) return;
+		setClearingMemory(true);
+		try {
+			const stored = await chrome.storage.local.get(['authToken']);
+			if (!stored.authToken) return;
+			const res = await fetch(`${API_URL}/api/memory/domain/${currentDomain}`, {
+				method: 'DELETE',
+				headers: { Authorization: `Bearer ${stored.authToken}` },
+			});
+			if (res.ok) setMemoryCount(0);
+		} catch {
+			// ignore
+		} finally {
+			setClearingMemory(false);
+		}
 	}
 
 	async function handleReindex() {
@@ -174,6 +203,43 @@ export function SettingsTab({ user }: SettingsTabProps) {
 					</div>
 				) : (
 					<p className="text-xs text-muted-foreground">Navigate to a web page to see info</p>
+				)}
+			</section>
+
+			{/* Agent Memory */}
+			<section className="space-y-2">
+				<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+					Agent Memory
+				</h3>
+				{currentDomain ? (
+					<div className="space-y-2">
+						<div className="grid grid-cols-2 gap-2">
+							<div className="rounded-md bg-secondary px-2.5 py-1.5">
+								<p className="text-[10px] text-muted-foreground">Memories</p>
+								<p className="text-sm font-medium text-foreground">{memoryCount}</p>
+							</div>
+							<div className="rounded-md bg-secondary px-2.5 py-1.5">
+								<p className="text-[10px] text-muted-foreground">Domain</p>
+								<p className="text-xs font-medium text-foreground truncate">{currentDomain}</p>
+							</div>
+						</div>
+						<p className="text-[10px] text-muted-foreground">
+							The agent learns your preferences and corrections over time.
+						</p>
+						<button
+							onClick={handleClearMemory}
+							disabled={clearingMemory || memoryCount === 0}
+							className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive/80 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+						>
+							<Trash2 size={12} />
+							<span>{clearingMemory ? 'Clearing...' : 'Forget everything about this site'}</span>
+						</button>
+					</div>
+				) : (
+					<div className="flex items-center gap-2 text-xs text-muted-foreground">
+						<Brain size={13} />
+						<span>Navigate to a site to see memory</span>
+					</div>
 				)}
 			</section>
 

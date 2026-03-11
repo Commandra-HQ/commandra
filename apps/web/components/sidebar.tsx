@@ -2,6 +2,7 @@
 
 import { UserButton } from '@clerk/nextjs';
 import {
+	Brain,
 	Globe,
 	History,
 	Home,
@@ -22,6 +23,7 @@ const navItems = [
 	{ href: '/history', label: 'History', icon: History },
 	{ href: '/audit', label: 'Audit Log', icon: Shield },
 	{ href: '/sites', label: 'Sites', icon: Globe },
+	{ href: '/memory', label: 'Memory', icon: Brain },
 	{ href: '/settings', label: 'Settings', icon: Settings },
 ];
 
