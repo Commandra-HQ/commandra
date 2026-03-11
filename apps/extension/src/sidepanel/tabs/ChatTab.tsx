@@ -1136,14 +1136,21 @@ function AssistantMessage({
 	onPlanApproval: () => void;
 	onEditPlan: () => void;
 }) {
-	const blocks = msg.blocks;
+	const rawBlocks = msg.blocks;
 
 	// No blocks yet — show nothing (or a subtle placeholder)
-	if (!blocks || blocks.length === 0) {
+	if (!rawBlocks || rawBlocks.length === 0) {
 		return null;
 	}
 
-	// Check if the last block is a thinking block (still waiting for response)
+	// Filter out empty thinking blocks from iterations 2+ in tool-use loops
+	// (Anthropic only emits thinking on the first iteration of an agentic turn)
+	const blocks = rawBlocks.filter(
+		(b, i) => b.type !== 'thinking' || b.content || i === rawBlocks.length - 1,
+	);
+
+	if (blocks.length === 0) return null;
+
 	const lastBlock = blocks[blocks.length - 1];
 	const isThinkingAtEnd = lastBlock.type === 'thinking';
 
@@ -1156,8 +1163,9 @@ function AssistantMessage({
 							return (
 								<ThinkingBlock key={i} content={block.content} isLast={i === blocks.length - 1} />
 							);
-						case 'text':
+						case 'text': {
 							return <TextBlock key={i} content={block.content} />;
+						}
 						case 'tool_call':
 							return <ToolCallBlock key={i} block={block} />;
 						case 'blocked':

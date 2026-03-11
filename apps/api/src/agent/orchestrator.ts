@@ -135,9 +135,9 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			system: systemPrompt,
 			messages: currentMessages,
 			tools: connectionId ? tools : undefined,
-			maxTokens: 16000,
+			maxTokens: 8000,
 			signal,
-			thinking: { budgetTokens: 10000 },
+			thinking: { budgetTokens: 4000 },
 		});
 
 		// Stream text to client in real time while collecting tool calls
@@ -354,7 +354,7 @@ export async function runSimpleChat(params: {
 		messages: params.messages.map((m) => ({ role: m.role, content: m.content })),
 		maxTokens: 8000,
 		signal: params.signal,
-		thinking: { budgetTokens: 5000 },
+		thinking: { budgetTokens: 3000 },
 	});
 
 	try {

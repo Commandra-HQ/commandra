@@ -44,7 +44,7 @@ export class OpenAIProvider implements LLMProvider {
 		const response = await this.client.chat.completions.create(
 			{
 				model: resolveModel(params.model),
-				max_tokens: params.maxTokens ?? 4096,
+				max_completion_tokens: params.maxTokens ?? 4096,
 				messages,
 				tools: params.tools ? toOpenAITools(params.tools) : undefined,
 				stream: true,
