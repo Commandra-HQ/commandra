@@ -74,7 +74,7 @@ export class AnthropicProvider implements LLMProvider {
 					yield { type: 'tool_use_start', id: currentToolId, name: currentToolName };
 				}
 			} else if (event.type === 'content_block_delta') {
-				const delta = event.delta as { type: string; text?: string; partial_json?: string; thinking?: string };
+				const delta = event.delta as { type: string; text?: string; partial_json?: string; thinking?: string; signature?: string };
 				if (delta.type === 'text_delta') {
 					yield { type: 'text', text: delta.text || '' };
 				} else if (delta.type === 'input_json_delta') {
@@ -86,6 +86,8 @@ export class AnthropicProvider implements LLMProvider {
 					};
 				} else if (delta.type === 'thinking_delta') {
 					yield { type: 'thinking_delta', text: delta.thinking || '' };
+				} else if (delta.type === 'signature_delta') {
+					yield { type: 'thinking_signature', signature: delta.signature || '' };
 				}
 			} else if (event.type === 'content_block_stop') {
 				if (currentBlockType === 'tool_use' && currentToolId) {
@@ -131,8 +133,8 @@ function toAnthropicBlock(block: ContentBlock): Anthropic.ContentBlockParam {
 		case 'text':
 			return { type: 'text', text: block.text };
 		case 'thinking':
-			// Pass thinking blocks back for multi-turn with extended thinking
-			return { type: 'thinking', thinking: block.thinking } as unknown as Anthropic.ContentBlockParam;
+			// Pass thinking blocks back for multi-turn with extended thinking (signature required)
+			return { type: 'thinking', thinking: block.thinking, signature: block.signature } as unknown as Anthropic.ContentBlockParam;
 		case 'image':
 			return {
 				type: 'image',

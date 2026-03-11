@@ -127,6 +127,12 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 							content.push({ type: 'thinking', thinking: event.text });
 						}
 						break;
+					case 'thinking_signature': {
+						// Attach signature to the last thinking block (required for Anthropic multi-turn)
+						const lastThinking = [...content].reverse().find((b) => b.type === 'thinking');
+						if (lastThinking) (lastThinking as ThinkingContentBlock).signature = event.signature;
+						break;
+					}
 					case 'text':
 						fullResponse += event.text;
 						await onEvent({ type: 'text_delta', text: event.text });
