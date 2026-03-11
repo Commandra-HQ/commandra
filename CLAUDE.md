@@ -6,7 +6,7 @@ An open-source platform (Chrome extension + backend) that lets enterprise employ
 
 ## Architecture in One Paragraph
 
-Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, and action execution. Backend (Node.js + Claude Agent SDK) handles all reasoning, planning, and agent orchestration. An MCP server called "browser-bridge" exposes browser actions as MCP tools — the Agent SDK calls these tools, they get forwarded to the extension via WebSocket. Agents always execute in the employee's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores everything. Inngest handles scheduled workflows. The whole thing runs in Docker.
+Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Agents always execute in the employee's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores everything. The whole thing runs in Docker.
 
 ## Rules
 
@@ -52,11 +52,12 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Element embeddings use pgvector, no separate vector DB
 
 ### File Structure
-- Monorepo with Turborepo: `apps/extension`, `apps/api`, `packages/shared`
+- Monorepo with Turborepo: `apps/extension`, `apps/api`, `apps/web`, `packages/shared`
 - Shared types go in `packages/shared`, never duplicate type definitions
 - Extension content scripts go in `apps/extension/src/content/`
 - Agent-related code goes in `apps/api/src/agent/`
-- MCP server code goes in `apps/api/src/mcp/`
+- LLM provider adapters go in `apps/api/src/llm/providers/`
+- Dashboard (Next.js + Clerk) goes in `apps/web/`
 
 ### Don't
 - Don't add Cloudflare Workers, Vercel, or serverless runtimes — we use Docker

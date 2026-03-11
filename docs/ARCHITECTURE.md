@@ -3,55 +3,95 @@
 ## How It All Fits Together
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                      USER'S BROWSER                          │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │              CHROME EXTENSION                          │  │
-│  │                                                        │  │
-│  │  ┌────────────┐ ┌────────────┐ ┌────────────────────┐  │  │
-│  │  │ Side Panel │ │ Element    │ │ Content Script     │  │  │
-│  │  │ Chat UI    │ │ Selector   │ │ (DOM interaction)  │  │  │
-│  │  └─────┬──────┘ └────────────┘ └─────────┬──────────┘  │  │
-│  │        │                                  │             │  │
-│  │        │  ┌───────────────────────────┐   │             │  │
-│  │        └──│   WebSocket Connection    │───┘             │  │
-│  │           └─────────────┬─────────────┘                 │  │
-│  └─────────────────────────┼──────────────────────────────┘  │
-│                            │                                  │
-└────────────────────────────┼──────────────────────────────────┘
-                             │
-┌────────────────────────────┼──────────────────────────────────┐
-│  BACKEND (Docker)          │                                  │
-│                            ▼                                  │
-│  ┌─────────────────────────────────────────────────────────┐  │
-│  │                 CLAUDE AGENT SDK                         │  │
-│  │                                                         │  │
-│  │  Coordinator Agent                                      │  │
-│  │  ├── Subagent: page-analyzer                            │  │
-│  │  ├── Subagent: form-filler                              │  │
-│  │  ├── Subagent: data-extractor                           │  │
-│  │  └── Subagent: navigator                                │  │
-│  │                                                         │  │
-│  │  Hooks: safety classification, audit logging             │  │
-│  │  Sessions: resume interrupted agents                     │  │
-│  └────────────────────────┬────────────────────────────────┘  │
-│                           │                                   │
-│  ┌────────────────────────┼────────────────────────────────┐  │
-│  │         MCP Browser Bridge                              │  │
-│  │  (Exposes browser actions as MCP tools)                 │  │
-│  │                                                         │  │
-│  │  Tools: click, type, navigate, extract_table,           │  │
-│  │         screenshot, get_page_state, select_element      │  │
-│  │                                                         │  │
-│  │  Agent SDK calls these → forwarded to extension via WS  │  │
-│  └─────────────────────────────────────────────────────────┘  │
-│                                                               │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐    │
-│  │ Hono API     │  │ Postgres     │  │ Inngest          │    │
-│  │ (HTTP)       │  │ + pgvector   │  │ (Workflows)      │    │
-│  └──────────────┘  └──────────────┘  └──────────────────┘    │
-└───────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        USER'S BROWSER                             │
+│                                                                   │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │                   CHROME EXTENSION                          │  │
+│  │                                                             │  │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │  │
+│  │  │ Side Panel   │  │ Element      │  │ Content Script   │  │  │
+│  │  │ React Chat   │  │ Selector     │  │ (DOM indexing +  │  │  │
+│  │  │ Flows, Teach │  │ Overlay      │  │  action execute) │  │  │
+│  │  └──────┬───────┘  └──────────────┘  └────────┬─────────┘  │  │
+│  │         │                                      │            │  │
+│  │         │ SSE (chat)    ┌──────────────────┐   │            │  │
+│  │         └──────────────►│  Background SW   │◄──┘            │  │
+│  │                         │  (WS client +    │                │  │
+│  │                         │   action router) │                │  │
+│  │                         └────────┬─────────┘                │  │
+│  └──────────────────────────────────┼──────────────────────────┘  │
+│                                     │ WebSocket                    │
+└─────────────────────────────────────┼────────────────────────────┘
+                                      │
+┌─────────────────────────────────────┼────────────────────────────┐
+│  BACKEND (Docker)                   │                             │
+│                                     ▼                             │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │                    HONO HTTP SERVER                       │    │
+│  │                                                          │    │
+│  │  Routes:                                                 │    │
+│  │  ├── POST /api/chat       → SSE streaming response       │    │
+│  │  ├── POST /api/chat/record/start|stop                    │    │
+│  │  ├── GET  /api/conversations                             │    │
+│  │  ├── GET  /api/audit                                     │    │
+│  │  ├── GET  /api/stats                                     │    │
+│  │  ├── GET  /api/sites                                     │    │
+│  │  ├── CRUD /api/memory                                    │    │
+│  │  ├── CRUD /api/flows                                     │    │
+│  │  └── POST /api/index      → page/element indexing        │    │
+│  └──────────────────┬───────────────────────────────────────┘    │
+│                     │                                             │
+│  ┌──────────────────▼───────────────────────────────────────┐    │
+│  │               ORCHESTRATOR (Custom Agentic Loop)         │    │
+│  │                                                          │    │
+│  │  while (iterations < maxIterations):                     │    │
+│  │    1. Check kill switch + abort signal                   │    │
+│  │    2. Call LLM (streaming, with extended thinking)       │    │
+│  │    3. Stream thinking + text to client via SSE           │    │
+│  │    4. Collect tool calls from response                   │    │
+│  │    5. For each tool call:                                │    │
+│  │       a. Safety classification (safe/review/blocked)     │    │
+│  │       b. Approval gate if review-level                   │    │
+│  │       c. Execute tool via WS → extension                 │    │
+│  │       d. Audit log to Postgres                           │    │
+│  │       e. Record step if in teach mode                    │    │
+│  │    6. Feed tool results back to LLM                      │    │
+│  │    7. Loop until end_turn or max iterations              │    │
+│  └──────────────────┬───────────────────────────────────────┘    │
+│                     │                                             │
+│  ┌──────────────────▼───────────────────────────────────────┐    │
+│  │            LLM PROVIDER LAYER (Provider-Agnostic)        │    │
+│  │                                                          │    │
+│  │  Interface: LLMProvider { chat() → AsyncIterable<Event> }│    │
+│  │                                                          │    │
+│  │  ┌─────────────┐ ┌─────────────┐ ┌───────────────────┐  │    │
+│  │  │ Anthropic   │ │ OpenAI      │ │ (Planned)         │  │    │
+│  │  │ Claude 4    │ │ GPT-4.1     │ │ Google, Bedrock,  │  │    │
+│  │  │ + Thinking  │ │ o3/o4-mini  │ │ Azure, Ollama     │  │    │
+│  │  │ + Vision    │ │ + Reasoning │ │                   │  │    │
+│  │  └─────────────┘ └─────────────┘ └───────────────────┘  │    │
+│  └──────────────────────────────────────────────────────────┘    │
+│                                                                   │
+│  ┌──────────────────┐  ┌───────────────────────────────────┐     │
+│  │  WebSocket Server │  │  TOOL REGISTRY (11 Browser Tools) │     │
+│  │  (ws library)     │  │                                   │     │
+│  │                   │  │  click, type, select, navigate,   │     │
+│  │  Connections map  │  │  scroll, screenshot, get_state,   │     │
+│  │  Action routing   │  │  extract_text, extract_table,     │     │
+│  │  Approval flow    │  │  wait, go_back                    │     │
+│  │  Kill switch      │  │                                   │     │
+│  └──────────────────┘  │  + save_memory (internal tool)     │     │
+│                         └───────────────────────────────────┘     │
+│                                                                   │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │                    POSTGRES + pgvector                    │    │
+│  │                                                          │    │
+│  │  users, conversations, messages, audit_logs,             │    │
+│  │  sites, pages, elements (+ embeddings),                  │    │
+│  │  domain_memory, user_memory, flows, flow_steps           │    │
+│  └──────────────────────────────────────────────────────────┘    │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ## The Three Key Pieces
@@ -60,42 +100,41 @@
 
 The extension lives in the user's browser. It does three things:
 
-**Indexes pages** — a content script walks the DOM on every page load, extracting all interactive elements (buttons, forms, tables, links), their labels, selectors, and positions. Stored in IndexedDB. This is how the agent "knows" the app.
+**Indexes pages** — a content script walks the DOM on every page load, extracting all interactive elements (buttons, forms, tables, links), their labels, selectors, and positions. Synced to Postgres via the API. This is how the agent "knows" the app.
 
-**Executes actions** — when the backend agent decides to click a button or fill a form, the command comes over WebSocket to the content script, which performs the actual DOM interaction. Events are simulated to match human behavior (mousedown → mouseup → click).
+**Executes actions** — when the backend agent decides to click a button or fill a form, the command comes over WebSocket to the background service worker, which injects a script into the page via `chrome.scripting.executeScript`. Events are simulated to match human behavior (mousedown → mouseup → click).
 
-**Provides the UI** — side panel for chat, element selector overlay for point-and-click control, activity feed showing what the agent is doing.
+**Provides the UI** — side panel for chat (with markdown rendering, streaming thinking, block-based messages), element selector overlay for point-and-click control, flows tab for saved automations, teach mode for recording.
 
 The extension is deliberately thin. It doesn't make LLM calls or run agent logic. It's a bridge between the user's authenticated browser session and the backend brain.
 
-### 2. Backend Agent (Claude Agent SDK + MCP Bridge)
+### 2. Backend Orchestrator (Custom, Provider-Agnostic)
 
-This is the brain. We use the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) — the same engine that powers Claude Code — as a library.
+The brain. We built our own agentic loop — ~300 lines of TypeScript, no framework dependencies.
 
-**Why Agent SDK instead of raw Claude API?**
-- Built-in agentic loop (plan → act → observe → replan)
-- Subagent support (our "swarm" — parallel agents with isolated context)
-- Hooks system (PreToolUse for safety checks, PostToolUse for audit logging)
-- Sessions (resume interrupted agents)
-- MCP support (connect to any external tool via standard protocol)
+**Why custom instead of an agent framework?**
+- **Provider-agnostic** — works with Anthropic, OpenAI, and any future provider
+- **Full streaming control** — we stream thinking, text, and tool events as structured SSE
+- **Safety hooks built in** — classification + approval happen inside the loop, not as external middleware
+- **Simpler** — no framework abstractions, easy to debug and extend
 
-**The MCP Browser Bridge** is our custom MCP server that makes browser actions available as tools the Agent SDK can call:
-
+**How the loop works:**
 ```
-Agent SDK decides: "I need to click the 'Export' button"
-    → Calls MCP tool: click_element({ selector: "#export-btn" })
-        → MCP Bridge forwards via WebSocket to extension
-            → Extension content script clicks the button
-                → Result flows back: { success: true }
+1. Receive user message + page context
+2. Build system prompt with page index, selected elements, domain memory, user memory
+3. Call LLM (streaming)
+4. Stream thinking + text to client as SSE events
+5. If LLM returns tool calls:
+   a. Classify each action (safe / review / blocked)
+   b. If review: send approval request via WS, wait for response
+   c. Execute tool → WS → extension → DOM → result
+   d. Log to audit table
+   e. Feed results back to LLM
+6. Repeat until end_turn or max iterations (15)
+7. Save conversation + trigger background memory extraction
 ```
 
-This architecture means the Agent SDK handles all the reasoning, planning, and tool orchestration. We just provide the browser-specific tools.
-
-**Subagents** handle specialized tasks:
-- `data-extractor` (Haiku — fast, cheap): reads tables, counts, filters
-- `form-filler` (Sonnet — needs reasoning): fills forms, handles validation
-- `navigator` (Haiku): navigates multi-page workflows
-- `page-analyzer` (Sonnet): understands new pages, classifies elements
+**Tool dispatch** happens via WebSocket directly — no MCP layer. The tool registry maps tool names to WS message handlers. Each tool sends an `action_request` to the extension and awaits the response.
 
 ### 3. Site Index (The Knowledge Layer)
 
@@ -112,7 +151,7 @@ The agent doesn't guess what's on the page — it knows. The site index is a str
 - Auto-indexed whenever the user visits a page
 - Full site crawl via background tabs (extension opens pages in hidden tabs, extracts structure, closes them)
 - Incremental updates via MutationObserver
-- Stored locally in IndexedDB + structure synced to Postgres
+- Synced to Postgres via API, with pgvector embeddings for semantic search
 
 **Why this matters:**
 General browser agents (like OpenAI Operator) figure out the UI from scratch every time. Our agents already have a map. They're faster, more reliable, and cheaper (fewer LLM tokens spent figuring out the page).
@@ -125,29 +164,31 @@ General browser agents (like OpenAI Operator) figure out the UI from scratch eve
 User types: "Find all overdue invoices and export them"
     │
     ▼
-Extension sends to backend:
+Extension sends to backend (POST /api/chat, SSE stream):
     ├── User message
     ├── Current page state (URL, title, visible elements)
     ├── Selected elements (if any)
-    └── Site index for this domain
+    └── Conversation ID (for history continuity)
     │
     ▼
-Agent SDK (Coordinator Agent):
-    1. Looks at site index → finds the invoice table
-    2. Plans: filter by status=overdue, then click export
-    3. Calls MCP tool: click_element("status-filter")
-       → Extension clicks it → returns new page state
-    4. Calls MCP tool: click_element("overdue-option")
-       → Extension clicks it → returns updated table
-    5. Calls MCP tool: click_element("export-csv-btn")
-       → Extension clicks it → file downloads
-    6. Returns result to user
+Orchestrator:
+    1. Loads domain memory + user memory for this site
+    2. Builds system prompt with page index + memories
+    3. Calls LLM → streams thinking + plan to client
+    4. Calls tool: click("status-filter")
+       → WS → extension clicks it → returns new page state
+    5. Calls tool: click("overdue-option")
+       → WS → extension clicks it → returns updated table
+    6. Calls tool: click("export-csv-btn")
+       → WS → extension clicks it → file downloads
+    7. Returns result to user
     │
     ▼
 Extension displays:
-    ├── Agent's plan (before execution)
-    ├── Live activity feed (during execution)
-    └── Final result message
+    ├── Streaming thinking (collapsible)
+    ├── Agent's plan (expandable steps)
+    ├── Live tool activity (during execution)
+    └── Final result (rendered as markdown)
 ```
 
 ---
@@ -166,16 +207,15 @@ The backend never sees raw page content. It only receives the structural index �
 
 ---
 
-## Self-Hosted Deployment
+## Deployment
 
 The entire platform runs in Docker:
 
 ```yaml
 # docker-compose.yml
 services:
-  api:        # Backend + Agent SDK + MCP Bridge
+  api:        # Backend (Hono + WS + Orchestrator)
   db:         # Postgres + pgvector
-  inngest:    # Workflow engine (scheduled agents)
 ```
 
 ```bash
@@ -184,4 +224,6 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 docker compose up
 ```
 
-User provides their own Anthropic API key. Everything else is self-contained. For air-gapped environments, customers can route to their own LLM.
+User provides their own LLM API key (Anthropic, OpenAI, or others). Everything else is self-contained. For air-gapped environments, customers can route to their own LLM (Ollama, Bedrock, Azure OpenAI).
+
+See `docs/BUSINESS_PLAN.md` for cloud vs self-hosted deployment details.
