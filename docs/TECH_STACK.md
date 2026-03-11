@@ -30,7 +30,7 @@
 | **Custom Orchestrator** | Provider-agnostic agentic loop — ~300 lines, no framework deps |
 | **LLM Provider Layer** | Adapters for Anthropic, OpenAI (pluggable Google, Bedrock, Ollama) |
 | **Drizzle ORM** | Type-safe Postgres access, good migration story |
-| **Pluggable Auth** | `AuthProvider` interface with Clerk and JWT adapters |
+| **JWT Auth** | JWT-only auth with token exchange bridge for external providers |
 | **ws** | WebSocket server for extension ↔ backend communication |
 | **jose** | JWT signing/verification for auth tokens |
 | **Docker** | Containerized deployment, self-hosted story |
@@ -39,9 +39,9 @@
 
 | Choice | Why |
 |--------|-----|
-| **Next.js 15** | Server components + API routes |
+| **Next.js 15** | App router, server components |
 | **shadcn/ui + Tailwind** | Consistent design system with extension |
-| **Clerk React** (cloud default) | Auth UI components for cloud deployment |
+| **AuthProvider context** | JWT-based auth with email/password login (no vendor SDK) |
 
 ### Database
 
@@ -86,16 +86,17 @@ We built our own agentic loop instead of using Claude Agent SDK, LangChain, or s
 
 The orchestrator is simpler, debuggable, and fully under our control.
 
-### Pluggable Auth Over Hard Clerk Dependency
+### JWT-Only Auth Over Vendor Lock-in
 
-Auth is behind an interface. The product doesn't import Clerk directly — it imports the auth middleware, which delegates to whichever adapter is configured.
+This repo has zero auth vendor dependencies. Auth resolves to `{ id, email }` everywhere.
 
 ```
-AUTH_PROVIDER=clerk   →  Clerk JWT verification (cloud default)
-AUTH_PROVIDER=jwt     →  Simple JWT with jose (self-hosted default)
+Self-hosted:  Dashboard login form → POST /api/auth/login → JWT
+Cloud:        External auth (Clerk) → POST /api/token/exchange → JWT
+Enterprise:   Company SSO (OIDC) → POST /api/token/exchange → JWT
 ```
 
-Both resolve to `{ id, email }`. Everything downstream only sees that. Self-hosted users can also write their own adapter (OIDC, SAML, API key, whatever).
+The `website/` repo (not open source) has Clerk for cloud users. It exchanges Clerk sessions for JWTs. The product never sees Clerk tokens. Enterprise users integrate their SSO via the same token exchange endpoint.
 
 ### Docker Over Cloudflare Workers
 
@@ -115,7 +116,7 @@ Self-hosted needs only an LLM provider key + Postgres. Everything else is option
 |----------|---------|-----------|
 | **Anthropic or OpenAI** | LLM (strong + fast models) | Yes (pick one) |
 | **OpenAI** | Embeddings (text-embedding-3-small) | Optional (can use Ollama) |
-| **Clerk** | Auth (cloud deployment) | Cloud only |
+| **Clerk** | Auth (cloud — lives in website/ repo) | Cloud only |
 | **Neon** | Managed Postgres (cloud) | Cloud only |
 
 ---
@@ -146,13 +147,13 @@ agents-for-everyone/            # Parent folder
 │   │   │   │   ├── routes/     # API endpoints
 │   │   │   │   ├── ws/         # WebSocket handler
 │   │   │   │   ├── db/         # Drizzle schema + migrations
-│   │   │   │   └── middleware/ # Auth middleware + adapters
+│   │   │   │   └── middleware/ # Auth middleware (JWT verification)
 │   │   │   └── Dockerfile
 │   │   │
 │   │   └── web/                # Dashboard (Next.js)
 │   │       ├── app/
-│   │       │   ├── (dashboard)/ # Main pages (stats, history, audit, sites, memory, settings)
-│   │       │   └── api/         # Token exchange route
+│   │       │   ├── login/       # Email/password auth
+│   │       │   └── (dashboard)/ # Stats, history, audit, sites, memory, settings
 │   │       └── components/      # shadcn/ui components
 │   │
 │   ├── packages/

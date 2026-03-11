@@ -19,7 +19,7 @@ User's Browser                    Our Infrastructure
 │ (thin client)    │   WebSocket  │ Orchestrator         │
 │                  │              │ Postgres + pgvector   │
 │ DOM interaction  │              │ LLM keys (pooled)    │
-│ stays local      │              │ Clerk auth + billing  │
+│ stays local      │              │ Auth (Clerk) + billing │
 └─────────────────┘              └──────────────────────┘
 ```
 
@@ -97,7 +97,7 @@ Free tier uses our pooled keys (not BYOK) — lower friction, better first exper
 
 | Capability                                                | Priority |
 | --------------------------------------------------------- | -------- |
-| **Pluggable auth** (AuthProvider interface + JWT adapter)  | P0       |
+| **JWT-only auth** (email/password + token exchange bridge) | Done     |
 | **Fix dashboard auth** (stats show 0 — 401 bug)          | P0       |
 | **Fix recording step events** (SSE wiring)                | P0       |
 
@@ -171,7 +171,7 @@ The product repo has no Stripe, no landing page, no cloud billing logic. It's a 
 **Cloud adds convenience, not features:**
 - Hosted infra (no Docker to manage)
 - Pooled LLM keys (no API key setup)
-- Managed auth (Clerk, no config)
+- Managed auth (Clerk in website/ → JWT exchange, no config for users)
 - Billing + usage dashboard
 - Automatic updates
 

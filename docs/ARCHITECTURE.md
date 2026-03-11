@@ -30,9 +30,10 @@
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │                    HONO HTTP SERVER                       │    │
 │  │                                                          │    │
-│  │  Auth Middleware: AuthProvider.resolveUser(req) → {id}    │    │
-│  │  ├── AUTH_PROVIDER=clerk  → Clerk JWT adapter             │    │
-│  │  └── AUTH_PROVIDER=jwt    → Simple JWT adapter            │    │
+│  │  Auth Middleware: JWT → { id, email }                      │    │
+│  │  ├── POST /api/auth/login    → email/password → JWT       │    │
+│  │  ├── POST /api/auth/register → create account + JWT       │    │
+│  │  └── POST /api/token/exchange → external auth → JWT       │    │
 │  │                                                          │    │
 │  │  Routes:                                                 │    │
 │  │  ├── POST /api/chat       → SSE streaming response       │    │
@@ -162,35 +163,48 @@ General browser agents (like OpenAI Operator) figure out the UI from scratch eve
 
 ---
 
-## Pluggable Auth
+## Auth (JWT-Only)
 
-Auth is behind an interface. The product doesn't hard-depend on any auth provider.
+This repo has zero vendor auth dependencies. Auth is JWT-only throughout.
 
 ```
-┌──────────────────────────────────────────────────┐
-│  AuthProvider interface                           │
-│  resolveUser(request) → { id, email } | null     │
-├──────────────────────────────────────────────────┤
-│                                                   │
-│  ┌─────────────┐   ┌─────────────────────────┐   │
-│  │ Clerk       │   │ JWT (self-hosted)        │   │
-│  │ Adapter     │   │ Adapter                  │   │
-│  │             │   │                           │   │
-│  │ Verifies    │   │ Verifies JWT signed       │   │
-│  │ Clerk JWT   │   │ with JWT_SECRET env var   │   │
-│  │ via JWKS    │   │ via jose                  │   │
-│  └─────────────┘   └─────────────────────────┘   │
-│                                                   │
-│  Set via: AUTH_PROVIDER=clerk|jwt                  │
-│  Default: jwt (simplest, works out of the box)    │
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                        AUTH FLOWS                             │
+│                                                               │
+│  Self-hosted (default):                                       │
+│  ┌──────────────┐    POST /api/auth/login     ┌──────────┐  │
+│  │ Dashboard    │ ──────────────────────────► │ API      │  │
+│  │ login form   │ ◄────────────────────────── │ returns  │  │
+│  │ (email+pass) │         JWT                  │ JWT      │  │
+│  └──────────────┘                              └──────────┘  │
+│                                                               │
+│  Cloud (e.g. Clerk in website/ repo):                        │
+│  ┌──────────────┐  verify   ┌──────────┐  POST /api/token/  │
+│  │ External     │ ────────► │ Website  │  exchange           │
+│  │ auth (Clerk) │           │ backend  │ ───────────────────►│
+│  └──────────────┘           └──────────┘  {externalId,email} │
+│                                                    │          │
+│                                              JWT ◄─┘          │
+│                                                               │
+│  Enterprise (OIDC):                                           │
+│  ┌──────────────┐  callback  ┌──────────┐  POST /api/token/ │
+│  │ Company IdP  │ ─────────► │ OIDC     │  exchange          │
+│  │ (Okta, etc.) │            │ handler  │ ──────────────────►│
+│  └──────────────┘            └──────────┘  {externalId,email}│
+│                                                    │          │
+│                                              JWT ◄─┘          │
+│                                                               │
+│  All paths end at the same place: a JWT containing            │
+│  { userId, email } signed with JWT_SECRET.                    │
+│  The API and extension only ever see JWTs.                    │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-**For cloud deployment:** Use Clerk. Users sign up on the landing page, get a Clerk session, exchange it for a JWT that the extension uses.
+**For self-hosted:** Dashboard has built-in email/password auth. User creates account, gets JWT, copies it to the extension.
 
-**For self-hosted:** Use the JWT adapter. User generates a token (via CLI, API, or their own auth system), sets it in the extension. No Clerk account needed.
+**For cloud:** The `website/` repo has Clerk. It exchanges Clerk sessions for JWTs via `POST /api/token/exchange`. The product API never sees Clerk tokens.
 
-**For custom auth:** Implement the `AuthProvider` interface. It's one function: `resolveUser(request) → { id, email } | null`.
+**For enterprise:** Their SSO (Okta, Azure AD, etc.) flows through OIDC. A callback handler exchanges the verified identity for a JWT via the same token exchange endpoint.
 
 ---
 
@@ -240,12 +254,12 @@ cp .env.example .env
 docker compose up
 ```
 
-That's it. Auth uses the JWT adapter by default. User generates a token, sets it in the extension settings.
+That's it. User opens `localhost:3000`, creates an account, copies the JWT to the extension.
 
 ### Cloud
 
-Same codebase, different config:
-- `AUTH_PROVIDER=clerk` + Clerk keys
+Same product, deployed with cloud infrastructure + the separate `website/` repo for billing:
+- JWT auth (same as self-hosted — website exchanges Clerk tokens for JWTs)
 - Managed Postgres (Neon)
 - LLM key pooling (our keys, metered per user)
 - Stripe billing (lives in separate `website/` project)

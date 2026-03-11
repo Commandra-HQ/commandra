@@ -1,18 +1,14 @@
 # Agents for Everyone
 
-**Cursor for internal dashboards.** Chat with any web application. Automate what you do every day.
+An open-source platform that lets anyone automate tasks on any web application through natural language. Chrome extension + backend. Show once, automate forever.
 
-Enterprise employees waste hours on repetitive tasks across internal tools — SAP, Salesforce, custom ERPs, HR portals. These sit behind SSO, VPNs, and MFA. No external AI can access them. We can.
+## What It Does
 
-## The Problem
-
-A Deloitte consultant opens 4 internal dashboards every morning. Downloads reports. Copies numbers into a spreadsheet. Sends an email summary. Every. Single. Day.
-
-They can't use ChatGPT for this — it can't see their internal apps. They can't write Selenium scripts — they're not engineers. UiPath costs $10K/year and needs IT to set up.
-
-## The Solution
-
-A Chrome extension that lets anyone automate tasks on any web application through natural language.
+- **Chat with any page** — open the extension side panel, ask the agent to do things on the page you're looking at
+- **Point and click** — select elements, tell the agent what to do with them
+- **Teach mode** — show the agent how to do something once, it learns the steps and can repeat them
+- **Saved flows** — turn one-time tasks into reusable automations with parameters
+- **Works behind your VPN/SSO** — the agent runs in YOUR browser, not a server-side browser. Your credentials never leave your machine
 
 ```
 You:    "Go to the invoice dashboard, find all unpaid invoices
@@ -28,129 +24,162 @@ Agent:  "I found 12 unpaid invoices over $5K. Here's my plan:
 
 The agent understands the app because it has already indexed it — every button, form, table, and navigation path. It doesn't guess. It knows.
 
-## How It Works
+## Architecture
 
-1. **Install** the Chrome extension
-2. **Index** — extension maps your web app (pages, buttons, forms, tables)
-3. **Chat** — tell the agent what to do in plain English
-4. **Select** — point at elements for precise control ("this table → export as CSV")
-5. **See** — agent takes screenshots to understand visual layout, not just DOM
-6. **Save** — promote one-time tasks to reusable flows
-7. **Automate** — trigger agent runs from the dashboard, they execute in your browser
+```
+Chrome Extension (thin client)
+    ↕ WebSocket
+Backend API (Hono + custom orchestrator)
+    ↕
+Postgres + pgvector
+```
 
-## Key Principles
+The extension handles UI, DOM indexing, and action execution. The backend handles all LLM reasoning and orchestration. Browser actions flow: Orchestrator → tool call → WebSocket → extension → DOM.
 
-- **Data never leaves the browser** — agent runs in your browser, not our servers. We see page structure and screenshots, never your actual data. No credentials stored, no server-side browsers.
-- **Safety first** — destructive actions blocked by default, approval gates on writes, kill switch on every run
-- **Open source** — self-host with Docker, bring your own API key
-- **Truly agentic** — Claude Agent SDK with planning, memory, subagents, and vision
+**Key design decisions:**
+- Extension is a thin client — no LLM calls, no agent logic
+- Custom provider-agnostic orchestrator (~300 lines, no framework deps)
+- Agent always runs in the user's browser — core privacy guarantee
+- Pre-indexed pages — agent knows the app before you ask (faster + cheaper than screenshot-reading)
 
-## Setup
+## Quick Start
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) v20+
 - [pnpm](https://pnpm.io/) v9+
 - [Docker](https://www.docker.com/) (for Postgres)
-- A [Clerk](https://clerk.com/) account (free tier works)
-- A Chrome-based browser (Chrome, Brave, Edge, Arc)
+- An LLM API key (Anthropic or OpenAI)
+- A Chrome-based browser
 
-### 1. Clone and install
-
-```bash
-git clone https://github.com/your-org/agents-for-everyone.git
-cd agents-for-everyone
-make setup
-```
-
-This installs dependencies, starts Postgres (via Docker), and runs database migrations.
-
-### 2. Configure environment
-
-Copy `.env.example` to `.env` and fill in your keys:
+### Setup
 
 ```bash
+git clone https://github.com/AVIVASHISHTA29/agents-for-everyone.git
+cd agents-for-everyone/browser-agent-platform
 cp .env.example .env
+# Edit .env: set LLM_API_KEY and JWT_SECRET (openssl rand -base64 32)
+pnpm install
+pnpm docker:up           # Start Postgres
+pnpm db:migrate          # Run migrations
+pnpm dev                 # Start API (:3001) + Dashboard (:3000)
 ```
 
-Required:
-- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` — from [Clerk Dashboard](https://dashboard.clerk.com/)
-- `CLERK_SECRET_KEY` — from Clerk Dashboard
-
-Also create `apps/web/.env.local`:
-
-```
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
-NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-```
-
-### 3. Start development
+### Load the extension
 
 ```bash
-make dev
+cd apps/extension && pnpm dev
 ```
 
-This starts all three apps:
-- **Admin Dashboard** — `http://localhost:3000` (Next.js + Clerk)
-- **API Server** — `http://localhost:3001` (Hono)
-- **Extension Dev Server** — `http://localhost:5173` (Vite + CRXJS)
+1. Go to `chrome://extensions` → enable Developer mode
+2. Click "Load unpacked" → select `apps/extension/dist`
+3. Pin the extension to your toolbar
 
-### 4. Load the Chrome extension
+### Connect
 
-1. Go to `chrome://extensions`
-2. Enable "Developer mode"
-3. Click "Load unpacked" → select `apps/extension/dist`
-4. Pin the extension to your toolbar
-
-### 5. Connect
-
-1. Open `http://localhost:3000` and sign up
-2. Click "Generate Extension Token" and copy it
-3. Click the extension icon → side panel opens
-4. Paste the token → you're in
-
-### Available commands
-
-| Command | Description |
-|---------|-------------|
-| `make setup` | First-time setup (install, DB, migrations) |
-| `make dev` | Start all apps (API + dashboard + extension) |
-| `make dev-api` | Start API server only |
-| `make dev-web` | Start admin dashboard only |
-| `make dev-ext` | Start extension only |
-| `make db-studio` | Open Drizzle Studio (visual DB browser) |
-| `make db-migrate` | Run database migrations |
-| `make db-reset` | Drop and recreate database |
-| `make build` | Production build all packages |
-| `make lint` | Run Biome linter |
-| `make stop` | Stop Docker containers |
+1. Open `http://localhost:3000` → create an account (email + password)
+2. Click "Reveal Extension Token" → copy it
+3. Click the extension icon → side panel opens → paste the token
+4. Navigate to any web app and start chatting
 
 ## Project Structure
 
 ```
-apps/
-  api/          → Hono API server + WebSocket + Agent SDK
-  web/          → Next.js admin dashboard (Clerk auth)
-  extension/    → Chrome MV3 extension (side panel, content scripts)
-packages/
-  shared/       → Shared TypeScript types
-docs/
-  phases/       → Build phases and roadmap
-  ARCHITECTURE.md
-  FEATURES.md
-  TECH_STACK.md
-  USER_FLOW.md
+browser-agent-platform/
+├── apps/
+│   ├── extension/       # Chrome Extension (thin client)
+│   │   └── src/
+│   │       ├── background/   # Service worker (WS client, action router)
+│   │       ├── content/      # Content scripts (DOM indexer, selector, executor)
+│   │       └── sidepanel/    # Chat UI (React), flows, teach mode
+│   │
+│   ├── api/             # Backend (Hono + orchestrator)
+│   │   └── src/
+│   │       ├── agent/        # Orchestrator, planner, recorder, prompts
+│   │       ├── llm/          # Provider layer + adapters (Anthropic, OpenAI)
+│   │       ├── memory/       # Domain memory + user memory
+│   │       ├── safety/       # Action classifier + audit logging
+│   │       ├── tools/        # Tool registry (11 browser tools)
+│   │       ├── routes/       # API endpoints (auth, chat, sites, memory, etc.)
+│   │       ├── ws/           # WebSocket handler
+│   │       └── db/           # Drizzle schema + migrations
+│   │
+│   └── web/             # Dashboard (Next.js)
+│       ├── app/
+│       │   ├── login/        # Email/password auth
+│       │   └── (dashboard)/  # Stats, history, audit, sites, memory, settings
+│       └── lib/
+│           ├── auth-context.tsx  # AuthProvider (JWT-based)
+│           └── api.ts            # API client with auth headers
+│
+├── packages/shared/     # Shared TypeScript types
+├── docs/                # Architecture, features, business plan
+├── docker-compose.yml
+└── .env.example
 ```
+
+## Auth
+
+This repo is **JWT-only**. No Clerk, no vendor auth SDK.
+
+| Deployment | How users log in | How the extension authenticates |
+|---|---|---|
+| **Self-hosted** | Dashboard login form (email + password) | Copy JWT from dashboard |
+| **Cloud** | External auth (e.g. Clerk) → token exchange → JWT | Same JWT |
+| **Enterprise** | Company SSO (OIDC) → token exchange → JWT | Same JWT |
+
+The API exposes `POST /api/token/exchange` as a bridge for external auth providers. They verify their own tokens and pass `{ externalId, email }` to get a JWT back. The API and extension never know what auth provider was used.
+
+## LLM Providers
+
+Bring your own key. Set `LLM_PROVIDER` and `LLM_API_KEY` in `.env`.
+
+| Provider | Strong Model | Fast Model | Status |
+|----------|-------------|------------|--------|
+| Anthropic | Claude Sonnet/Opus | Claude Haiku | Supported |
+| OpenAI | GPT-4o / o3 | GPT-4o-mini | Supported |
+| Google | Gemini Pro | Gemini Flash | Planned |
+| Ollama | Any local model | Any local model | Planned |
+
+## Safety
+
+Every browser action is classified before execution:
+
+- **Safe** (auto-approved): navigate, read, search, filter, scroll, extract
+- **Review** (needs approval): form submit, create, update, send
+- **Blocked** (never auto-approved): delete, bulk operations, permission changes
+
+Kill switch: press Escape to halt all agent activity immediately.
+
+## Tech Stack
+
+- **TypeScript** everywhere
+- **Hono** for HTTP, **ws** for WebSocket
+- **Drizzle ORM** + Postgres + pgvector
+- **React 19** + Tailwind + shadcn/ui (extension + dashboard)
+- **Vite + CRXJS** for extension dev
+- **pnpm** + **Turborepo** monorepo
+- **Biome** for linting/formatting
+- **Docker** for deployment
+
+## Development Commands
+
+| Command | Description |
+|---------|-------------|
+| `pnpm install` | Install all dependencies |
+| `pnpm docker:up` | Start Postgres via Docker |
+| `pnpm db:migrate` | Run database migrations |
+| `pnpm dev` | Start all apps (API + dashboard) |
+| `pnpm build` | Production build |
+| `pnpm lint` | Run Biome linter |
+| `pnpm test` | Run tests |
 
 ## Docs
 
-- [Build Phases](./docs/phases/) — incremental roadmap
-- [Architecture](./docs/ARCHITECTURE.md) — system design
-- [Features](./docs/FEATURES.md) — capabilities and product thinking
-- [Tech Stack](./docs/TECH_STACK.md) — technology choices
-- [User Flow](./docs/USER_FLOW.md) — onboarding and daily UX
+- [Architecture](docs/ARCHITECTURE.md) — system design, data flow, deployment
+- [Features](docs/FEATURES.md) — user flows, feature tiers, safety model
+- [Tech Stack](docs/TECH_STACK.md) — why we chose what we chose
+- [Business Plan](docs/BUSINESS_PLAN.md) — cloud vs OSS, pricing, competitive landscape
 
 ## License
 
