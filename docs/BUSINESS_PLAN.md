@@ -93,18 +93,23 @@ Free tier uses our pooled keys (not BYOK) — lower friction, better first exper
 | Domain memory + user memory (adaptive)                     | Done   |
 | Multi-tenant isolation (userId scoping everywhere)         | Done   |
 
-### Needed for Cloud Launch
+### Needed for Product (Both Modes)
+
+| Capability                                                | Priority |
+| --------------------------------------------------------- | -------- |
+| **Pluggable auth** (AuthProvider interface + JWT adapter)  | P0       |
+| **Fix dashboard auth** (stats show 0 — 401 bug)          | P0       |
+| **Fix recording step events** (SSE wiring)                | P0       |
+
+### Needed for Cloud Launch (Separate `website/` Project)
 
 | Capability                                        | Priority |
 | ------------------------------------------------- | -------- |
-| **Fix dashboard auth** (stats show 0 — 401 bug)  | P0       |
-| **Fix recording step events** (SSE wiring)        | P0       |
-| **Billing integration** (Stripe Checkout + usage) | P1       |
-| **Usage metering** (action counts per user)       | P1       |
-| **Rate limiting per tier** (free = 50/month)      | P1       |
+| **Landing page** (Next.js + shadcn)               | P1       |
+| **Stripe billing** (Checkout + usage metering)    | P1       |
 | **LLM key pooling** (our keys for all cloud users)| P1       |
+| **Rate limiting per tier** (free = 50/month)      | P1       |
 | **Chrome Web Store listing**                      | P1       |
-| **Landing page**                                  | P1       |
 
 ### Nice for OSS (Community Can Contribute)
 
@@ -112,8 +117,22 @@ Free tier uses our pooled keys (not BYOK) — lower friction, better first exper
 | ------------------------------------------- | -------------------------------------- |
 | Ollama adapter (local models)               | Provider layer is pluggable            |
 | Bedrock / Azure OpenAI adapters             | Same pattern as Anthropic/OpenAI       |
-| Alternative auth (OIDC, local JWT)          | Auth middleware already extracts userId |
+| OIDC / SAML auth adapter                    | AuthProvider interface is pluggable    |
 | Helm chart for Kubernetes                   | docker-compose works for now           |
+
+### Repo Split
+
+```
+agents-for-everyone/
+├── browser-agent-platform/   # Open source (MIT) — the product
+│   ├── apps/extension/       # Chrome Extension
+│   ├── apps/api/             # Backend API
+│   ├── apps/web/             # Dashboard
+│   └── packages/shared/      # Shared types
+└── website/                  # Not open source — landing page + Stripe
+```
+
+The product repo has no Stripe, no landing page, no cloud billing logic. It's a clean open-source project that works out of the box with `docker-compose up`. The cloud wrapper (website/) adds billing, LLM key pooling, and managed auth on top.
 
 ---
 

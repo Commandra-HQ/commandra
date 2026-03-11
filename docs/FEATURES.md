@@ -221,14 +221,14 @@ This is the enterprise selling point. Every action goes through classification b
 
 ## Business Model
 
-**Open-core:**
-- **Open source (MIT):** Full platform, self-host with Docker, bring your own Anthropic API key
-- **Cloud ($29/user/month):** Hosted version, no setup, managed billing
-- **Team ($19/user/month, 5+ users):** Shared flows, admin dashboard, audit logs
-- **Enterprise (custom):** Self-hosted support, SSO, on-prem LLM, SLA, compliance
+**Two modes:**
+- **Open source (MIT):** Full platform, self-host with Docker, bring your own LLM key, pluggable auth. Free forever.
+- **Cloud (hosted by us):** Free tier (50 actions/month) → Pro ($29/user) → Team ($19/user, 5+ seats). We manage infra, pool LLM keys, handle auth + billing.
+
+Cloud billing and landing page live in a separate project (`website/`), not in this repo. This repo is the product — clean, self-contained, works with `docker-compose up`.
 
 **Why open source works here:**
-- Builds trust with enterprise security teams ("audit our code")
-- Community contributes connectors and flows
+- Builds trust with security teams ("audit our code")
+- Community contributes LLM adapters and auth integrations
 - Free users become advocates inside their companies
-- Conversion to paid via team features and managed hosting
+- Self-hosted users convert to cloud when they don't want to manage infra

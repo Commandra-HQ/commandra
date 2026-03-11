@@ -2,11 +2,25 @@
 
 ## What This Project Is
 
-An open-source platform (Chrome extension + backend) that lets enterprise employees automate tasks on any internal web application through natural language. Think "Cursor for internal dashboards."
+An open-source platform (Chrome extension + backend) that lets anyone automate tasks on any web application through natural language. Think "Cursor for internal dashboards." Show once, automate forever.
+
+## Project Structure (Parent Level)
+
+```
+agents-for-everyone/
+├── browser-agent-platform/   # THIS REPO — the open-source product
+│   ├── apps/extension/       # Chrome Extension (thin client)
+│   ├── apps/api/             # Backend (Hono + orchestrator)
+│   ├── apps/web/             # Dashboard (Next.js)
+│   └── packages/shared/      # Shared types
+└── website/                  # SEPARATE REPO — landing page, Stripe billing (not open source)
+```
+
+This monorepo is the product. It's what gets open-sourced. It's what self-hosted users run. The landing page and billing live in a separate project.
 
 ## Architecture in One Paragraph
 
-Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Agents always execute in the employee's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores everything. The whole thing runs in Docker.
+Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Agents always execute in the user's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores everything. The whole thing runs in Docker. Auth is pluggable — ships with a Clerk adapter (cloud) and a simple JWT adapter (self-hosted).
 
 ## Rules
 
@@ -26,7 +40,15 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Every browser action flows: Orchestrator → tool call → WebSocket → extension → DOM
 - Never send raw page content (HTML, text values, PII) to the backend. Only send page STRUCTURE (element types, labels, selectors, navigation graph) and screenshots (configurable)
 - Never send or store user credentials, session cookies, or auth tokens
-- Agents always execute in the employee's browser, never server-side browsers
+- Agents always execute in the user's browser, never server-side browsers
+
+### Auth Rules
+- Auth is pluggable via an `AuthProvider` interface in `apps/api/src/middleware/auth.ts`
+- The product ships two adapters: `clerk` (default for cloud) and `jwt` (for self-hosted)
+- Set via `AUTH_PROVIDER` env var — `clerk` or `jwt`
+- The auth middleware resolves a request to `{ id, email }` — that's the only contract
+- Never import Clerk directly outside the Clerk auth adapter
+- The dashboard (`apps/web`) uses Clerk React components — self-hosted users replace with their own auth UI or use the JWT adapter with a simple login
 
 ### Safety Rules
 - Every browser action MUST be classified before execution: safe / review / blocked
@@ -57,13 +79,13 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Extension content scripts go in `apps/extension/src/content/`
 - Agent-related code goes in `apps/api/src/agent/`
 - LLM provider adapters go in `apps/api/src/llm/providers/`
-- Dashboard (Next.js + Clerk) goes in `apps/web/`
+- Auth adapters go in `apps/api/src/middleware/auth/`
+- Dashboard (Next.js) goes in `apps/web/`
 
 ### Don't
 - Don't add Cloudflare Workers, Vercel, or serverless runtimes — we use Docker
 - Don't add Redis — in-memory cache is fine for now
 - Don't add a separate vector database — pgvector handles it
-- Don't add Auth0 or WorkOS — we use Clerk for auth
 - Don't add PostHog, Amplitude, or analytics — console logs + Sentry for now
 - Don't add features that aren't being built in the current phase
 - Don't over-engineer. If three lines of code work, don't create an abstraction

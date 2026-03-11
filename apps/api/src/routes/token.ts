@@ -22,9 +22,10 @@ tokenRoutes.post('/exchange', async (c) => {
 
 	try {
 		// Verify the Clerk token
+		const authorizedParties = (process.env.AUTHORIZED_PARTIES || 'http://localhost:3000').split(',');
 		const payload = await verifyToken(clerkToken, {
 			secretKey: process.env.CLERK_SECRET_KEY!,
-			authorizedParties: ['http://localhost:3000'],
+			authorizedParties,
 		});
 
 		// Get/create user

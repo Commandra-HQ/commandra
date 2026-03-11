@@ -30,6 +30,10 @@
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │                    HONO HTTP SERVER                       │    │
 │  │                                                          │    │
+│  │  Auth Middleware: AuthProvider.resolveUser(req) → {id}    │    │
+│  │  ├── AUTH_PROVIDER=clerk  → Clerk JWT adapter             │    │
+│  │  └── AUTH_PROVIDER=jwt    → Simple JWT adapter            │    │
+│  │                                                          │    │
 │  │  Routes:                                                 │    │
 │  │  ├── POST /api/chat       → SSE streaming response       │    │
 │  │  ├── POST /api/chat/record/start|stop                    │    │
@@ -53,7 +57,7 @@
 │  │    5. For each tool call:                                │    │
 │  │       a. Safety classification (safe/review/blocked)     │    │
 │  │       b. Approval gate if review-level                   │    │
-│  │       c. Execute tool via WS → extension                 │    │
+│  │       c. Execute tool via WS → extension → DOM           │    │
 │  │       d. Audit log to Postgres                           │    │
 │  │       e. Record step if in teach mode                    │    │
 │  │    6. Feed tool results back to LLM                      │    │
@@ -158,6 +162,38 @@ General browser agents (like OpenAI Operator) figure out the UI from scratch eve
 
 ---
 
+## Pluggable Auth
+
+Auth is behind an interface. The product doesn't hard-depend on any auth provider.
+
+```
+┌──────────────────────────────────────────────────┐
+│  AuthProvider interface                           │
+│  resolveUser(request) → { id, email } | null     │
+├──────────────────────────────────────────────────┤
+│                                                   │
+│  ┌─────────────┐   ┌─────────────────────────┐   │
+│  │ Clerk       │   │ JWT (self-hosted)        │   │
+│  │ Adapter     │   │ Adapter                  │   │
+│  │             │   │                           │   │
+│  │ Verifies    │   │ Verifies JWT signed       │   │
+│  │ Clerk JWT   │   │ with JWT_SECRET env var   │   │
+│  │ via JWKS    │   │ via jose                  │   │
+│  └─────────────┘   └─────────────────────────┘   │
+│                                                   │
+│  Set via: AUTH_PROVIDER=clerk|jwt                  │
+│  Default: jwt (simplest, works out of the box)    │
+└──────────────────────────────────────────────────┘
+```
+
+**For cloud deployment:** Use Clerk. Users sign up on the landing page, get a Clerk session, exchange it for a JWT that the extension uses.
+
+**For self-hosted:** Use the JWT adapter. User generates a token (via CLI, API, or their own auth system), sets it in the extension. No Clerk account needed.
+
+**For custom auth:** Implement the `AuthProvider` interface. It's one function: `resolveUser(request) → { id, email } | null`.
+
+---
+
 ## Data Flow
 
 ```
@@ -193,37 +229,25 @@ Extension displays:
 
 ---
 
-## Indexing: Where Does It Happen?
-
-Indexing happens **in the browser**, not server-side. This is a deliberate choice.
-
-Enterprise apps sit behind SSO, VPNs, and MFA. A server-side crawler would need the user's credentials — a security nightmare. The extension already has the authenticated session. It just reads the DOM.
-
-**Single page:** Instant. Content script extracts elements on page load.
-
-**Full site crawl:** Extension opens pages in hidden background tabs (2-3 at a time), extracts structure, closes tabs. ~200 pages in 10-15 minutes, non-blocking.
-
-The backend never sees raw page content. It only receives the structural index — element types, labels, selectors, navigation graph. No actual data values, no PII.
-
----
-
 ## Deployment
 
-The entire platform runs in Docker:
-
-```yaml
-# docker-compose.yml
-services:
-  api:        # Backend (Hono + WS + Orchestrator)
-  db:         # Postgres + pgvector
-```
+### Self-Hosted (Default)
 
 ```bash
 git clone https://github.com/AVIVASHISHTA29/agents-for-everyone
-echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+cp .env.example .env
+# Edit .env: set LLM_API_KEY, JWT_SECRET
 docker compose up
 ```
 
-User provides their own LLM API key (Anthropic, OpenAI, or others). Everything else is self-contained. For air-gapped environments, customers can route to their own LLM (Ollama, Bedrock, Azure OpenAI).
+That's it. Auth uses the JWT adapter by default. User generates a token, sets it in the extension settings.
 
-See `docs/BUSINESS_PLAN.md` for cloud vs self-hosted deployment details.
+### Cloud
+
+Same codebase, different config:
+- `AUTH_PROVIDER=clerk` + Clerk keys
+- Managed Postgres (Neon)
+- LLM key pooling (our keys, metered per user)
+- Stripe billing (lives in separate `website/` project)
+
+See `docs/BUSINESS_PLAN.md` for the two-mode business model.

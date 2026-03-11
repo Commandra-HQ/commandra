@@ -4,8 +4,9 @@
 
 1. **Minimize providers** — fewer bills, fewer API keys, fewer failure points
 2. **Docker-first** — everything must self-host (enterprise requirement)
-3. **Don't build what exists** — Agent SDK gives us the agentic loop, subagents, hooks, sessions for free
-4. **Start simple** — no premature infrastructure. Add complexity only when needed.
+3. **Provider-agnostic** — never lock into one LLM vendor
+4. **Pluggable auth** — product ships with adapters, users pick what fits their setup
+5. **Start simple** — no premature infrastructure. Add complexity only when needed.
 
 ---
 
@@ -18,7 +19,7 @@
 | **TypeScript** | Type safety across extension + backend |
 | **React 19 + Tailwind + shadcn/ui** | Side panel chat UI, fast to build |
 | **Vite + CRXJS** | HMR for extension development (Webpack is painful) |
-| **Dexie.js** | Type-safe IndexedDB wrapper for local storage |
+| **react-markdown** | Renders LLM markdown responses in chat |
 | **Chrome Manifest V3** | Required for Chrome Web Store |
 
 ### Backend
@@ -26,13 +27,21 @@
 | Choice | Why |
 |--------|-----|
 | **Node.js + Hono** | Lightweight HTTP framework, works in Docker |
-| **Claude Agent SDK** | Core brain — agentic loop, subagents, hooks, MCP, sessions |
-| **Custom MCP Server (browser-bridge)** | Exposes browser actions as MCP tools for the Agent SDK |
+| **Custom Orchestrator** | Provider-agnostic agentic loop — ~300 lines, no framework deps |
+| **LLM Provider Layer** | Adapters for Anthropic, OpenAI (pluggable Google, Bedrock, Ollama) |
 | **Drizzle ORM** | Type-safe Postgres access, good migration story |
-| **Clerk** | Auth, sessions, SSO — no custom auth to build or maintain |
+| **Pluggable Auth** | `AuthProvider` interface with Clerk and JWT adapters |
 | **ws** | WebSocket server for extension ↔ backend communication |
-| **Inngest** | Durable workflows for scheduled agents and crawl orchestration |
+| **jose** | JWT signing/verification for auth tokens |
 | **Docker** | Containerized deployment, self-hosted story |
+
+### Dashboard
+
+| Choice | Why |
+|--------|-----|
+| **Next.js 15** | Server components + API routes |
+| **shadcn/ui + Tailwind** | Consistent design system with extension |
+| **Clerk React** (cloud default) | Auth UI components for cloud deployment |
 
 ### Database
 
@@ -45,11 +54,12 @@
 
 | Choice | Why |
 |--------|-----|
-| **Anthropic Claude API** (via Agent SDK) | Best reasoning + vision + tool use |
-| — Sonnet | Planning, complex reasoning, form logic |
-| — Haiku | Fast action decisions, data extraction |
-| — Vision | Screenshot analysis when selectors fail |
-| **Voyage AI** (optional) | Embeddings for semantic element search. Local model fallback for self-hosted |
+| **Anthropic Claude** | Best reasoning + vision + tool use, extended thinking |
+| **OpenAI GPT-4.1 / o-series** | Alternative provider, reasoning token streaming |
+| — Strong model (Sonnet/GPT-4.1) | Planning, complex reasoning, form logic |
+| — Fast model (Haiku/GPT-4.1-mini) | Data reads, navigation, memory extraction |
+| **OpenAI Embeddings** | Element/flow/memory vector search |
+| **Ollama** (planned) | Local embeddings + LLM for self-hosted |
 
 ### Monorepo
 
@@ -63,82 +73,96 @@
 
 ## Why These Choices
 
-### Agent SDK Over Raw Claude API
+### Custom Orchestrator Over Agent Frameworks
 
-The Agent SDK eliminates ~40% of what we'd build custom:
+We built our own agentic loop instead of using Claude Agent SDK, LangChain, or similar:
 
-| We get for free | What we'd have built |
-|-----------------|---------------------|
-| Agentic loop (plan → act → observe → replan) | Custom ReAct implementation |
-| Subagents with context isolation | Custom swarm coordinator |
-| PreToolUse / PostToolUse hooks | Custom safety middleware |
-| Sessions (resume agents) | Custom state persistence |
-| MCP tool integration | Custom tool execution engine |
-| Permission modes | Custom permission system |
+| We built (~300 lines) | What we'd need from a framework |
+|------------------------|-------------------------------|
+| Agentic loop (LLM → tool → observe → repeat) | Same, but locked to one provider |
+| SSE streaming of thinking + text + tool events | Generic streaming, needs custom adapter |
+| Safety classification + approval gates | External middleware, harder to integrate |
+| Provider-agnostic (Anthropic, OpenAI, any) | Usually tied to one vendor |
+
+The orchestrator is simpler, debuggable, and fully under our control.
+
+### Pluggable Auth Over Hard Clerk Dependency
+
+Auth is behind an interface. The product doesn't import Clerk directly — it imports the auth middleware, which delegates to whichever adapter is configured.
+
+```
+AUTH_PROVIDER=clerk   →  Clerk JWT verification (cloud default)
+AUTH_PROVIDER=jwt     →  Simple JWT with jose (self-hosted default)
+```
+
+Both resolve to `{ id, email }`. Everything downstream only sees that. Self-hosted users can also write their own adapter (OIDC, SAML, API key, whatever).
 
 ### Docker Over Cloudflare Workers
 
-Agent SDK runs long-running processes (agents can run for minutes). Workers have 30-second CPU limits. Docker is also required for the self-hosted enterprise story.
+Long-running agent processes (agents can run for minutes). Workers have 30-second CPU limits. Docker is also required for the self-hosted story.
 
 ### Postgres Over Separate Vector DB
 
 pgvector handles our embedding search needs. One fewer provider to manage. We're not at a scale where a dedicated vector DB (Pinecone, etc.) adds value.
 
-### Inngest Over Temporal
-
-Temporal is powerful but overkill — needs its own infrastructure cluster. Inngest is serverless-native, has a generous free tier, and handles everything we need: scheduled runs, retries, fan-out.
-
-### Clerk for Auth
-
-Clerk gives us auth out of the box — sign-up, login, session management, SSO/SAML when enterprise customers need it. Free tier covers early users. Avoids building custom bcrypt + JWT plumbing that we'd eventually replace anyway.
-
 ---
 
 ## Provider Summary
 
-5 external providers. Everything else is self-hosted.
+Self-hosted needs only an LLM provider key + Postgres. Everything else is optional.
 
-| Provider | Purpose | Monthly Cost (Early) |
-|----------|---------|---------------------|
-| **Anthropic** | Claude API (via Agent SDK) | $50-200 |
-| **Clerk** | Auth, session management, SSO | Free → $25 |
-| **Voyage AI** | Embeddings (optional, local fallback) | <$5 |
-| **Neon** | Managed Postgres (cloud version only) | Free → $19 |
-| **Inngest** | Workflow scheduling | Free → $25 |
-
-**Total:** ~$75-275/month. Self-hosted version needs only Anthropic ($50+) + Clerk (free tier).
+| Provider | Purpose | Required? |
+|----------|---------|-----------|
+| **Anthropic or OpenAI** | LLM (strong + fast models) | Yes (pick one) |
+| **OpenAI** | Embeddings (text-embedding-3-small) | Optional (can use Ollama) |
+| **Clerk** | Auth (cloud deployment) | Cloud only |
+| **Neon** | Managed Postgres (cloud) | Cloud only |
 
 ---
 
 ## Project Structure
 
 ```
-agents-for-everyone/
-├── apps/
-│   ├── extension/              # Chrome Extension
-│   │   ├── src/
-│   │   │   ├── background/     # Service worker
-│   │   │   ├── content/        # Content scripts (indexer, selector, executor)
-│   │   │   ├── sidepanel/      # Chat UI (React)
-│   │   │   └── shared/         # Types, storage
-│   │   ├── manifest.json
-│   │   └── vite.config.ts
+agents-for-everyone/            # Parent folder
+├── browser-agent-platform/     # THIS REPO — the open-source product
+│   ├── apps/
+│   │   ├── extension/          # Chrome Extension (thin client)
+│   │   │   ├── src/
+│   │   │   │   ├── background/ # Service worker (WS client, action router)
+│   │   │   │   ├── content/    # Content scripts (indexer, selector, executor)
+│   │   │   │   ├── sidepanel/  # Chat UI (React), flows, teach mode
+│   │   │   │   └── styles.css  # Tailwind + typography
+│   │   │   ├── manifest.json
+│   │   │   └── vite.config.ts
+│   │   │
+│   │   ├── api/                # Backend
+│   │   │   ├── src/
+│   │   │   │   ├── server.ts   # Hono HTTP + WS
+│   │   │   │   ├── agent/      # Orchestrator, planner, recorder, prompts
+│   │   │   │   ├── llm/        # Provider layer + adapters (Anthropic, OpenAI)
+│   │   │   │   ├── memory/     # Domain memory + user memory
+│   │   │   │   ├── safety/     # Classifier + audit logging
+│   │   │   │   ├── tools/      # Tool registry (11 browser tools)
+│   │   │   │   ├── routes/     # API endpoints
+│   │   │   │   ├── ws/         # WebSocket handler
+│   │   │   │   ├── db/         # Drizzle schema + migrations
+│   │   │   │   └── middleware/ # Auth middleware + adapters
+│   │   │   └── Dockerfile
+│   │   │
+│   │   └── web/                # Dashboard (Next.js)
+│   │       ├── app/
+│   │       │   ├── (dashboard)/ # Main pages (stats, history, audit, sites, memory, settings)
+│   │       │   └── api/         # Token exchange route
+│   │       └── components/      # shadcn/ui components
 │   │
-│   └── api/                    # Backend
-│       ├── src/
-│       │   ├── server.ts       # Hono HTTP + WS
-│       │   ├── agent/          # Agent SDK integration
-│       │   ├── mcp/            # Browser bridge MCP server
-│       │   ├── routes/         # API endpoints
-│       │   ├── db/             # Drizzle schema + migrations
-│       │   └── workflows/      # Inngest functions
-│       └── Dockerfile
+│   ├── packages/
+│   │   └── shared/             # Shared types (SSE events, actions, elements)
+│   │
+│   ├── docs/                   # Architecture, features, business plan, phases
+│   ├── docker-compose.yml
+│   ├── turbo.json
+│   ├── pnpm-workspace.yaml
+│   └── .env.example
 │
-├── packages/
-│   └── shared/                 # Shared types (actions, elements, messages)
-│
-├── docker-compose.yml
-├── turbo.json
-├── pnpm-workspace.yaml
-└── .env.example
+└── website/                    # SEPARATE PROJECT — landing page + Stripe (not open source)
 ```
