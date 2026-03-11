@@ -1,8 +1,10 @@
 import type { CrawlProgress, FlowStep, SSEEvent, SelectedElement } from '@afe/shared';
 import {
+	AlertCircle,
 	ArrowRight,
 	Camera,
 	Check,
+	CheckCircle2,
 	ChevronRight,
 	Circle,
 	Clock,
@@ -11,10 +13,12 @@ import {
 	FileDown,
 	Keyboard,
 	List,
+	ListChecks,
 	Loader2,
 	MousePointer,
 	MoveVertical,
 	Pilcrow,
+	Play,
 	Settings2,
 	Square,
 	Table2,
@@ -37,7 +41,16 @@ interface StoredPage {
 	urlPattern: string;
 	title: string;
 	pageType: string;
-	elements: { id: string; type: string; label: string; selector: string; fallbackSelectors: string[]; attributes: Record<string, string>; visible: boolean; pageUrl: string }[];
+	elements: {
+		id: string;
+		type: string;
+		label: string;
+		selector: string;
+		fallbackSelectors: string[];
+		attributes: Record<string, string>;
+		visible: boolean;
+		pageUrl: string;
+	}[];
 	navigationLinks: { label: string; href: string }[];
 	indexedAt: number;
 }
@@ -49,6 +62,8 @@ type ViewMode = 'onboarding' | 'indexing' | 'crawling' | 'chat';
 interface Plan {
 	steps: string[];
 	description?: string;
+	/** Track execution status per step */
+	stepStatus?: ('pending' | 'running' | 'done' | 'error')[];
 }
 
 // --- Block-based message model ---
@@ -105,7 +120,10 @@ const TOOL_LABELS: Record<string, string> = {
 	export_data: 'Exporting data',
 };
 
-const TOOL_ICON_COMPONENTS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+const TOOL_ICON_COMPONENTS: Record<
+	string,
+	React.ComponentType<{ size?: number; className?: string }>
+> = {
 	click_element: MousePointer,
 	type_text: Keyboard,
 	select_option: List,
@@ -147,6 +165,32 @@ function parsePlan(text: string): Plan | null {
 
 function stripPlanBlock(text: string): string {
 	return text.replace(/<!--plan:.*?-->/s, '').trim();
+}
+
+/** Find the active plan block and advance the next pending step to the given status */
+function advancePlanStep(blocks: MessageBlock[], status: 'running' | 'done' | 'error') {
+	for (const b of blocks) {
+		if (b.type === 'plan' && b.plan.stepStatus) {
+			const idx = b.plan.stepStatus.indexOf('pending');
+			if (idx !== -1) {
+				b.plan.stepStatus[idx] = status;
+				return;
+			}
+		}
+	}
+}
+
+/** Update the currently running plan step to done/error */
+function updatePlanStepStatus(blocks: MessageBlock[], status: 'done' | 'error') {
+	for (const b of blocks) {
+		if (b.type === 'plan' && b.plan.stepStatus) {
+			const idx = b.plan.stepStatus.lastIndexOf('running');
+			if (idx !== -1) {
+				b.plan.stepStatus[idx] = status;
+				return;
+			}
+		}
+	}
 }
 
 /**
@@ -427,14 +471,11 @@ export function ChatTab() {
 								break;
 
 							case 'thinking': {
-								// New thinking phase — reset accumulators
+								// New thinking phase — always push a fresh thinking block
 								textAccumRef.current = '';
 								thinkingAccumRef.current = '';
-								const lastBlock = blocksRef.current[blocksRef.current.length - 1];
-								if (!lastBlock || lastBlock.type !== 'thinking') {
-									blocksRef.current.push({ type: 'thinking', content: '' });
-									scheduleFlush();
-								}
+								blocksRef.current.push({ type: 'thinking', content: '' });
+								scheduleFlush();
 								break;
 							}
 
@@ -446,7 +487,11 @@ export function ChatTab() {
 							case 'tool_start': {
 								const blocks = blocksRef.current;
 								// Remove trailing thinking block only if it has no content (empty spinner)
-								if (blocks.length > 0 && blocks[blocks.length - 1].type === 'thinking' && !(blocks[blocks.length - 1] as { content: string }).content) {
+								if (
+									blocks.length > 0 &&
+									blocks[blocks.length - 1].type === 'thinking' &&
+									!(blocks[blocks.length - 1] as { content: string }).content
+								) {
 									blocks.pop();
 								}
 								// Reset accumulators for the next phase
@@ -459,6 +504,8 @@ export function ChatTab() {
 									args: event.args,
 									status: 'running',
 								});
+								// Advance plan step tracking
+								advancePlanStep(blocks, 'running');
 								scheduleFlush();
 								break;
 							}
@@ -480,6 +527,8 @@ export function ChatTab() {
 										break;
 									}
 								}
+								// Mark current running plan step as done/error
+								updatePlanStepStatus(blocks, event.success ? 'done' : 'error');
 								scheduleFlush();
 								break;
 							}
@@ -497,6 +546,7 @@ export function ChatTab() {
 								const planData: Plan = {
 									steps: event.steps,
 									description: event.description,
+									stepStatus: event.steps.map(() => 'pending' as const),
 								};
 								blocksRef.current.push({ type: 'plan', plan: planData });
 								scheduleFlush();
@@ -831,7 +881,9 @@ export function ChatTab() {
 			{/* Save Flow Dialog */}
 			{showSaveFlow && (
 				<div className="px-4 py-3 border-b border-border bg-secondary/30 space-y-2">
-					<p className="text-xs font-medium text-foreground">Save Flow ({recordedSteps.length} steps)</p>
+					<p className="text-xs font-medium text-foreground">
+						Save Flow ({recordedSteps.length} steps)
+					</p>
 					<input
 						type="text"
 						value={flowName}
@@ -1101,7 +1153,9 @@ function AssistantMessage({
 				{blocks.map((block, i) => {
 					switch (block.type) {
 						case 'thinking':
-							return <ThinkingBlock key={i} content={block.content} isLast={i === blocks.length - 1} />;
+							return (
+								<ThinkingBlock key={i} content={block.content} isLast={i === blocks.length - 1} />
+							);
 						case 'text':
 							return <TextBlock key={i} content={block.content} />;
 						case 'tool_call':
@@ -1150,7 +1204,10 @@ function ThinkingBlock({ content, isLast }: { content: string; isLast: boolean }
 				) : isLast && hasContent ? (
 					<Loader2 size={12} className="animate-spin shrink-0" />
 				) : (
-					<ChevronRight size={12} className={`shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+					<ChevronRight
+						size={12}
+						className={`shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+					/>
 				)}
 				<span>Thinking{isLast && hasContent ? '...' : ''}</span>
 			</button>
@@ -1164,10 +1221,12 @@ function ThinkingBlock({ content, isLast }: { content: string; isLast: boolean }
 }
 
 function TextBlock({ content }: { content: string }) {
-	if (!content.trim()) return null;
+	// Strip plan blocks from displayed text — they render as PlanBlock instead
+	const cleaned = stripPlanBlock(content);
+	if (!cleaned.trim()) return null;
 	return (
 		<div className="rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-secondary text-foreground">
-			{content}
+			{cleaned}
 		</div>
 	);
 }
@@ -1224,8 +1283,8 @@ function ToolCallBlock({
 							</code>
 						</div>
 					)}
-					{block.error && <div className="text-red-400">Error: {block.error}</div>}
-					{block.result && !block.screenshot && (
+					{block.error && <div className="text-red-400">Error: {String(block.error)}</div>}
+					{block.result != null && !block.screenshot && (
 						<div>
 							<span className="text-muted-foreground">Result: </span>
 							<code className="text-[10px] text-foreground/70 font-mono break-all">
@@ -1239,7 +1298,7 @@ function ToolCallBlock({
 			)}
 
 			{/* Screenshot thumbnail — always visible (not inside expanded) */}
-			{block.screenshot && (
+			{typeof block.screenshot === 'string' && (
 				<div className="px-2.5 pb-2">
 					<img
 						src={`data:image/jpeg;base64,${block.screenshot}`}
@@ -1256,7 +1315,7 @@ function ToolCallBlock({
 			)}
 
 			{/* Download button for export_data results */}
-			{block.toolName === 'export_data' && block.status === 'success' && block.result && (
+			{block.toolName === 'export_data' && block.status === 'success' && block.result != null && (
 				<div className="px-2.5 pb-2">
 					<button
 						onClick={() => {
@@ -1292,6 +1351,19 @@ function BlockedBlock({ toolName, reason }: { toolName: string; reason: string }
 	);
 }
 
+function PlanStepIcon({ status }: { status: 'pending' | 'running' | 'done' | 'error' }) {
+	switch (status) {
+		case 'pending':
+			return <Circle size={14} className="text-muted-foreground/50" />;
+		case 'running':
+			return <Loader2 size={14} className="text-blue-400 animate-spin" />;
+		case 'done':
+			return <CheckCircle2 size={14} className="text-green-400" />;
+		case 'error':
+			return <AlertCircle size={14} className="text-red-400" />;
+	}
+}
+
 function PlanBlock({
 	plan,
 	isActive,
@@ -1303,33 +1375,83 @@ function PlanBlock({
 	onApprove: () => void;
 	onEdit: () => void;
 }) {
+	const statuses = plan.stepStatus || plan.steps.map(() => 'pending' as const);
+	const doneCount = statuses.filter((s) => s === 'done').length;
+	const hasStarted = statuses.some((s) => s !== 'pending');
+	const allDone = doneCount === plan.steps.length && plan.steps.length > 0;
+
 	return (
-		<div className="rounded-lg px-3 py-2 bg-secondary text-foreground space-y-1.5">
-			{plan.description && <p className="text-xs font-medium opacity-80">{plan.description}</p>}
-			<div className="space-y-1">
-				{plan.steps.map((step, i) => (
-					<div key={i} className="flex items-start gap-2 text-xs">
-						<span className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-[10px] font-medium mt-0.5">
-							{i + 1}
-						</span>
-						<span>{step}</span>
-					</div>
-				))}
+		<div className="rounded-lg border border-border bg-secondary/50 overflow-hidden">
+			{/* Header */}
+			<div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
+				<ListChecks size={14} className="text-muted-foreground" />
+				<span className="text-xs font-medium text-foreground flex-1">
+					{plan.description || 'Execution Plan'}
+				</span>
+				{hasStarted && (
+					<span className="text-[10px] text-muted-foreground tabular-nums">
+						{doneCount}/{plan.steps.length}
+					</span>
+				)}
 			</div>
-			{!isActive && (
-				<div className="flex gap-2 pt-1">
+
+			{/* Progress bar */}
+			{hasStarted && !allDone && (
+				<div className="h-0.5 bg-secondary">
+					<div
+						className="h-full bg-blue-500 transition-all duration-500"
+						style={{ width: `${(doneCount / plan.steps.length) * 100}%` }}
+					/>
+				</div>
+			)}
+			{allDone && <div className="h-0.5 bg-green-500" />}
+
+			{/* Steps */}
+			<div className="px-3 py-2 space-y-1.5">
+				{plan.steps.map((step, i) => {
+					const status = statuses[i] || 'pending';
+					return (
+						<div
+							key={i}
+							className={`flex items-start gap-2 text-xs transition-opacity ${
+								status === 'pending' && hasStarted ? 'opacity-50' : ''
+							}`}
+						>
+							<span className="shrink-0 mt-px">
+								<PlanStepIcon status={status} />
+							</span>
+							<span className={status === 'done' ? 'text-muted-foreground' : 'text-foreground'}>
+								{step}
+							</span>
+						</div>
+					);
+				})}
+			</div>
+
+			{/* Action buttons — before execution starts */}
+			{!isActive && !hasStarted && (
+				<div className="flex gap-2 px-3 pb-2.5">
 					<button
 						onClick={onApprove}
-						className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
+						className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors"
 					>
-						Execute
+						<Play size={12} />
+						Execute Plan
 					</button>
 					<button
 						onClick={onEdit}
-						className="px-3 py-1 text-xs font-medium text-foreground border border-border rounded hover:bg-secondary"
+						className="px-3 py-1.5 text-xs font-medium text-muted-foreground border border-border rounded-md hover:bg-secondary hover:text-foreground transition-colors"
 					>
 						Edit
 					</button>
+				</div>
+			)}
+
+			{/* Completion */}
+			{allDone && (
+				<div className="flex items-center gap-1.5 px-3 pb-2.5 text-xs text-green-400">
+					<CheckCircle2 size={12} />
+					<span>All steps completed</span>
 				</div>
 			)}
 		</div>
