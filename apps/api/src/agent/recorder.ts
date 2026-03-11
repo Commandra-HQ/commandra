@@ -51,9 +51,9 @@ export async function recordStep(
 	result: { success: boolean; data?: unknown },
 	urlPattern: string,
 	pageType: string,
-) {
+): Promise<FlowStep | null> {
 	const recording = recordings.get(connectionId);
-	if (!recording) return;
+	if (!recording) return null;
 
 	// Generate intent description using the fast model
 	const intent = await generateIntent(toolName, args);
@@ -70,11 +70,7 @@ export async function recordStep(
 
 	recording.steps.push(step);
 
-	await recording.onEvent({
-		type: 'flow_step_recorded',
-		step,
-		stepCount: recording.steps.length,
-	});
+	return step;
 }
 
 /**
@@ -92,7 +88,7 @@ export async function stopRecording(
 		return null;
 	}
 
-	const { userId, domain, steps, onEvent } = recording;
+	const { userId, domain, steps } = recording;
 	recordings.delete(connectionId);
 
 	// Find or create site
@@ -114,12 +110,6 @@ export async function stopRecording(
 			status: 'ready',
 		})
 		.returning();
-
-	await onEvent({
-		type: 'recording_stopped',
-		flowId: flow.id,
-		stepCount: steps.length,
-	});
 
 	return flow.id;
 }

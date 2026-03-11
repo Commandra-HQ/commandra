@@ -64,6 +64,12 @@ export class OpenAIProvider implements LLMProvider {
 				yield { type: 'text', text: delta.content };
 			}
 
+			// Reasoning tokens (o-series models)
+			const reasoning = (delta as Record<string, unknown>).reasoning_content;
+			if (typeof reasoning === 'string' && reasoning) {
+				yield { type: 'thinking_delta', text: reasoning };
+			}
+
 			// Tool call deltas
 			if (delta.tool_calls) {
 				for (const tc of delta.tool_calls) {

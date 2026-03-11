@@ -501,7 +501,7 @@ async function handleToolCall(
 
 		// Record step if in teach mode (skip read-only tools like screenshot/get_page_state)
 		if (isRecording(connectionId) && !['screenshot', 'get_page_state'].includes(name)) {
-			await recordStep(
+			const step = await recordStep(
 				connectionId,
 				name,
 				toolArgs,
@@ -509,6 +509,9 @@ async function handleToolCall(
 				'', // URL pattern will be filled by page context
 				'',
 			);
+			if (step) {
+				await onEvent({ type: 'flow_step_recorded', step, stepCount: step.index + 1 });
+			}
 		}
 
 		return { data: result, isError: false };

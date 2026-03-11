@@ -243,6 +243,7 @@ Look for:
 Return a JSON array of learnings. Each item has "category" and "content" fields.
 Only include concrete, specific observations. Do not guess or include generic advice.
 If nothing user-specific was learned, return an empty array [].
+Even single interactions can reveal preferences — if the user asked for something in a specific way, that's worth noting.
 
 Example:
 [
