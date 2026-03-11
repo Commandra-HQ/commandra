@@ -43,12 +43,13 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Agents always execute in the user's browser, never server-side browsers
 
 ### Auth Rules
-- Auth is pluggable via an `AuthProvider` interface in `apps/api/src/middleware/auth.ts`
-- The product ships two adapters: `clerk` (default for cloud) and `jwt` (for self-hosted)
-- Set via `AUTH_PROVIDER` env var — `clerk` or `jwt`
-- The auth middleware resolves a request to `{ id, email }` — that's the only contract
-- Never import Clerk directly outside the Clerk auth adapter
-- The dashboard (`apps/web`) uses Clerk React components — self-hosted users replace with their own auth UI or use the JWT adapter with a simple login
+- This repo is JWT-only. No Clerk, no vendor auth SDK.
+- The auth middleware (`apps/api/src/middleware/auth.ts`) resolves a request to `{ id, email }` — that's the only contract
+- Dashboard (`apps/web`) has built-in email/password auth via `AuthProvider` context
+- External auth providers (Clerk, OIDC, etc.) integrate via `POST /api/token/exchange` — they verify their own tokens and pass `{ externalId, email }` to get a JWT back
+- For cloud: the `website/` repo has Clerk → it exchanges Clerk tokens for JWTs → dashboard and extension use JWTs
+- For enterprise: their IdP (Okta, Azure AD) → OIDC callback → token exchange → JWT
+- Never import Clerk or any auth vendor SDK in this repo
 
 ### Safety Rules
 - Every browser action MUST be classified before execution: safe / review / blocked
