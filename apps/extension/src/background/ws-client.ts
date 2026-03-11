@@ -251,12 +251,21 @@ async function executeInTab(
 	func: (...args: string[]) => unknown,
 	args: string[],
 ): Promise<unknown> {
-	const results = await chrome.scripting.executeScript({
-		target: { tabId },
-		func,
-		args,
-	});
-	return results[0]?.result;
+	try {
+		const results = await chrome.scripting.executeScript({
+			target: { tabId },
+			func,
+			args,
+		});
+		const result = results[0]?.result;
+		if (result === null || result === undefined) {
+			console.warn('[AFE WS] executeInTab returned null/undefined. Function:', func.name, 'Results:', JSON.stringify(results));
+		}
+		return result;
+	} catch (err) {
+		console.error('[AFE WS] executeInTab error:', err, 'Function:', func.name);
+		return { success: false, error: `Script execution failed: ${err instanceof Error ? err.message : String(err)}` };
+	}
 }
 
 /**
@@ -278,116 +287,67 @@ async function executeInTabAsync(
 
 // --- Functions that run IN the page context (injected via executeScript) ---
 
-/**
- * Resilient element finder. Tries:
- * 1. Primary selector
- * 2. Fallback selectors
- * 3. Fuzzy match by label + element type
- */
-function findElementInPage(
-	selector: string,
-	fallbacksStr: string,
-	label: string,
-	elementType: string,
-): { element: Element | null; usedSelector: string; method: string } {
-	// 1. Try primary selector
-	let el = document.querySelector(selector);
-	if (el) return { element: el, usedSelector: selector, method: 'primary' };
-
-	// 2. Try fallback selectors
-	const fallbacks = fallbacksStr ? fallbacksStr.split('|||') : [];
-	for (const fb of fallbacks) {
-		if (!fb) continue;
-		el = document.querySelector(fb);
-		if (el) return { element: el, usedSelector: fb, method: 'fallback' };
-	}
-
-	// 3. Fuzzy match by label + type
-	if (!label) return { element: null, usedSelector: selector, method: 'none' };
-
-	const typeSelectors: Record<string, string> = {
-		button: 'button, [role="button"], input[type="submit"], input[type="button"]',
-		link: 'a[href], [role="link"]',
-		input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])',
-		select: 'select',
-		textarea: 'textarea',
-		checkbox: 'input[type="checkbox"], [role="checkbox"]',
-		radio: 'input[type="radio"], [role="radio"]',
-		tab: '[role="tab"]',
-	};
-
-	const querySelector = typeSelectors[elementType] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
-	const candidates = document.querySelectorAll(querySelector);
-	const labelLower = label.toLowerCase().trim();
-
-	let bestMatch: Element | null = null;
-	let bestScore = 0;
-
-	for (const candidate of candidates) {
-		if (!(candidate instanceof HTMLElement)) continue;
-		const rect = candidate.getBoundingClientRect();
-		if (rect.width === 0 || rect.height === 0) continue;
-
-		const candidateLabel = (
-			candidate.getAttribute('aria-label') ||
-			candidate.getAttribute('title') ||
-			candidate.textContent?.trim().slice(0, 100) ||
-			candidate.getAttribute('placeholder') ||
-			candidate.getAttribute('name') ||
-			''
-		).toLowerCase().trim();
-
-		if (!candidateLabel) continue;
-
-		// Exact match
-		if (candidateLabel === labelLower) {
-			return { element: candidate, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
-		}
-
-		// Score: substring match
-		let score = 0;
-		if (candidateLabel.includes(labelLower) || labelLower.includes(candidateLabel)) {
-			score = 0.8;
-		} else {
-			// Word overlap
-			const labelWords = labelLower.split(/\s+/);
-			const candidateWords = candidateLabel.split(/\s+/);
-			const overlap = labelWords.filter((w) => candidateWords.includes(w)).length;
-			score = overlap / Math.max(labelWords.length, 1);
-		}
-
-		if (score > bestScore && score > 0.4) {
-			bestScore = score;
-			bestMatch = candidate;
-		}
-	}
-
-	if (bestMatch) {
-		return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
-	}
-
-	return { element: null, usedSelector: selector, method: 'none' };
-}
-
 function clickInPage(selector: string, fallbacks: string, label: string, elementType: string) {
-	const { element: el, usedSelector, method } = findElementInPage(selector, fallbacks, label, elementType);
+	// Inline findElement — chrome.scripting.executeScript can't access outer functions
+	function findElement(s: string, fb: string, l: string, et: string): { element: Element | null; usedSelector: string; method: string } {
+		let el = document.querySelector(s);
+		if (el) return { element: el, usedSelector: s, method: 'primary' };
+		const fbs = fb ? fb.split('|||') : [];
+		for (const f of fbs) { if (!f) continue; el = document.querySelector(f); if (el) return { element: el, usedSelector: f, method: 'fallback' }; }
+		if (!l) return { element: null, usedSelector: s, method: 'none' };
+		const ts: Record<string, string> = { button: 'button, [role="button"], input[type="submit"], input[type="button"]', link: 'a[href], [role="link"]', input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])', select: 'select', textarea: 'textarea', checkbox: 'input[type="checkbox"], [role="checkbox"]', radio: 'input[type="radio"], [role="radio"]', tab: '[role="tab"]' };
+		const qs = ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+		const candidates = document.querySelectorAll(qs);
+		const ll = l.toLowerCase().trim();
+		let bestMatch: Element | null = null; let bestScore = 0;
+		for (const c of candidates) {
+			if (!(c instanceof HTMLElement)) continue;
+			const r = c.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
+			const cl = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent?.trim().slice(0, 100) || c.getAttribute('placeholder') || c.getAttribute('name') || '').toLowerCase().trim();
+			if (!cl) continue;
+			if (cl === ll) return { element: c, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
+			let score = 0;
+			if (cl.includes(ll) || ll.includes(cl)) { score = 0.8; } else { const lw = ll.split(/\s+/); const cw = cl.split(/\s+/); score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1); }
+			if (score > bestScore && score > 0.4) { bestScore = score; bestMatch = c; }
+		}
+		if (bestMatch) return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
+		return { element: null, usedSelector: s, method: 'none' };
+	}
+	const { element: el, usedSelector, method } = findElement(selector, fallbacks, label, elementType);
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLElement)) return { success: false, error: `Not clickable: ${selector}` };
 	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	el.click();
-	return {
-		success: true,
-		data: {
-			clicked: usedSelector,
-			method,
-			tag: el.tagName.toLowerCase(),
-			text: el.textContent?.trim().slice(0, 100),
-		},
-	};
+	return { success: true, data: { clicked: usedSelector, method, tag: el.tagName.toLowerCase(), text: el.textContent?.trim().slice(0, 100) } };
 }
 
 function typeInPage(selector: string, text: string, fallbacks: string, label: string) {
-	const { element: el, usedSelector, method } = findElementInPage(selector, fallbacks, label, 'input');
+	// Inline findElement — chrome.scripting.executeScript can't access outer functions
+	function findElement(s: string, fb: string, l: string, et: string): { element: Element | null; usedSelector: string; method: string } {
+		let el = document.querySelector(s);
+		if (el) return { element: el, usedSelector: s, method: 'primary' };
+		const fbs = fb ? fb.split('|||') : [];
+		for (const f of fbs) { if (!f) continue; el = document.querySelector(f); if (el) return { element: el, usedSelector: f, method: 'fallback' }; }
+		if (!l) return { element: null, usedSelector: s, method: 'none' };
+		const ts: Record<string, string> = { button: 'button, [role="button"], input[type="submit"], input[type="button"]', link: 'a[href], [role="link"]', input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])', select: 'select', textarea: 'textarea', checkbox: 'input[type="checkbox"], [role="checkbox"]', radio: 'input[type="radio"], [role="radio"]', tab: '[role="tab"]' };
+		const qs = ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+		const candidates = document.querySelectorAll(qs);
+		const ll = l.toLowerCase().trim();
+		let bestMatch: Element | null = null; let bestScore = 0;
+		for (const c of candidates) {
+			if (!(c instanceof HTMLElement)) continue;
+			const r = c.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
+			const cl = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent?.trim().slice(0, 100) || c.getAttribute('placeholder') || c.getAttribute('name') || '').toLowerCase().trim();
+			if (!cl) continue;
+			if (cl === ll) return { element: c, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
+			let score = 0;
+			if (cl.includes(ll) || ll.includes(cl)) { score = 0.8; } else { const lw = ll.split(/\s+/); const cw = cl.split(/\s+/); score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1); }
+			if (score > bestScore && score > 0.4) { bestScore = score; bestMatch = c; }
+		}
+		if (bestMatch) return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
+		return { element: null, usedSelector: s, method: 'none' };
+	}
+	const { element: el, usedSelector, method } = findElement(selector, fallbacks, label, 'input');
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {
 		return { success: false, error: `Not a text input: ${selector}` };
@@ -403,7 +363,32 @@ function typeInPage(selector: string, text: string, fallbacks: string, label: st
 }
 
 function selectInPage(selector: string, value: string, fallbacks: string, label: string) {
-	const { element: el, usedSelector, method } = findElementInPage(selector, fallbacks, label, 'select');
+	// Inline findElement — chrome.scripting.executeScript can't access outer functions
+	function findElement(s: string, fb: string, l: string, et: string): { element: Element | null; usedSelector: string; method: string } {
+		let el = document.querySelector(s);
+		if (el) return { element: el, usedSelector: s, method: 'primary' };
+		const fbs = fb ? fb.split('|||') : [];
+		for (const f of fbs) { if (!f) continue; el = document.querySelector(f); if (el) return { element: el, usedSelector: f, method: 'fallback' }; }
+		if (!l) return { element: null, usedSelector: s, method: 'none' };
+		const ts: Record<string, string> = { button: 'button, [role="button"], input[type="submit"], input[type="button"]', link: 'a[href], [role="link"]', input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])', select: 'select', textarea: 'textarea', checkbox: 'input[type="checkbox"], [role="checkbox"]', radio: 'input[type="radio"], [role="radio"]', tab: '[role="tab"]' };
+		const qs = ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+		const candidates = document.querySelectorAll(qs);
+		const ll = l.toLowerCase().trim();
+		let bestMatch: Element | null = null; let bestScore = 0;
+		for (const c of candidates) {
+			if (!(c instanceof HTMLElement)) continue;
+			const r = c.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
+			const cl = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent?.trim().slice(0, 100) || c.getAttribute('placeholder') || c.getAttribute('name') || '').toLowerCase().trim();
+			if (!cl) continue;
+			if (cl === ll) return { element: c, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
+			let score = 0;
+			if (cl.includes(ll) || ll.includes(cl)) { score = 0.8; } else { const lw = ll.split(/\s+/); const cw = cl.split(/\s+/); score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1); }
+			if (score > bestScore && score > 0.4) { bestScore = score; bestMatch = c; }
+		}
+		if (bestMatch) return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
+		return { element: null, usedSelector: s, method: 'none' };
+	}
+	const { element: el, usedSelector, method } = findElement(selector, fallbacks, label, 'select');
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLSelectElement))
 		return { success: false, error: `Not a select: ${selector}` };
