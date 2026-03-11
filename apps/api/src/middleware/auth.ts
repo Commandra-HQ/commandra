@@ -3,7 +3,6 @@ import { jwtVerify } from 'jose';
 
 export interface AuthUser {
 	id: string;
-	clerkId: string;
 	email: string;
 }
 
@@ -17,7 +16,6 @@ export const requireAuth = createMiddleware<{ Variables: { user: AuthUser } }>(a
 
 		c.set('user', {
 			id: payload.userId as string,
-			clerkId: payload.clerkId as string,
 			email: payload.email as string,
 		});
 		await next();

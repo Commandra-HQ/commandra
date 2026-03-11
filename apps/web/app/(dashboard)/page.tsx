@@ -1,17 +1,19 @@
-import { currentUser } from '@clerk/nextjs/server';
+'use client';
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useAuth } from '@/lib/auth-context';
 import { ExtensionToken } from './extension-token';
 import { DashboardStats } from './dashboard-stats';
 
-export default async function HomePage() {
-	const user = await currentUser();
+export default function HomePage() {
+	const { user } = useAuth();
 
 	return (
 		<div className="space-y-8">
 			<div>
 				<h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
 				<p className="text-muted-foreground mt-1">
-					Welcome back{user?.firstName ? `, ${user.firstName}` : ''}. Here&apos;s your agent overview.
+					Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}. Here&apos;s your agent overview.
 				</p>
 			</div>
 

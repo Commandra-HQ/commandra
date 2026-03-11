@@ -5,8 +5,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { apiFetch } from '@/lib/api';
 
 const PROVIDERS = [
 	{ id: 'anthropic', name: 'Anthropic', models: { strong: ['sonnet', 'opus'], fast: ['haiku', 'sonnet'] } },
@@ -38,10 +37,7 @@ export default function SettingsPage() {
 
 	async function fetchSettings() {
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/settings`, {
-				headers: { Authorization: `Bearer ${token}` },
-			});
+			const res = await apiFetch('/api/settings');
 			if (res.ok) {
 				const data = await res.json();
 				if (data.settings) {
@@ -63,13 +59,9 @@ export default function SettingsPage() {
 	async function saveSettings() {
 		setSaving(true);
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/settings`, {
+			const res = await apiFetch('/api/settings', {
 				method: 'PUT',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${token}`,
-				},
+				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(settings),
 			});
 			if (res.ok) {
@@ -200,8 +192,3 @@ export default function SettingsPage() {
 	);
 }
 
-async function getToken(): Promise<string> {
-	const res = await fetch('/api/extension/token');
-	const data = await res.json();
-	return data.token;
-}

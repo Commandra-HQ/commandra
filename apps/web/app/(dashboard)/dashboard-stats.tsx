@@ -3,19 +3,12 @@
 import { useEffect, useState } from 'react';
 import { Globe, History, Shield } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { apiFetch } from '@/lib/api';
 
 interface Stats {
 	conversations: number;
 	actions: number;
 	sites: number;
-}
-
-async function getToken(): Promise<string> {
-	const res = await fetch('/api/extension/token');
-	const data = await res.json();
-	return data.token;
 }
 
 export function DashboardStats() {
@@ -28,10 +21,7 @@ export function DashboardStats() {
 
 	async function fetchStats() {
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/stats`, {
-				headers: { Authorization: `Bearer ${token}` },
-			});
+			const res = await apiFetch('/api/stats');
 			if (res.ok) {
 				setStats(await res.json());
 			}

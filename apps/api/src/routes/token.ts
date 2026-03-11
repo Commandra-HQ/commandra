@@ -1,48 +1,38 @@
-import { createClerkClient, verifyToken } from '@clerk/backend';
 import { Hono } from 'hono';
 import { SignJWT } from 'jose';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
 
-let _clerk: ReturnType<typeof createClerkClient> | null = null;
-function getClerk() {
-	if (!_clerk) _clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
-	return _clerk;
-}
-
 export const tokenRoutes = new Hono();
 
 /**
- * Exchange a short-lived Clerk session token for a long-lived extension JWT.
- * Called by the dashboard when user clicks "Generate Extension Token."
+ * Exchange an external auth token for a long-lived extension JWT.
+ *
+ * This is the bridge for external auth providers (Clerk, OIDC, etc.).
+ * The external provider verifies the token and passes us { externalId, email }.
+ * In cloud mode, the website repo calls this after verifying a Clerk session.
+ * In enterprise mode, an OIDC callback handler calls this after verifying the IdP token.
+ *
+ * For simple self-hosted deployments, use /api/auth/login instead.
  */
 tokenRoutes.post('/exchange', async (c) => {
-	const { clerkToken } = await c.req.json<{ clerkToken: string }>();
-	if (!clerkToken) return c.json({ error: 'clerkToken required' }, 400);
+	const { externalId, email } = await c.req.json<{ externalId: string; email: string }>();
+	if (!externalId || !email) {
+		return c.json({ error: 'externalId and email required' }, 400);
+	}
 
 	try {
-		// Verify the Clerk token
-		const authorizedParties = (process.env.AUTHORIZED_PARTIES || 'http://localhost:3000').split(',');
-		const payload = await verifyToken(clerkToken, {
-			secretKey: process.env.CLERK_SECRET_KEY!,
-			authorizedParties,
-		});
-
-		// Get/create user
-		const clerkUser = await getClerk().users.getUser(payload.sub);
-		const email = clerkUser.emailAddresses[0]?.emailAddress ?? '';
-
+		// Upsert user by externalId
 		const [dbUser] = await db
 			.insert(users)
-			.values({ clerkId: clerkUser.id, email })
-			.onConflictDoUpdate({ target: users.clerkId, set: { email } })
+			.values({ externalId, email })
+			.onConflictDoUpdate({ target: users.externalId, set: { email } })
 			.returning();
 
 		// Issue a long-lived JWT (30 days)
 		const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
 		const jwt = await new SignJWT({
 			userId: dbUser.id,
-			clerkId: clerkUser.id,
 			email,
 		})
 			.setProtectedHeader({ alg: 'HS256' })
@@ -53,6 +43,6 @@ tokenRoutes.post('/exchange', async (c) => {
 		return c.json({ token: jwt, userId: dbUser.id, email });
 	} catch (err) {
 		console.error('Token exchange failed:', err);
-		return c.json({ error: 'Invalid Clerk token' }, 401);
+		return c.json({ error: 'Token exchange failed' }, 500);
 	}
 });

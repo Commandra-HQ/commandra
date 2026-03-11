@@ -1,10 +1,25 @@
-import { currentUser } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
+'use client';
+
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
 import { Sidebar } from '@/components/sidebar';
 
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-	const user = await currentUser();
-	if (!user) redirect('/sign-in');
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+	const { user, loading } = useAuth();
+	const router = useRouter();
+
+	if (loading) {
+		return (
+			<div className="flex items-center justify-center h-screen">
+				<p className="text-sm text-muted-foreground">Loading...</p>
+			</div>
+		);
+	}
+
+	if (!user) {
+		router.push('/login');
+		return null;
+	}
 
 	return (
 		<div className="flex h-screen">

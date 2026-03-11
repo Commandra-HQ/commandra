@@ -16,7 +16,6 @@
 	"dependencies": {
 		"@afe/shared": "workspace:*",
 		"@anthropic-ai/sdk": "^0.39.0",
-		"@clerk/backend": "^1.21.1",
 		"@hono/node-server": "^1.13.7",
 		"dotenv": "^16.4.7",
 		"drizzle-orm": "^0.38.3",

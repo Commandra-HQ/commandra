@@ -1,11 +1,11 @@
 'use client';
 
-import { UserButton } from '@clerk/nextjs';
 import {
 	Brain,
 	Globe,
 	History,
 	Home,
+	LogOut,
 	Menu,
 	Settings,
 	Shield,
@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 
@@ -30,6 +31,7 @@ const navItems = [
 export function Sidebar() {
 	const pathname = usePathname();
 	const [mobileOpen, setMobileOpen] = useState(false);
+	const { user, logout } = useAuth();
 
 	return (
 		<>
@@ -100,12 +102,21 @@ export function Sidebar() {
 
 				{/* User */}
 				<div className="p-3 flex items-center gap-3">
-					<UserButton
-						appearance={{
-							elements: { avatarBox: 'h-8 w-8' },
-						}}
-					/>
-					<span className="text-xs text-muted-foreground truncate">Account</span>
+					<div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+						<span className="text-xs font-medium text-primary">
+							{user?.email?.charAt(0).toUpperCase() || '?'}
+						</span>
+					</div>
+					<div className="flex-1 min-w-0">
+						<p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+					</div>
+					<button
+						onClick={logout}
+						className="text-muted-foreground hover:text-foreground transition-colors"
+						title="Sign out"
+					>
+						<LogOut size={14} />
+					</button>
 				</div>
 			</aside>
 		</>

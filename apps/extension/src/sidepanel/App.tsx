@@ -9,7 +9,6 @@ type Tab = 'chat' | 'flows' | 'settings';
 interface StoredUser {
 	id: string;
 	email: string;
-	clerkId: string;
 }
 
 function AuthenticatedApp({ user }: { user: StoredUser }) {

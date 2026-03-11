@@ -4,8 +4,7 @@ import { Globe } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { apiFetch } from '@/lib/api';
 
 interface Site {
 	id: string;
@@ -26,10 +25,7 @@ export default function SitesPage() {
 
 	async function fetchSites() {
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/sites`, {
-				headers: { Authorization: `Bearer ${token}` },
-			});
+			const res = await apiFetch('/api/sites');
 			if (res.ok) {
 				const data = await res.json();
 				setSites(data.sites || []);
@@ -95,8 +91,3 @@ export default function SitesPage() {
 	);
 }
 
-async function getToken(): Promise<string> {
-	const res = await fetch('/api/extension/token');
-	const data = await res.json();
-	return data.token;
-}

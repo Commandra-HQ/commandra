@@ -4,8 +4,7 @@ import { MessageSquare } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { apiFetch } from '@/lib/api';
 
 interface Conversation {
 	id: string;
@@ -34,10 +33,7 @@ export default function HistoryPage() {
 
 	async function fetchConversations() {
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/conversations`, {
-				headers: { Authorization: `Bearer ${token}` },
-			});
+			const res = await apiFetch('/api/conversations');
 			if (res.ok) {
 				const data = await res.json();
 				setConversations(data.conversations || []);
@@ -52,10 +48,7 @@ export default function HistoryPage() {
 	async function fetchMessages(convId: string) {
 		setSelectedId(convId);
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/conversations/${convId}`, {
-				headers: { Authorization: `Bearer ${token}` },
-			});
+			const res = await apiFetch(`/api/conversations/${convId}`);
 			if (res.ok) {
 				const data = await res.json();
 				setMessages(data.messages || []);
@@ -164,8 +157,3 @@ function formatRelative(dateStr: string): string {
 	return date.toLocaleDateString();
 }
 
-async function getToken(): Promise<string> {
-	const res = await fetch('/api/extension/token');
-	const data = await res.json();
-	return data.token;
-}

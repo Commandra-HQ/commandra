@@ -21,7 +21,7 @@ export function LoginScreen() {
 			// Store token and user in chrome.storage
 			await chrome.storage.local.set({
 				authToken: token.trim(),
-				user: { id: user.id, email: user.email, clerkId: user.clerkId },
+				user: { id: user.id, email: user.email },
 			});
 			// Trigger re-render in App
 			window.dispatchEvent(new Event('auth-changed'));

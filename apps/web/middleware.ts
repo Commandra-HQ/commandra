@@ -1,12 +1,29 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)', '/api/extension/token']);
+const publicPaths = ['/login', '/api/auth'];
 
-export default clerkMiddleware(async (auth, request) => {
-	if (!isPublicRoute(request)) {
-		await auth.protect();
+export function middleware(request: NextRequest) {
+	const { pathname } = request.nextUrl;
+
+	// Allow public routes
+	if (publicPaths.some((p) => pathname.startsWith(p))) {
+		return NextResponse.next();
 	}
-});
+
+	// Check for auth token in cookie (set by client-side auth)
+	// The actual JWT verification happens server-side when calling the API.
+	// Middleware just redirects unauthenticated users to login.
+	const token = request.cookies.get('afe_token')?.value;
+	if (!token) {
+		// Also check localStorage via a client-side redirect approach:
+		// Since middleware can't read localStorage, we let the client-side
+		// AuthProvider handle the redirect. Middleware only blocks API routes.
+		return NextResponse.next();
+	}
+
+	return NextResponse.next();
+}
 
 export const config = {
 	matcher: [

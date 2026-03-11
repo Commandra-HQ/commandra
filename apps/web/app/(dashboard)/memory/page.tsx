@@ -6,8 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { apiFetch } from '@/lib/api';
 
 interface Memory {
 	id: string;
@@ -48,10 +47,7 @@ export default function MemoryPage() {
 
 	async function fetchMemories() {
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/memory`, {
-				headers: { Authorization: `Bearer ${token}` },
-			});
+			const res = await apiFetch('/api/memory');
 			if (res.ok) {
 				const data = await res.json();
 				setMemories(data.memories || []);
@@ -65,11 +61,7 @@ export default function MemoryPage() {
 
 	async function handleDelete(id: string) {
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/memory/${id}`, {
-				method: 'DELETE',
-				headers: { Authorization: `Bearer ${token}` },
-			});
+			const res = await apiFetch(`/api/memory/${id}`, { method: 'DELETE' });
 			if (res.ok) {
 				setMemories((prev) => prev.filter((m) => m.id !== id));
 			}
@@ -80,13 +72,9 @@ export default function MemoryPage() {
 
 	async function handleEdit(id: string) {
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/memory/${id}`, {
+			const res = await apiFetch(`/api/memory/${id}`, {
 				method: 'PUT',
-				headers: {
-					Authorization: `Bearer ${token}`,
-					'Content-Type': 'application/json',
-				},
+				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ content: editContent }),
 			});
 			if (res.ok) {
@@ -103,13 +91,9 @@ export default function MemoryPage() {
 	async function handleAdd() {
 		if (!newMemory.domain.trim() || !newMemory.content.trim()) return;
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/memory`, {
+			const res = await apiFetch('/api/memory', {
 				method: 'POST',
-				headers: {
-					Authorization: `Bearer ${token}`,
-					'Content-Type': 'application/json',
-				},
+				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(newMemory),
 			});
 			if (res.ok) {
@@ -324,8 +308,3 @@ export default function MemoryPage() {
 	);
 }
 
-async function getToken(): Promise<string> {
-	const res = await fetch('/api/extension/token');
-	const data = await res.json();
-	return data.token;
-}

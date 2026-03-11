@@ -4,8 +4,7 @@ import { Shield } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { apiFetch } from '@/lib/api';
 
 interface AuditLog {
 	id: string;
@@ -33,10 +32,7 @@ export default function AuditPage() {
 
 	async function fetchLogs() {
 		try {
-			const token = await getToken();
-			const res = await fetch(`${API_URL}/api/audit`, {
-				headers: { Authorization: `Bearer ${token}` },
-			});
+			const res = await apiFetch('/api/audit');
 			if (res.ok) {
 				const data = await res.json();
 				setLogs(data.logs || []);
@@ -138,8 +134,3 @@ export default function AuditPage() {
 	);
 }
 
-async function getToken(): Promise<string> {
-	const res = await fetch('/api/extension/token');
-	const data = await res.json();
-	return data.token;
-}

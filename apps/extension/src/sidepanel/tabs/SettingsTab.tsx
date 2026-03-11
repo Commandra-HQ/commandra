@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 
 interface SettingsTabProps {
-	user: { id: string; email: string; clerkId: string };
+	user: { id: string; email: string };
 }
 
 export function SettingsTab({ user }: SettingsTabProps) {
