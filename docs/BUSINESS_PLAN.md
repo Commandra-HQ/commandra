@@ -19,7 +19,7 @@ User's Browser                    Our Infrastructure
 │ (thin client)    │   WebSocket  │ Orchestrator         │
 │                  │              │ Postgres + pgvector   │
 │ DOM interaction  │              │ LLM keys (pooled)    │
-│ stays local      │              │ Auth (Clerk) + billing │
+│ stays local      │              │ Auth (Clerk Billing) │
 └─────────────────┘              └──────────────────────┘
 ```
 
@@ -91,7 +91,7 @@ Free tier uses our pooled keys (not BYOK) — lower friction, better first exper
 | Block-based chat UI (thinking, tool calls, plans)          | Done   |
 | Teach mode (record flows, replay with parameters)          | Done   |
 | Domain memory + user memory (adaptive)                     | Done   |
-| Multi-tenant isolation (userId scoping everywhere)         | Done   |
+| Multi-tenant isolation (org + user scoping via `getOrgOrUserScope`) | Done   |
 
 ### Needed for Product (Both Modes)
 
@@ -101,12 +101,14 @@ Free tier uses our pooled keys (not BYOK) — lower friction, better first exper
 | **Fix dashboard auth** (stats show 0 — 401 bug)          | P0       |
 | **Fix recording step events** (SSE wiring)                | P0       |
 
-### Needed for Cloud Launch (Separate `website/` Project)
+### Needed for Cloud Launch (Separate `landing-page/` Project)
 
 | Capability                                        | Priority |
 | ------------------------------------------------- | -------- |
-| **Landing page** (Next.js + shadcn)               | P1       |
-| **Stripe billing** (Checkout + usage metering)    | P1       |
+| **Landing page** (Next.js + shadcn)               | Done     |
+| **Clerk Billing** (plans + checkout via Clerk)    | Done     |
+| **Auth redirect flow** (Clerk → token exchange → dashboard) | Done |
+| **Organizations** (team plans, shared data)       | Done     |
 | **LLM key pooling** (our keys for all cloud users)| P1       |
 | **Rate limiting per tier** (free = 50/month)      | P1       |
 | **Chrome Web Store listing**                      | P1       |
@@ -129,10 +131,10 @@ commandra/
 │   ├── apps/api/             # Backend API
 │   ├── apps/web/             # Dashboard
 │   └── packages/shared/      # Shared types
-└── landing-page/             # Not open source — landing page + Stripe
+└── landing-page/             # Not open source — landing page + Clerk Billing
 ```
 
-The product repo has no Stripe, no landing page, no cloud billing logic. It's a clean open-source project that works out of the box with `docker-compose up`. The cloud wrapper (landing-page/) adds billing, LLM key pooling, and managed auth on top.
+The product repo has no Clerk, no landing page, no cloud billing logic. It's a clean open-source project that works out of the box with `docker-compose up`. The cloud wrapper (landing-page/) adds billing, LLM key pooling, and managed auth on top.
 
 ---
 
@@ -171,7 +173,7 @@ The product repo has no Stripe, no landing page, no cloud billing logic. It's a 
 **Cloud adds convenience, not features:**
 - Hosted infra (no Docker to manage)
 - Pooled LLM keys (no API key setup)
-- Managed auth (Clerk in landing-page/ → JWT exchange, no config for users)
+- Managed auth (Clerk in landing-page/ → token exchange → auto-redirect to dashboard)
 - Billing + usage dashboard
 - Automatic updates
 

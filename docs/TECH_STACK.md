@@ -88,15 +88,15 @@ The orchestrator is simpler, debuggable, and fully under our control.
 
 ### JWT-Only Auth Over Vendor Lock-in
 
-This repo has zero auth vendor dependencies. Auth resolves to `{ id, email }` everywhere.
+This repo has zero auth vendor dependencies. Auth resolves to `{ id, email, orgId?, role? }` everywhere.
 
 ```
 Self-hosted:  Dashboard login form → POST /api/auth/login → JWT
-Cloud:        External auth (Clerk) → POST /api/token/exchange → JWT
-Enterprise:   Company SSO (OIDC) → POST /api/token/exchange → JWT
+Cloud:        External auth (Clerk) → POST /api/token/exchange → JWT (with org info)
+Enterprise:   Company SSO (OIDC) → POST /api/token/exchange → JWT (with org info)
 ```
 
-The `landing-page/` repo (not open source) has Clerk for cloud users. It exchanges Clerk sessions for JWTs. The product never sees Clerk tokens. Enterprise users integrate their SSO via the same token exchange endpoint.
+The `landing-page/` repo (not open source) has Clerk for cloud users. After sign-in, users are auto-redirected to the dashboard via `/auth/redirect` → `GET /api/token` → `POST /api/token/exchange` → redirect to dashboard `/auth/callback?token=<jwt>`. The product never sees Clerk tokens. Token exchange also handles org info — Clerk organizations are mapped to commandra orgs with role-based membership. Enterprise users integrate their SSO via the same token exchange endpoint.
 
 ### Docker Over Cloudflare Workers
 
@@ -116,7 +116,7 @@ Self-hosted needs only an LLM provider key + Postgres. Everything else is option
 |----------|---------|-----------|
 | **Anthropic or OpenAI** | LLM (strong + fast models) | Yes (pick one) |
 | **OpenAI** | Embeddings (text-embedding-3-small) | Optional (can use Ollama) |
-| **Clerk** | Auth (cloud — lives in website/ repo) | Cloud only |
+| **Clerk** | Auth + Billing (cloud — lives in landing-page/ repo) | Cloud only |
 | **Neon** | Managed Postgres (cloud) | Cloud only |
 
 ---
@@ -144,16 +144,17 @@ commandra/                      # Parent folder
 │   │   │   │   ├── memory/     # Domain memory + user memory
 │   │   │   │   ├── safety/     # Classifier + audit logging
 │   │   │   │   ├── tools/      # Tool registry (11 browser tools)
-│   │   │   │   ├── routes/     # API endpoints
+│   │   │   │   ├── routes/     # API endpoints (auth, orgs, sites, flows, etc.)
 │   │   │   │   ├── ws/         # WebSocket handler
-│   │   │   │   ├── db/         # Drizzle schema + migrations
-│   │   │   │   └── middleware/ # Auth middleware (JWT verification)
+│   │   │   │   ├── db/         # Drizzle schema + migrations + scope helper
+│   │   │   │   └── middleware/ # Auth middleware (JWT → { id, email, orgId?, role? })
 │   │   │   └── Dockerfile
 │   │   │
 │   │   └── web/                # Dashboard (Next.js)
 │   │       ├── app/
 │   │       │   ├── login/       # Email/password auth
-│   │       │   └── (dashboard)/ # Stats, history, audit, sites, memory, settings
+│   │       │   ├── auth/callback/ # Cloud auth redirect callback
+│   │       │   └── (dashboard)/ # Stats, history, audit, sites, memory, org settings
 │   │       └── components/      # shadcn/ui components
 │   │
 │   ├── packages/
@@ -165,5 +166,5 @@ commandra/                      # Parent folder
 │   ├── pnpm-workspace.yaml
 │   └── .env.example
 │
-└── landing-page/               # SEPARATE PROJECT — landing page + Stripe (not open source)
+└── landing-page/               # SEPARATE PROJECT — landing page + Clerk Billing (not open source)
 ```

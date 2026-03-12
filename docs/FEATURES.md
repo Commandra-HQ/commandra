@@ -172,15 +172,16 @@ Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent.
 
 ### Tier 4: Teams & Enterprise
 
-| Feature | Description |
-|---------|-------------|
-| **Team sharing** | Share flows within an organization |
-| **Admin dashboard** | Who's running what, audit logs, permissions |
-| **Audit trail** | Every action logged with before/after state |
-| **Exportable audit** | PDF/CSV reports for compliance teams |
-| **SSO** | SAML/SCIM for enterprise identity |
-| **Self-hosted** | Docker deployment in customer's infra |
-| **On-prem LLM** | Route to customer's own model for zero data leakage |
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Organizations** | Org schema, member management, role-based access (admin/member/viewer) | Done |
+| **Team sharing** | Org-scoped flows, sites, conversations shared across team members | Done |
+| **Admin dashboard** | Who's running what, audit logs, permissions | Done (basic) |
+| **Audit trail** | Every action logged with before/after state | Done |
+| **Exportable audit** | PDF/CSV reports for compliance teams | |
+| **SSO** | SAML/OIDC for enterprise identity (via token exchange) | Partial |
+| **Self-hosted** | Docker deployment in customer's infra | Done |
+| **On-prem LLM** | Route to customer's own model for zero data leakage | |
 
 ---
 
@@ -225,7 +226,7 @@ This is the enterprise selling point. Every action goes through classification b
 - **Open source (MIT):** Full platform, self-host with Docker, bring your own LLM key, built-in auth. Free forever.
 - **Cloud (hosted by us):** Free tier (50 actions/month) → Pro ($29/user) → Team ($19/user, 5+ seats). We manage infra, pool LLM keys, handle auth + billing.
 
-Cloud billing and landing page live in a separate project (`website/`), not in this repo. This repo is the product — clean, self-contained, works with `docker-compose up`.
+Cloud billing and landing page live in a separate project (`landing-page/`), not in this repo. This repo is the product — clean, self-contained, works with `docker-compose up`.
 
 **Why open source works here:**
 - Builds trust with security teams ("audit our code")

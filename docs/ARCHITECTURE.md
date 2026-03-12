@@ -30,7 +30,7 @@
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │                    HONO HTTP SERVER                       │    │
 │  │                                                          │    │
-│  │  Auth Middleware: JWT → { id, email }                      │    │
+│  │  Auth Middleware: JWT → { id, email, orgId?, role? }       │    │
 │  │  ├── POST /api/auth/login    → email/password → JWT       │    │
 │  │  ├── POST /api/auth/register → create account + JWT       │    │
 │  │  └── POST /api/token/exchange → external auth → JWT       │    │
@@ -44,6 +44,7 @@
 │  │  ├── GET  /api/sites                                     │    │
 │  │  ├── CRUD /api/memory                                    │    │
 │  │  ├── CRUD /api/flows                                     │    │
+│  │  ├── CRUD /api/orgs        → org + member management     │    │
 │  │  └── POST /api/index      → page/element indexing        │    │
 │  └──────────────────┬───────────────────────────────────────┘    │
 │                     │                                             │
@@ -92,7 +93,8 @@
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │                    POSTGRES + pgvector                    │    │
 │  │                                                          │    │
-│  │  users, conversations, messages, audit_logs,             │    │
+│  │  users, organizations, org_members,                       │    │
+│  │  conversations, messages, audit_logs,                     │    │
 │  │  sites, pages, elements (+ embeddings),                  │    │
 │  │  domain_memory, user_memory, flows, flow_steps           │    │
 │  └──────────────────────────────────────────────────────────┘    │
@@ -178,7 +180,7 @@ This repo has zero vendor auth dependencies. Auth is JWT-only throughout.
 │  │ (email+pass) │         JWT                  │ JWT      │  │
 │  └──────────────┘                              └──────────┘  │
 │                                                               │
-│  Cloud (e.g. Clerk in website/ repo):                        │
+│  Cloud (e.g. Clerk in landing-page/ repo):                   │
 │  ┌──────────────┐  verify   ┌──────────┐  POST /api/token/  │
 │  │ External     │ ────────► │ Website  │  exchange           │
 │  │ auth (Clerk) │           │ backend  │ ───────────────────►│
@@ -195,14 +197,14 @@ This repo has zero vendor auth dependencies. Auth is JWT-only throughout.
 │                                              JWT ◄─┘          │
 │                                                               │
 │  All paths end at the same place: a JWT containing            │
-│  { userId, email } signed with JWT_SECRET.                    │
+│  { userId, email, orgId?, role? } signed with JWT_SECRET.    │
 │  The API and extension only ever see JWTs.                    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 **For self-hosted:** Dashboard has built-in email/password auth. User creates account, gets JWT, copies it to the extension.
 
-**For cloud:** The `landing-page/` repo has Clerk. It exchanges Clerk sessions for JWTs via `POST /api/token/exchange`. The product API never sees Clerk tokens.
+**For cloud:** The `landing-page/` repo has Clerk. After sign-in, users are auto-redirected to the dashboard via `/auth/redirect` → `GET /api/token` → `POST /api/token/exchange` → redirect to dashboard `/auth/callback?token=<jwt>`. The dashboard stores the JWT and does a full page reload. The product API never sees Clerk tokens. Token exchange also handles org info — Clerk organizations are mapped to commandra orgs with role-based membership.
 
 **For enterprise:** Their SSO (Okta, Azure AD, etc.) flows through OIDC. A callback handler exchanges the verified identity for a JWT via the same token exchange endpoint.
 
@@ -259,9 +261,10 @@ That's it. User opens `localhost:3000`, creates an account, copies the JWT to th
 ### Cloud
 
 Same product, deployed with cloud infrastructure + the separate `landing-page/` repo for billing:
-- JWT auth (same as self-hosted — website exchanges Clerk tokens for JWTs)
+- JWT auth (same as self-hosted — landing page exchanges Clerk tokens for JWTs via token exchange, auto-redirects to dashboard)
+- Organizations for team plans (Clerk orgs → commandra orgs via token exchange)
 - Managed Postgres (Neon)
 - LLM key pooling (our keys, metered per user)
-- Stripe billing (lives in separate `website/` project)
+- Clerk Billing (lives in separate `landing-page/` project)
 
 See `docs/BUSINESS_PLAN.md` for the two-mode business model.

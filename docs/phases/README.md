@@ -6,7 +6,7 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 
 | Phase | Name             | What Shipped                                                                                   | Status  |
 | ----- | ---------------- | ---------------------------------------------------------------------------------------------- | ------- |
-| 1     | Auth + Shell UI  | Clerk login via dashboard, token exchange for extension, shell with tabs, user in Postgres     | ✅ Done |
+| 1     | Auth + Shell UI  | JWT-only auth, token exchange for external providers, auth callback redirect flow, shell with tabs, user in Postgres | ✅ Done |
 | 2     | Site Indexing    | Background tab crawler indexes full site, Dexie storage, site map UI in side panel             | ✅ Done |
 | 3     | Chat             | User chats about current page, Claude responds with page context, streaming responses          | ✅ Done |
 | 4     | Browser Actions  | Agentic loop executes DOM actions via WS, activity feed, navigate/click/type/select/read tools | ✅ Done |
@@ -36,7 +36,7 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | Phase | Name              | What Ships                                                       | Status |
 | ----- | ----------------- | ---------------------------------------------------------------- | ------ |
 | 13    | Multi-Agent Swarm | Parallel subagents, cross-tab coordination, coordinator dispatch |        |
-| 14    | Teams + Sharing   | Shared flows, team management, admin dashboard, RBAC             |        |
+| 14    | Teams + Sharing   | Org schema + API, member management, org-scoped data, dashboard org UI | ✅ Done |
 
 ---
 
