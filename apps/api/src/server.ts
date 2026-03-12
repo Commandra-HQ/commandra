@@ -31,7 +31,8 @@ app.use(
 			if (origin.startsWith('http://localhost:')) return origin;
 			return null;
 		},
-		allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
+		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+		allowHeaders: ['Content-Type', 'Authorization'],
 	}),
 );
 

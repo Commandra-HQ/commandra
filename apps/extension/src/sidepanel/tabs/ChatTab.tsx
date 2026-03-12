@@ -322,6 +322,12 @@ export function ChatTab() {
 				setSelectorActive(false);
 			} else if (message.type === 'SELECTOR_CANCELLED') {
 				setSelectorActive(false);
+			} else if (message.type === 'FLOW_STEP_RECORDED') {
+				// Manual recording step arrived via WS — update the recording UI
+				const { step } = message as unknown as { step: FlowStep };
+				if (step) {
+					setRecordedSteps((prev) => [...prev, step]);
+				}
 			}
 		}
 		chrome.runtime.onMessage.addListener(handleMessage);

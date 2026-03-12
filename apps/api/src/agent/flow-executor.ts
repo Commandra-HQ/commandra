@@ -260,6 +260,19 @@ export async function runFlowExecution(params: FlowExecutionParams): Promise<voi
 					}
 				}
 
+				// Emit flow_step_start if this tool maps to a flow step
+				const matchingStepForStart = flowSteps.find(
+					(s) => s.toolName === name && !stepResults.some((r) => r.stepIndex === s.index),
+				);
+				if (matchingStepForStart) {
+					await onEvent({
+						type: 'flow_step_start',
+						stepIndex: matchingStepForStart.index,
+						totalSteps: flowSteps.length,
+						intent: matchingStepForStart.intent,
+					});
+				}
+
 				// Execute
 				await onEvent({
 					type: 'tool_start',

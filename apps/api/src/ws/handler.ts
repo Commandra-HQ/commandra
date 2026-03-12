@@ -130,7 +130,20 @@ export function handleWsConnection(ws: WebSocket) {
 							{ success: true },
 							urlPattern,
 							'',
-						).catch((err) => console.warn('[WS] Failed to record manual step:', err));
+						).then((step) => {
+							// Send the recorded step back to the extension so the UI updates
+							if (step) {
+								const conn = connections.get(connectionId);
+								if (conn && conn.ws.readyState === conn.ws.OPEN) {
+									conn.ws.send(JSON.stringify({
+										type: 'flow_step_recorded',
+										step,
+										stepCount: step.index + 1,
+										timestamp: Date.now(),
+									}));
+								}
+							}
+						}).catch((err) => console.warn('[WS] Failed to record manual step:', err));
 					}
 					break;
 				}

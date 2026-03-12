@@ -243,6 +243,13 @@ export function FlowsTab() {
 								}
 								break;
 
+							case 'flow_step_start':
+								setStepStatus((prev) => ({
+									...prev,
+									[event.stepIndex]: 'running',
+								}));
+								break;
+
 							case 'flow_step_end':
 								setStepStatus((prev) => ({
 									...prev,

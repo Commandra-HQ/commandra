@@ -76,6 +76,16 @@ export function connectWebSocket() {
 						if (cb) cb(message.result);
 						break;
 					}
+					case 'flow_step_recorded':
+						// Forward recorded step to side panel so the recording UI updates
+						chrome.runtime
+							.sendMessage({
+								type: 'FLOW_STEP_RECORDED',
+								step: message.step,
+								stepCount: message.stepCount,
+							})
+							.catch(() => {});
+						break;
 				}
 			} catch (err) {
 				console.error('[AFE WS] Message handler error:', err);
