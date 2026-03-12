@@ -202,7 +202,7 @@ This repo has zero vendor auth dependencies. Auth is JWT-only throughout.
 
 **For self-hosted:** Dashboard has built-in email/password auth. User creates account, gets JWT, copies it to the extension.
 
-**For cloud:** The `website/` repo has Clerk. It exchanges Clerk sessions for JWTs via `POST /api/token/exchange`. The product API never sees Clerk tokens.
+**For cloud:** The `landing-page/` repo has Clerk. It exchanges Clerk sessions for JWTs via `POST /api/token/exchange`. The product API never sees Clerk tokens.
 
 **For enterprise:** Their SSO (Okta, Azure AD, etc.) flows through OIDC. A callback handler exchanges the verified identity for a JWT via the same token exchange endpoint.
 
@@ -248,7 +248,7 @@ Extension displays:
 ### Self-Hosted (Default)
 
 ```bash
-git clone https://github.com/AVIVASHISHTA29/agents-for-everyone
+git clone https://github.com/Commandra-HQ/commandra
 cp .env.example .env
 # Edit .env: set LLM_API_KEY, JWT_SECRET
 docker compose up
@@ -258,7 +258,7 @@ That's it. User opens `localhost:3000`, creates an account, copies the JWT to th
 
 ### Cloud
 
-Same product, deployed with cloud infrastructure + the separate `website/` repo for billing:
+Same product, deployed with cloud infrastructure + the separate `landing-page/` repo for billing:
 - JWT auth (same as self-hosted — website exchanges Clerk tokens for JWTs)
 - Managed Postgres (Neon)
 - LLM key pooling (our keys, metered per user)

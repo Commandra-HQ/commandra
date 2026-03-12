@@ -34,7 +34,7 @@ export function LoginScreen() {
 
 	return (
 		<div className="flex flex-col items-center justify-center h-screen p-6">
-			<h1 className="text-lg font-semibold text-foreground mb-1">Agents for Everyone</h1>
+			<h1 className="text-lg font-semibold text-foreground mb-1">Commandra</h1>
 			<p className="text-xs text-muted-foreground mb-4">Connect your extension to get started</p>
 
 			<div className="w-full max-w-xs mb-6 p-3 bg-secondary rounded-md">

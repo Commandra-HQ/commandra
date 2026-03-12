@@ -1,4 +1,4 @@
-# Business Plan — Agents for Everyone
+# Business Plan — Commandra
 
 ## The Product
 
@@ -123,16 +123,16 @@ Free tier uses our pooled keys (not BYOK) — lower friction, better first exper
 ### Repo Split
 
 ```
-agents-for-everyone/
-├── browser-agent-platform/   # Open source (MIT) — the product
+commandra/
+├── commandra/                # Open source (MIT) — the product
 │   ├── apps/extension/       # Chrome Extension
 │   ├── apps/api/             # Backend API
 │   ├── apps/web/             # Dashboard
 │   └── packages/shared/      # Shared types
-└── website/                  # Not open source — landing page + Stripe
+└── landing-page/             # Not open source — landing page + Stripe
 ```
 
-The product repo has no Stripe, no landing page, no cloud billing logic. It's a clean open-source project that works out of the box with `docker-compose up`. The cloud wrapper (website/) adds billing, LLM key pooling, and managed auth on top.
+The product repo has no Stripe, no landing page, no cloud billing logic. It's a clean open-source project that works out of the box with `docker-compose up`. The cloud wrapper (landing-page/) adds billing, LLM key pooling, and managed auth on top.
 
 ---
 
@@ -171,7 +171,7 @@ The product repo has no Stripe, no landing page, no cloud billing logic. It's a 
 **Cloud adds convenience, not features:**
 - Hosted infra (no Docker to manage)
 - Pooled LLM keys (no API key setup)
-- Managed auth (Clerk in website/ → JWT exchange, no config for users)
+- Managed auth (Clerk in landing-page/ → JWT exchange, no config for users)
 - Billing + usage dashboard
 - Automatic updates
 

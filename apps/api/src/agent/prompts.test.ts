@@ -4,7 +4,7 @@ import { buildSystemPrompt } from './prompts.js';
 describe('buildSystemPrompt', () => {
 	it('returns base prompt when no page index provided', () => {
 		const prompt = buildSystemPrompt();
-		expect(prompt).toContain('Agents for Everyone');
+		expect(prompt).toContain('Commandra');
 		expect(prompt).toContain('No page is currently indexed');
 	});
 

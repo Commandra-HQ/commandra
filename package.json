@@ -1,5 +1,5 @@
 {
-	"name": "agents-for-everyone",
+	"name": "commandra",
 	"private": true,
 	"packageManager": "pnpm@9.15.4",
 	"scripts": {

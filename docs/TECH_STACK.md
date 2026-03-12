@@ -96,7 +96,7 @@ Cloud:        External auth (Clerk) → POST /api/token/exchange → JWT
 Enterprise:   Company SSO (OIDC) → POST /api/token/exchange → JWT
 ```
 
-The `website/` repo (not open source) has Clerk for cloud users. It exchanges Clerk sessions for JWTs. The product never sees Clerk tokens. Enterprise users integrate their SSO via the same token exchange endpoint.
+The `landing-page/` repo (not open source) has Clerk for cloud users. It exchanges Clerk sessions for JWTs. The product never sees Clerk tokens. Enterprise users integrate their SSO via the same token exchange endpoint.
 
 ### Docker Over Cloudflare Workers
 
@@ -124,8 +124,8 @@ Self-hosted needs only an LLM provider key + Postgres. Everything else is option
 ## Project Structure
 
 ```
-agents-for-everyone/            # Parent folder
-├── browser-agent-platform/     # THIS REPO — the open-source product
+commandra/                      # Parent folder
+├── commandra/                  # THIS REPO — the open-source product
 │   ├── apps/
 │   │   ├── extension/          # Chrome Extension (thin client)
 │   │   │   ├── src/
@@ -165,5 +165,5 @@ agents-for-everyone/            # Parent folder
 │   ├── pnpm-workspace.yaml
 │   └── .env.example
 │
-└── website/                    # SEPARATE PROJECT — landing page + Stripe (not open source)
+└── landing-page/               # SEPARATE PROJECT — landing page + Stripe (not open source)
 ```

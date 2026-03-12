@@ -2,7 +2,7 @@ import { AuthProvider } from '@/lib/auth-context';
 import './globals.css';
 
 export const metadata = {
-	title: 'Agents for Everyone',
+	title: 'Commandra',
 	description: 'Dashboard for managing your browser agent',
 };
 

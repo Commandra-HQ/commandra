@@ -17,7 +17,7 @@ This is the critical onboarding step. Before the agent can do anything useful, i
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Welcome to Agents for Everyone                 │
+│  Welcome to Commandra                            │
 │                                                 │
 │  Let's set up your first website.               │
 │  Navigate to any internal app and click below.  │

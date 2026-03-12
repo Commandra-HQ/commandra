@@ -24,7 +24,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-	console.log('Agents for Everyone extension installed');
+	console.log('Commandra extension installed');
 	connectWebSocket();
 });
 
@@ -225,7 +225,7 @@ async function handleGetSiteData(domain: string) {
 
 		return { site, pages };
 	} catch (err) {
-		console.error('[AFE] Failed to fetch site data from backend:', err);
+		console.error('[Commandra] Failed to fetch site data from backend:', err);
 		return { site: null, pages: [] };
 	}
 }

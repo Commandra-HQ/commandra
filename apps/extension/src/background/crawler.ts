@@ -189,7 +189,7 @@ async function indexTabPage(tabId: number): Promise<PageIndex | null> {
 
 		return results?.[0]?.result as PageIndex | null;
 	} catch (err) {
-		console.error('[AFE Crawler] Failed to index tab:', err);
+		console.error('[Commandra Crawler] Failed to index tab:', err);
 		return null;
 	}
 }
@@ -222,7 +222,7 @@ export async function indexCurrentPage(tabId: number): Promise<PageIndex | null>
 
 /**
  * Compute the path prefix scope for crawling.
- * e.g. /AVIVASHISHTA29/agents-for-everyone/settings → /AVIVASHISHTA29/agents-for-everyone
+ * e.g. /org/app/settings → /org/app
  * For root paths (/ or /dashboard), scope is just /
  */
 function getPathScope(pathname: string): string {
@@ -266,13 +266,13 @@ export async function startCrawl(
 	const pathScope = getPathScope(startPath);
 
 	if (isCrawling) {
-		console.log('[AFE Crawler] Already crawling, ignoring');
+		console.log('[Commandra Crawler] Already crawling, ignoring');
 		return;
 	}
 
 	isCrawling = true;
 	console.log(
-		`[AFE Crawler] Starting crawl of ${domain} scoped to ${pathScope} (max ${maxPages} pages, depth ${maxDepth})`,
+		`[Commandra Crawler] Starting crawl of ${domain} scoped to ${pathScope} (max ${maxPages} pages, depth ${maxDepth})`,
 	);
 
 	const visitedPatterns = new Set<string>();
@@ -350,7 +350,7 @@ export async function startCrawl(
 					}
 				}
 			} catch (err) {
-				console.error(`[AFE Crawler] Error crawling ${url}:`, err);
+				console.error(`[Commandra Crawler] Error crawling ${url}:`, err);
 			}
 
 			await sleep(CRAWL_DELAY_MS);
@@ -374,7 +374,7 @@ export async function startCrawl(
 			status: finalStatus,
 		});
 
-		console.log(`[AFE Crawler] Finished: ${visited.size} pages indexed within scope ${pathScope}`);
+		console.log(`[Commandra Crawler] Finished: ${visited.size} pages indexed within scope ${pathScope}`);
 	}
 }
 

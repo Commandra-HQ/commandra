@@ -7,13 +7,13 @@ An open-source platform (Chrome extension + backend) that lets anyone automate t
 ## Project Structure (Parent Level)
 
 ```
-agents-for-everyone/
-├── browser-agent-platform/   # THIS REPO — the open-source product
+commandra/
+├── commandra/                # THIS REPO — the open-source product
 │   ├── apps/extension/       # Chrome Extension (thin client)
 │   ├── apps/api/             # Backend (Hono + orchestrator)
 │   ├── apps/web/             # Dashboard (Next.js)
 │   └── packages/shared/      # Shared types
-└── website/                  # SEPARATE REPO — landing page, Stripe billing (not open source)
+└── landing-page/             # SEPARATE REPO — landing page, Stripe billing (not open source)
 ```
 
 This monorepo is the product. It's what gets open-sourced. It's what self-hosted users run. The landing page and billing live in a separate project.
@@ -47,7 +47,7 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - The auth middleware (`apps/api/src/middleware/auth.ts`) resolves a request to `{ id, email }` — that's the only contract
 - Dashboard (`apps/web`) has built-in email/password auth via `AuthProvider` context
 - External auth providers (Clerk, OIDC, etc.) integrate via `POST /api/token/exchange` — they verify their own tokens and pass `{ externalId, email }` to get a JWT back
-- For cloud: the `website/` repo has Clerk → it exchanges Clerk tokens for JWTs → dashboard and extension use JWTs
+- For cloud: the `landing-page/` repo has Clerk → it exchanges Clerk tokens for JWTs → dashboard and extension use JWTs
 - For enterprise: their IdP (Okta, Azure AD) → OIDC callback → token exchange → JWT
 - Never import Clerk or any auth vendor SDK in this repo
 

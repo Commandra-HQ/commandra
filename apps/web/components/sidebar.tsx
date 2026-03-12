@@ -65,10 +65,10 @@ export function Sidebar() {
 				{/* Logo */}
 				<div className="flex items-center gap-2 px-4 h-14 border-b border-sidebar-border">
 					<div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center">
-						<span className="text-primary-foreground text-xs font-bold">A</span>
+						<span className="text-primary-foreground text-xs font-bold">C</span>
 					</div>
 					<span className="font-semibold text-sm text-sidebar-foreground">
-						Agents for Everyone
+						Commandra
 					</span>
 				</div>
 

@@ -1,4 +1,4 @@
-# Agents for Everyone
+# Commandra
 
 An open-source platform that lets anyone automate tasks on any web application through natural language. Chrome extension + backend. Show once, automate forever.
 
@@ -55,8 +55,8 @@ The extension handles UI, DOM indexing, and action execution. The backend handle
 ### Setup
 
 ```bash
-git clone https://github.com/AVIVASHISHTA29/agents-for-everyone.git
-cd agents-for-everyone/browser-agent-platform
+git clone https://github.com/Commandra-HQ/commandra.git
+cd commandra
 cp .env.example .env
 # Edit .env: set LLM_API_KEY and JWT_SECRET (openssl rand -base64 32)
 pnpm install
@@ -85,7 +85,7 @@ cd apps/extension && pnpm dev
 ## Project Structure
 
 ```
-browser-agent-platform/
+commandra/
 ├── apps/
 │   ├── extension/       # Chrome Extension (thin client)
 │   │   └── src/

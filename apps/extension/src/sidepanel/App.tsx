@@ -23,7 +23,7 @@ function AuthenticatedApp({ user }: { user: StoredUser }) {
 	return (
 		<>
 			<header className="px-4 py-3 border-b border-border">
-				<h1 className="text-sm font-semibold text-foreground">Agents for Everyone</h1>
+				<h1 className="text-sm font-semibold text-foreground">Commandra</h1>
 			</header>
 
 			<nav className="flex border-b border-border">

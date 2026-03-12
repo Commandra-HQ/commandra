@@ -1,4 +1,4 @@
-# Agents for Everyone — Development Commands
+# Commandra — Development Commands
 
 include .env
 export

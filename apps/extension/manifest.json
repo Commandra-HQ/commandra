@@ -1,6 +1,6 @@
 {
 	"manifest_version": 3,
-	"name": "Agents for Everyone",
+	"name": "Commandra",
 	"version": "0.0.1",
 	"description": "Chat with any web application. Automate what you do every day.",
 	"permissions": ["activeTab", "sidePanel", "storage", "tabs", "scripting", "alarms"],
@@ -20,7 +20,7 @@
 		}
 	],
 	"action": {
-		"default_title": "Agents for Everyone"
+		"default_title": "Commandra"
 	},
 	"icons": {}
 }
