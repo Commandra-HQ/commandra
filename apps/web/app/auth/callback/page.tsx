@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function AuthCallbackPage() {
+function CallbackHandler() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
@@ -21,11 +21,26 @@ export default function AuthCallbackPage() {
 	}, [searchParams, router]);
 
 	return (
+		<div className="text-center space-y-3">
+			<div className="h-8 w-8 mx-auto animate-spin rounded-full border-2 border-primary border-t-transparent" />
+			<p className="text-sm text-muted-foreground">Signing you in...</p>
+		</div>
+	);
+}
+
+export default function AuthCallbackPage() {
+	return (
 		<div className="flex items-center justify-center h-screen">
-			<div className="text-center space-y-3">
-				<div className="h-8 w-8 mx-auto animate-spin rounded-full border-2 border-primary border-t-transparent" />
-				<p className="text-sm text-muted-foreground">Signing you in...</p>
-			</div>
+			<Suspense
+				fallback={
+					<div className="text-center space-y-3">
+						<div className="h-8 w-8 mx-auto animate-spin rounded-full border-2 border-primary border-t-transparent" />
+						<p className="text-sm text-muted-foreground">Loading...</p>
+					</div>
+				}
+			>
+				<CallbackHandler />
+			</Suspense>
 		</div>
 	);
 }
