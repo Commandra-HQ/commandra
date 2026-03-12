@@ -13,7 +13,7 @@ commandra/
 │   ├── apps/api/             # Backend (Hono + orchestrator)
 │   ├── apps/web/             # Dashboard (Next.js)
 │   └── packages/shared/      # Shared types
-└── landing-page/             # SEPARATE REPO — landing page, Stripe billing (not open source)
+└── landing-page/             # SEPARATE REPO — landing page, Clerk auth + billing (not open source)
 ```
 
 This monorepo is the product. It's what gets open-sourced. It's what self-hosted users run. The landing page and billing live in a separate project.
@@ -46,8 +46,9 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - This repo is JWT-only. No Clerk, no vendor auth SDK.
 - The auth middleware (`apps/api/src/middleware/auth.ts`) resolves a request to `{ id, email, orgId?, role? }` — that's the contract
 - JWTs may contain `orgId` and `role` for cloud team/org users — these are optional
-- Dashboard (`apps/web`) has built-in email/password auth via `AuthProvider` context
-- Dashboard also accepts tokens via `/auth/callback?token=<jwt>` — used by the cloud landing page redirect flow
+- Dashboard (`apps/web`) has built-in email/password auth via `AuthProvider` context (`apps/web/lib/auth-context.tsx`)
+- Dashboard layout (`apps/web/app/(dashboard)/layout.tsx`) redirects to `/login` via `useEffect` (not during render) when unauthenticated
+- Dashboard also accepts tokens via `/auth/callback?token=<jwt>` — used by the cloud landing page redirect flow. Callback stores token in localStorage then does a full page reload (`window.location.href`) so `AuthProvider` re-mounts with the token.
 - External auth providers (Clerk, OIDC, etc.) integrate via `POST /api/token/exchange`:
   - Required: `{ externalId, email }` — upserts user, returns JWT with Postgres UUID
   - Optional: `{ orgExternalId, orgName, role }` — upserts org + membership, includes in JWT
