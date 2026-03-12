@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Sidebar } from '@/components/sidebar';
@@ -8,17 +9,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 	const { user, loading } = useAuth();
 	const router = useRouter();
 
-	if (loading) {
+	useEffect(() => {
+		if (!loading && !user) {
+			router.push('/login');
+		}
+	}, [loading, user, router]);
+
+	if (loading || !user) {
 		return (
 			<div className="flex items-center justify-center h-screen">
 				<p className="text-sm text-muted-foreground">Loading...</p>
 			</div>
 		);
-	}
-
-	if (!user) {
-		router.push('/login');
-		return null;
 	}
 
 	return (

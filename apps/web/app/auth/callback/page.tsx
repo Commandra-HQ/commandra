@@ -1,24 +1,22 @@
 'use client';
 
 import { Suspense, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 
 function CallbackHandler() {
-	const router = useRouter();
 	const searchParams = useSearchParams();
 
 	useEffect(() => {
 		const token = searchParams.get('token');
 		if (!token) {
-			router.replace('/login');
+			window.location.href = '/login';
 			return;
 		}
 
-		// Store the token and clean up the URL
+		// Store the token and do a full page load so AuthProvider picks it up
 		localStorage.setItem('afe_token', token);
-		window.history.replaceState({}, '', '/auth/callback');
-		router.replace('/');
-	}, [searchParams, router]);
+		window.location.href = '/';
+	}, [searchParams]);
 
 	return (
 		<div className="text-center space-y-3">
