@@ -2,6 +2,7 @@
 
 import {
 	Brain,
+	Building2,
 	Globe,
 	History,
 	Home,
@@ -19,7 +20,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 
-const navItems = [
+const baseNavItems = [
 	{ href: '/', label: 'Home', icon: Home },
 	{ href: '/history', label: 'History', icon: History },
 	{ href: '/audit', label: 'Audit Log', icon: Shield },
@@ -32,6 +33,10 @@ export function Sidebar() {
 	const pathname = usePathname();
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const { user, logout } = useAuth();
+
+	const navItems = user?.orgId
+		? [...baseNavItems, { href: '/org', label: 'Organization', icon: Building2 }]
+		: baseNavItems;
 
 	return (
 		<>
