@@ -17,11 +17,32 @@ export const users = pgTable('users', {
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const organizations = pgTable('organizations', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	name: text('name').notNull(),
+	slug: text('slug').notNull().unique(),
+	externalId: text('external_id').unique(),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const orgMembers = pgTable('org_members', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	orgId: uuid('org_id')
+		.references(() => organizations.id)
+		.notNull(),
+	userId: uuid('user_id')
+		.references(() => users.id)
+		.notNull(),
+	role: text('role').notNull().default('member'), // 'admin' | 'member' | 'viewer'
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const sites = pgTable('sites', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	userId: uuid('user_id')
 		.references(() => users.id)
 		.notNull(),
+	orgId: uuid('org_id').references(() => organizations.id),
 	domain: text('domain').notNull(),
 	name: text('name'),
 	totalPages: integer('total_pages').default(0),
@@ -86,6 +107,7 @@ export const conversations = pgTable('conversations', {
 	userId: uuid('user_id')
 		.references(() => users.id)
 		.notNull(),
+	orgId: uuid('org_id').references(() => organizations.id),
 	siteId: uuid('site_id').references(() => sites.id),
 	title: text('title'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -107,6 +129,7 @@ export const flows = pgTable('flows', {
 	userId: uuid('user_id')
 		.references(() => users.id)
 		.notNull(),
+	orgId: uuid('org_id').references(() => organizations.id),
 	siteId: uuid('site_id')
 		.references(() => sites.id)
 		.notNull(),
@@ -183,6 +206,7 @@ export const auditLogs = pgTable('audit_logs', {
 	userId: uuid('user_id')
 		.references(() => users.id)
 		.notNull(),
+	orgId: uuid('org_id').references(() => organizations.id),
 	action: text('action').notNull(),
 	safetyLevel: text('safety_level').notNull(),
 	approved: boolean('approved').notNull(),

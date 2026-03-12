@@ -2,6 +2,7 @@ import { and, count, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
 import { pages, sites } from '../db/schema.js';
+import { getOrgOrUserScope } from '../db/scope.js';
 import { inngest } from '../inngest/client.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 
@@ -23,7 +24,7 @@ siteRoutes.get('/', async (c) => {
 			createdAt: sites.createdAt,
 		})
 		.from(sites)
-		.where(eq(sites.userId, user.id));
+		.where(getOrgOrUserScope(user, sites));
 
 	return c.json({ sites: rows });
 });
@@ -39,7 +40,7 @@ siteRoutes.get('/:domain', async (c) => {
 		.where(eq(sites.domain, domain))
 		.limit(1);
 
-	if (!site || site.userId !== user.id) {
+	if (!site || (user.orgId ? site.orgId !== user.orgId : site.userId !== user.id)) {
 		return c.json({ error: 'Not found' }, 404);
 	}
 
@@ -73,13 +74,13 @@ siteRoutes.post('/:domain/pages', async (c) => {
 	let [site] = await db
 		.select()
 		.from(sites)
-		.where(and(eq(sites.domain, domain), eq(sites.userId, user.id)))
+		.where(and(eq(sites.domain, domain), getOrgOrUserScope(user, sites)))
 		.limit(1);
 
 	if (!site) {
 		[site] = await db
 			.insert(sites)
-			.values({ userId: user.id, domain })
+			.values({ userId: user.id, orgId: user.orgId || null, domain })
 			.returning();
 	}
 

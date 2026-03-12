@@ -7,6 +7,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 interface AuthUser {
 	id: string;
 	email: string;
+	orgId?: string;
+	orgName?: string;
+	role?: string;
 }
 
 interface AuthContextValue {
@@ -42,7 +45,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 			});
 			if (res.ok) {
 				const data = await res.json();
-				setUser({ id: data.id, email: data.email });
+				setUser({
+					id: data.id,
+					email: data.email,
+					orgId: data.orgId,
+					orgName: data.orgName,
+					role: data.role,
+				});
 				setToken(jwt);
 			} else {
 				localStorage.removeItem('afe_token');

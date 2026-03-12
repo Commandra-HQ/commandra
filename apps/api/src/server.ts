@@ -17,6 +17,7 @@ import { settingsRoutes } from './routes/settings.js';
 import { siteRoutes } from './routes/sites.js';
 import { statsRoutes } from './routes/stats.js';
 import { tokenRoutes } from './routes/token.js';
+import { orgRoutes } from './routes/orgs.js';
 import { handleWsConnection } from './ws/handler.js';
 
 const app = new Hono();
@@ -47,6 +48,7 @@ app.route('/api/settings', settingsRoutes);
 app.route('/api/stats', statsRoutes);
 app.route('/api/flows', flowRoutes);
 app.route('/api/memory', memoryRoutes);
+app.route('/api/orgs', orgRoutes);
 
 // Inngest handler — serve as middleware
 const inngestHandler = inngestServe({ client: inngest, functions: [embedPageElements, embedFlow] });

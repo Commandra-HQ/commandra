@@ -2,6 +2,7 @@ import { count, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';
+import { getOrgOrUserScope } from '../db/scope.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 
 export const conversationRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -20,7 +21,7 @@ conversationRoutes.get('/', async (c) => {
 			updatedAt: conversations.updatedAt,
 		})
 		.from(conversations)
-		.where(eq(conversations.userId, user.id))
+		.where(getOrgOrUserScope(user, conversations))
 		.orderBy(desc(conversations.updatedAt))
 		.limit(50);
 
@@ -49,7 +50,7 @@ conversationRoutes.get('/:id', async (c) => {
 		.where(eq(conversations.id, convId))
 		.limit(1);
 
-	if (!conv || conv.userId !== user.id) {
+	if (!conv || (user.orgId ? conv.orgId !== user.orgId : conv.userId !== user.id)) {
 		return c.json({ error: 'Not found' }, 404);
 	}
 

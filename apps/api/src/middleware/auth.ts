@@ -4,6 +4,8 @@ import { jwtVerify } from 'jose';
 export interface AuthUser {
 	id: string;
 	email: string;
+	orgId?: string;
+	role?: string;
 }
 
 export const requireAuth = createMiddleware<{ Variables: { user: AuthUser } }>(async (c, next) => {
@@ -17,6 +19,8 @@ export const requireAuth = createMiddleware<{ Variables: { user: AuthUser } }>(a
 		c.set('user', {
 			id: payload.userId as string,
 			email: payload.email as string,
+			orgId: (payload.orgId as string) || undefined,
+			role: (payload.role as string) || undefined,
 		});
 		await next();
 	} catch {

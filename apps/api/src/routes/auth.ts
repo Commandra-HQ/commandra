@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { SignJWT, jwtVerify } from 'jose';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { users } from '../db/schema.js';
+import { orgMembers, organizations, users } from '../db/schema.js';
 
 export const authRoutes = new Hono();
 
@@ -18,10 +18,28 @@ authRoutes.get('/me', async (c) => {
 		const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
 		const { payload } = await jwtVerify(token, secret);
 
-		return c.json({
+		const result: Record<string, unknown> = {
 			id: payload.userId,
 			email: payload.email,
-		});
+		};
+
+		// Include org info if present in JWT
+		if (payload.orgId) {
+			result.orgId = payload.orgId;
+			result.role = payload.role;
+
+			// Fetch org name
+			const [org] = await db
+				.select({ name: organizations.name })
+				.from(organizations)
+				.where(eq(organizations.id, payload.orgId as string))
+				.limit(1);
+			if (org) {
+				result.orgName = org.name;
+			}
+		}
+
+		return c.json(result);
 	} catch {
 		return c.json({ error: 'Unauthorized' }, 401);
 	}
@@ -71,7 +89,17 @@ authRoutes.post('/login', async (c) => {
 		const valid = await verifyPassword(password, user.passwordHash);
 		if (!valid) return c.json({ error: 'Invalid credentials' }, 401);
 
-		const token = await issueJwt(user.id, email);
+		// Check if user has any org memberships
+		const [membership] = await db
+			.select({
+				orgId: orgMembers.orgId,
+				role: orgMembers.role,
+			})
+			.from(orgMembers)
+			.where(eq(orgMembers.userId, user.id))
+			.limit(1);
+
+		const token = await issueJwt(user.id, email, membership?.orgId, membership?.role);
 		return c.json({ token, userId: user.id, email });
 	} catch (err) {
 		console.error('Login failed:', err);
@@ -81,9 +109,14 @@ authRoutes.post('/login', async (c) => {
 
 // --- Helpers ---
 
-async function issueJwt(userId: string, email: string): Promise<string> {
+async function issueJwt(userId: string, email: string, orgId?: string, role?: string): Promise<string> {
 	const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
-	return new SignJWT({ userId, email })
+	const payload: Record<string, string> = { userId, email };
+	if (orgId) {
+		payload.orgId = orgId;
+		payload.role = role || 'member';
+	}
+	return new SignJWT(payload)
 		.setProtectedHeader({ alg: 'HS256' })
 		.setIssuedAt()
 		.setExpirationTime('30d')

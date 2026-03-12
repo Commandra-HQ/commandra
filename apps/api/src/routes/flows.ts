@@ -5,6 +5,7 @@ import { streamSSE } from 'hono/streaming';
 import { runFlowExecution } from '../agent/flow-executor.js';
 import { db } from '../db/index.js';
 import { flowRuns, flows, sites } from '../db/schema.js';
+import { getOrgOrUserScope } from '../db/scope.js';
 import { searchFlows as vectorSearchFlows } from '../db/vector-search.js';
 import { inngest } from '../inngest/client.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
@@ -33,7 +34,7 @@ flowRoutes.get('/', async (c) => {
 		})
 		.from(flows)
 		.innerJoin(sites, eq(flows.siteId, sites.id))
-		.where(eq(flows.userId, user.id))
+		.where(getOrgOrUserScope(user, flows))
 		.orderBy(desc(flows.updatedAt));
 
 	const filtered = domain ? rows.filter((r) => r.domain === domain) : rows;
@@ -71,13 +72,16 @@ flowRoutes.get('/:id', async (c) => {
 
 	if (!flow) return c.json({ error: 'Not found' }, 404);
 
-	// Check ownership via the flows table
+	// Check access via ownership or org membership
 	const [owned] = await db
-		.select({ userId: flows.userId })
+		.select({ userId: flows.userId, orgId: flows.orgId })
 		.from(flows)
 		.where(eq(flows.id, flowId))
 		.limit(1);
-	if (owned?.userId !== user.id) return c.json({ error: 'Not found' }, 404);
+	const hasAccess = user.orgId
+		? owned?.orgId === user.orgId
+		: owned?.userId === user.id;
+	if (!hasAccess) return c.json({ error: 'Not found' }, 404);
 
 	// Get recent runs
 	const runs = await db
@@ -128,6 +132,7 @@ flowRoutes.post('/', async (c) => {
 		.insert(flows)
 		.values({
 			userId: user.id,
+			orgId: user.orgId || null,
 			siteId: site.id,
 			name: name.trim(),
 			description: description?.trim() || null,
@@ -150,7 +155,9 @@ flowRoutes.put('/:id', async (c) => {
 	const body = await c.req.json();
 
 	const [existing] = await db.select().from(flows).where(eq(flows.id, flowId)).limit(1);
-	if (!existing || existing.userId !== user.id) return c.json({ error: 'Not found' }, 404);
+	if (!existing) return c.json({ error: 'Not found' }, 404);
+	const canEdit = user.orgId ? existing.orgId === user.orgId : existing.userId === user.id;
+	if (!canEdit) return c.json({ error: 'Not found' }, 404);
 
 	const { name, description, steps, parameters, status } = body as {
 		name?: string;
@@ -186,7 +193,9 @@ flowRoutes.delete('/:id', async (c) => {
 	const flowId = c.req.param('id');
 
 	const [existing] = await db.select().from(flows).where(eq(flows.id, flowId)).limit(1);
-	if (!existing || existing.userId !== user.id) return c.json({ error: 'Not found' }, 404);
+	if (!existing) return c.json({ error: 'Not found' }, 404);
+	const canDelete = user.orgId ? existing.orgId === user.orgId : existing.userId === user.id;
+	if (!canDelete) return c.json({ error: 'Not found' }, 404);
 
 	// Delete runs first (FK constraint)
 	await db.delete(flowRuns).where(eq(flowRuns.flowId, flowId));
@@ -203,7 +212,9 @@ flowRoutes.post('/:id/run', async (c) => {
 	const { parameterValues } = body as { parameterValues?: Record<string, string> };
 
 	const [flow] = await db.select().from(flows).where(eq(flows.id, flowId)).limit(1);
-	if (!flow || flow.userId !== user.id) return c.json({ error: 'Not found' }, 404);
+	if (!flow) return c.json({ error: 'Not found' }, 404);
+	const canRun = user.orgId ? flow.orgId === user.orgId : flow.userId === user.id;
+	if (!canRun) return c.json({ error: 'Not found' }, 404);
 
 	const connectionId = getConnectionByUser(user.id);
 	if (!connectionId) return c.json({ error: 'Extension not connected' }, 400);
@@ -277,11 +288,13 @@ flowRoutes.get('/:id/runs', async (c) => {
 	const flowId = c.req.param('id');
 
 	const [flow] = await db
-		.select({ userId: flows.userId })
+		.select({ userId: flows.userId, orgId: flows.orgId })
 		.from(flows)
 		.where(eq(flows.id, flowId))
 		.limit(1);
-	if (!flow || flow.userId !== user.id) return c.json({ error: 'Not found' }, 404);
+	if (!flow) return c.json({ error: 'Not found' }, 404);
+	const canView = user.orgId ? flow.orgId === user.orgId : flow.userId === user.id;
+	if (!canView) return c.json({ error: 'Not found' }, 404);
 
 	const runs = await db
 		.select()

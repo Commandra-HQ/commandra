@@ -2,6 +2,7 @@ import { desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
 import { auditLogs } from '../db/schema.js';
+import { getOrgOrUserScope } from '../db/scope.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 
 export const auditRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -21,7 +22,7 @@ auditRoutes.get('/', async (c) => {
 			createdAt: auditLogs.createdAt,
 		})
 		.from(auditLogs)
-		.where(eq(auditLogs.userId, user.id))
+		.where(getOrgOrUserScope(user, auditLogs))
 		.orderBy(desc(auditLogs.createdAt))
 		.limit(200);
 
