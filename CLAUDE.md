@@ -44,12 +44,25 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 
 ### Auth Rules
 - This repo is JWT-only. No Clerk, no vendor auth SDK.
-- The auth middleware (`apps/api/src/middleware/auth.ts`) resolves a request to `{ id, email }` — that's the only contract
+- The auth middleware (`apps/api/src/middleware/auth.ts`) resolves a request to `{ id, email, orgId?, role? }` — that's the contract
+- JWTs may contain `orgId` and `role` for cloud team/org users — these are optional
 - Dashboard (`apps/web`) has built-in email/password auth via `AuthProvider` context
-- External auth providers (Clerk, OIDC, etc.) integrate via `POST /api/token/exchange` — they verify their own tokens and pass `{ externalId, email }` to get a JWT back
-- For cloud: the `landing-page/` repo has Clerk → it exchanges Clerk tokens for JWTs → dashboard and extension use JWTs
+- Dashboard also accepts tokens via `/auth/callback?token=<jwt>` — used by the cloud landing page redirect flow
+- External auth providers (Clerk, OIDC, etc.) integrate via `POST /api/token/exchange`:
+  - Required: `{ externalId, email }` — upserts user, returns JWT with Postgres UUID
+  - Optional: `{ orgExternalId, orgName, role }` — upserts org + membership, includes in JWT
+- For cloud: landing page (Clerk) → `/auth/redirect` → `GET /api/token` → calls `POST /api/token/exchange` → redirects to dashboard `/auth/callback?token=<jwt>`
 - For enterprise: their IdP (Okta, Azure AD) → OIDC callback → token exchange → JWT
 - Never import Clerk or any auth vendor SDK in this repo
+
+### Organizations
+- Organizations are optional — only used for cloud team plans and enterprise deployments
+- Schema: `organizations` (id, name, slug, externalId) + `orgMembers` (orgId, userId, role)
+- Nullable `orgId` FK on: `sites`, `flows`, `conversations`, `auditLogs`
+- Data scoping: `getOrgOrUserScope()` helper (`apps/api/src/db/scope.ts`) returns org-scoped or user-scoped WHERE clause
+- When `user.orgId` is set, queries scope by org (shared data). Otherwise, scope by userId (personal data).
+- Org API routes: `apps/api/src/routes/orgs.ts` — CRUD for orgs + member management (admin-only)
+- Self-hosted RBAC (instance-level roles without orgs) is a future phase
 
 ### Safety Rules
 - Every browser action MUST be classified before execution: safe / review / blocked
@@ -73,6 +86,7 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Use Drizzle migrations, never manual schema changes
 - Audit logs are append-only, never update or delete them
 - Element embeddings use pgvector, no separate vector DB
+- Org-scoped tables have nullable `orgId` — use `getOrgOrUserScope()` for queries
 
 ### File Structure
 - Monorepo with Turborepo: `apps/extension`, `apps/api`, `apps/web`, `packages/shared`
@@ -80,8 +94,10 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Extension content scripts go in `apps/extension/src/content/`
 - Agent-related code goes in `apps/api/src/agent/`
 - LLM provider adapters go in `apps/api/src/llm/providers/`
-- Auth adapters go in `apps/api/src/middleware/auth/`
+- Auth middleware: `apps/api/src/middleware/auth.ts`
+- Org + data scoping: `apps/api/src/db/scope.ts`, `apps/api/src/routes/orgs.ts`
 - Dashboard (Next.js) goes in `apps/web/`
+- Dashboard auth callback: `apps/web/app/auth/callback/page.tsx` (for cloud redirect flow)
 
 ### Don't
 - Don't add Cloudflare Workers, Vercel, or serverless runtimes — we use Docker
