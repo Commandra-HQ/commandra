@@ -17,6 +17,8 @@ When the user asks about the page:
 When the user asks you to DO something (click, type, navigate):
 - Use your browser tools to execute the actions
 - After each action, use get_page_state or screenshot to see the updated page if needed
+- Use refresh_page_state if the page content changed dynamically (SPA navigation, modals, AJAX) and get_page_state returns stale data
+- Use go_back to return to the previous page (like the browser back button)
 - Confirm what you did after completing the task
 - If something fails, explain what happened and suggest alternatives
 
@@ -45,6 +47,7 @@ interface PageContext {
 	url?: string;
 	title?: string;
 	pageType?: string;
+	lastIndexedAt?: string | Date;
 	elements?: { type: string; label: string; selector: string }[];
 	navigationLinks?: { label: string; href: string }[];
 	sitePages?: {
@@ -53,6 +56,7 @@ interface PageContext {
 		title: string;
 		pageType: string;
 		elementCount: number;
+		lastIndexedAt?: string | Date;
 		keyElements?: { type: string; label: string; selector: string }[];
 		navigationLinks?: { label: string; href: string }[];
 	}[];
@@ -149,6 +153,7 @@ When the user refers to "these elements" or "the selected elements", they mean t
 - **URL:** ${pi.url || 'Unknown'}
 - **Title:** ${pi.title || 'Unknown'}
 - **Page type:** ${pi.pageType || 'Unknown'}
+- **Last indexed:** ${pi.lastIndexedAt ? new Date(pi.lastIndexedAt).toISOString() : 'Unknown'}${pi.lastIndexedAt && (Date.now() - new Date(pi.lastIndexedAt).getTime()) > 5 * 60 * 1000 ? ' ⚠ Data may be stale — use refresh_page_state to re-index' : ''}
 
 ## Interactive Elements
 ${elementsSummary}

@@ -1,4 +1,4 @@
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
 import { pages, sites } from '../db/schema.js';
@@ -10,7 +10,7 @@ export const siteRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
 siteRoutes.use('*', requireAuth);
 
-// List sites
+// List sites — compute page/element counts live from pages table
 siteRoutes.get('/', async (c) => {
 	const user = c.get('user');
 
@@ -26,7 +26,27 @@ siteRoutes.get('/', async (c) => {
 		.from(sites)
 		.where(getOrgOrUserScope(user, sites));
 
-	return c.json({ sites: rows });
+	if (rows.length === 0) return c.json({ sites: [] });
+
+	// Compute live page counts to avoid stale cached values (e.g. interrupted crawls)
+	const siteIds = rows.map((r) => r.id);
+	const liveCounts = await db
+		.select({
+			siteId: pages.siteId,
+			pageCount: count(pages.id),
+		})
+		.from(pages)
+		.where(sql`${pages.siteId} IN (${sql.join(siteIds.map((id) => sql`${id}`), sql`, `)})`)
+		.groupBy(pages.siteId);
+
+	const countMap = new Map(liveCounts.map((r) => [r.siteId, r.pageCount]));
+
+	const enriched = rows.map((site) => ({
+		...site,
+		totalPages: countMap.get(site.id) ?? 0,
+	}));
+
+	return c.json({ sites: enriched });
 });
 
 // Get site with pages (includes elements for each page)

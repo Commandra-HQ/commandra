@@ -4,10 +4,12 @@
 
 import type { Tool } from '../llm/types.js';
 import { clickElement } from './browser/click.js';
+import { goBack } from './browser/go-back.js';
 import { navigate } from './browser/navigate.js';
 import { getPageState } from './browser/page-state.js';
 import { readTable } from './browser/read-table.js';
 import { readText } from './browser/read-text.js';
+import { refreshPageState } from './browser/refresh-page.js';
 import { screenshot } from './browser/screenshot.js';
 import { scroll } from './browser/scroll.js';
 import { selectOption } from './browser/select.js';
@@ -27,7 +29,9 @@ register(clickElement);
 register(typeText);
 register(selectOption);
 register(navigate);
+register(goBack);
 register(getPageState);
+register(refreshPageState);
 register(screenshot);
 register(scroll);
 register(waitForElement);
