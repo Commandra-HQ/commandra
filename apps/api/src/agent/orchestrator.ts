@@ -499,8 +499,8 @@ async function handleToolCall(
 			screenshot: screenshotImage,
 		});
 
-		// Record step if in teach mode (skip read-only tools like screenshot/get_page_state)
-		if (isRecording(connectionId) && !['screenshot', 'get_page_state'].includes(name)) {
+		// Record step if in teach mode (skip read-only tools)
+		if (isRecording(connectionId) && !['screenshot', 'get_page_state', 'refresh_page_state', 'go_back'].includes(name)) {
 			const step = await recordStep(
 				connectionId,
 				name,

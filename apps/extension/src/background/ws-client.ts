@@ -239,6 +239,22 @@ async function handleActionRequest(message: {
 				String(payload.maxRows ?? 100),
 				String(payload.includeLinks ?? false),
 			]);
+		} else if (action === 'go_back') {
+			await executeInTab(tab.id, goBackInPage, []);
+			await waitForTabLoad(tab.id);
+			const tabAfter = await chrome.tabs.get(tab.id);
+			result = { success: true, data: { url: tabAfter.url, title: tabAfter.title } };
+		} else if (action === 'refresh_page_state') {
+			// Full re-index of the current page — sends updated index to backend too
+			result = await executeInTab(tab.id, refreshPageStateInPage, []);
+			// Also push the fresh index to the backend so embeddings get updated
+			const pageResult = result as { success?: boolean; data?: { pageIndex?: unknown } } | null;
+			if (pageResult?.success && pageResult.data?.pageIndex) {
+				const domain = getDomainFromTab(tab);
+				if (domain) {
+					sendPageIndexed(domain, pageResult.data.pageIndex);
+				}
+			}
 		} else {
 			result = { success: false, error: `Unknown action: ${action}` };
 		}
@@ -447,7 +463,7 @@ function getPageStateInPage() {
 		data: {
 			url: window.location.href,
 			title: document.title,
-			elements: elements.slice(0, 100),
+			elements: elements.slice(0, 200),
 		},
 	};
 }
@@ -735,6 +751,147 @@ function readDataGrid(
 	return {
 		success: true,
 		data: { selector, headers, rows, totalRows, truncated: totalRows > maxRows },
+	};
+}
+
+function goBackInPage() {
+	window.history.back();
+	return { success: true };
+}
+
+function getDomainFromTab(tab: chrome.tabs.Tab): string | null {
+	try {
+		return tab.url ? new URL(tab.url).hostname : null;
+	} catch {
+		return null;
+	}
+}
+
+function refreshPageStateInPage() {
+	// Full re-index — same as content script indexer but inline for executeScript
+	const INTERACTIVE_SELECTORS = [
+		'button', 'a[href]', 'input', 'select', 'textarea',
+		'[role="button"]', '[role="link"]', '[role="checkbox"]',
+		'[role="radio"]', '[role="tab"]', '[role="menuitem"]',
+		'[onclick]', 'table', 'form',
+	];
+
+	type ElemType = 'button' | 'link' | 'input' | 'select' | 'textarea' | 'checkbox' | 'radio' | 'table' | 'form' | 'other';
+
+	function getElemType(el: Element): ElemType {
+		const tag = el.tagName.toLowerCase();
+		const role = el.getAttribute('role');
+		if (tag === 'button' || role === 'button') return 'button';
+		if (tag === 'a') return 'link';
+		if (tag === 'input') {
+			const t = (el as HTMLInputElement).type;
+			if (t === 'checkbox') return 'checkbox';
+			if (t === 'radio') return 'radio';
+			return 'input';
+		}
+		if (tag === 'select') return 'select';
+		if (tag === 'textarea') return 'textarea';
+		if (tag === 'table') return 'table';
+		if (tag === 'form') return 'form';
+		return 'other';
+	}
+
+	function getLabel(el: Element): string {
+		const ariaLabel = el.getAttribute('aria-label');
+		if (ariaLabel) return ariaLabel;
+		const id = el.getAttribute('id');
+		if (id) { const lbl = document.querySelector(`label[for="${id}"]`); if (lbl?.textContent?.trim()) return lbl.textContent.trim().slice(0, 100); }
+		return el.getAttribute('title') || el.textContent?.trim().slice(0, 100) || el.getAttribute('placeholder') || el.getAttribute('name') || el.tagName.toLowerCase();
+	}
+
+	function buildSel(el: Element): string {
+		const testId = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
+		if (testId) return `[data-testid="${testId}"]`;
+		if (el.id) return `#${el.id}`;
+		const tag = el.tagName.toLowerCase();
+		const ariaLabel = el.getAttribute('aria-label');
+		if (ariaLabel) return `${tag}[aria-label="${ariaLabel}"]`;
+		const name = el.getAttribute('name');
+		if (name) return `${tag}[name="${name}"]`;
+		const cls = Array.from(el.classList).slice(0, 3).join('.');
+		if (cls) { const s = `${tag}.${cls}`; if (document.querySelectorAll(s).length === 1) return s; }
+		// nth-child fallback
+		const parts: string[] = [];
+		let cur: Element | null = el;
+		for (let d = 0; d < 3 && cur && cur !== document.body; d++) {
+			const parent = cur.parentElement;
+			if (!parent) break;
+			const idx = Array.from(parent.children).indexOf(cur) + 1;
+			parts.unshift(`${cur.tagName.toLowerCase()}:nth-child(${idx})`);
+			cur = parent;
+		}
+		return parts.join(' > ');
+	}
+
+	const elements: unknown[] = [];
+	const seen = new Set<Element>();
+
+	for (const sel of INTERACTIVE_SELECTORS) {
+		for (const el of document.querySelectorAll(sel)) {
+			if (seen.has(el)) continue;
+			seen.add(el);
+			const rect = el.getBoundingClientRect();
+			if (rect.width === 0 || rect.height === 0) continue;
+			const style = getComputedStyle(el);
+			if (style.display === 'none' || style.visibility === 'hidden') continue;
+
+			elements.push({
+				id: crypto.randomUUID(),
+				type: getElemType(el),
+				label: getLabel(el),
+				selector: buildSel(el),
+				fallbackSelectors: [],
+				attributes: {},
+				position: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+				visible: true,
+				pageUrl: window.location.href,
+			});
+		}
+	}
+
+	const navLinks = Array.from(document.querySelectorAll('a[href]'))
+		.filter((a) => {
+			const href = a.getAttribute('href') || '';
+			return (href.startsWith('/') || href.startsWith(window.location.origin)) &&
+				!href.startsWith('javascript:') && !href.match(/\.(pdf|png|jpg|jpeg|gif|svg|css|js|zip|csv)$/i);
+		})
+		.map((a) => ({
+			label: a.textContent?.trim().slice(0, 80) || '',
+			href: new URL(a.getAttribute('href') || '', window.location.origin).pathname,
+		}))
+		.filter((l, i, arr) => l.href && arr.findIndex((x) => x.href === l.href) === i);
+
+	const path = window.location.pathname;
+	let pageType = 'other';
+	if (path.includes('settings') || path.includes('preferences')) pageType = 'settings';
+	else if (document.querySelectorAll('form').length > 0 && document.querySelectorAll('table').length === 0) pageType = 'form';
+	else if (document.querySelectorAll('table').length > 0) pageType = 'table';
+	else if (path.match(/\/\d+$/) || path.match(/\/[a-f0-9-]{36}$/)) pageType = 'detail';
+	else if (path === '/' || path.includes('dashboard') || path.includes('home')) pageType = 'dashboard';
+
+	const pageIndex = {
+		url: window.location.href,
+		urlPattern: path.replace(/\/\d+/g, '/:id').replace(/\/[a-f0-9-]{36}/g, '/:id'),
+		title: document.title,
+		pageType,
+		elements,
+		navigationLinks: navLinks,
+		timestamp: Date.now(),
+	};
+
+	return {
+		success: true,
+		data: {
+			url: window.location.href,
+			title: document.title,
+			elements: elements.slice(0, 200),
+			pageIndex,
+		},
 	};
 }
 

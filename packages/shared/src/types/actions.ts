@@ -4,12 +4,14 @@ export type ActionType =
 	| 'click'
 	| 'type'
 	| 'navigate'
+	| 'go_back'
 	| 'scroll'
 	| 'select'
 	| 'extract_text'
 	| 'extract_table'
 	| 'screenshot'
-	| 'get_page_state';
+	| 'get_page_state'
+	| 'refresh_page_state';
 
 export interface BrowserAction {
 	id: string;
@@ -34,10 +36,12 @@ export const ACTION_SAFETY: Record<ActionType, SafetyLevel> = {
 	click: 'review',
 	type: 'review',
 	navigate: 'safe',
+	go_back: 'safe',
 	scroll: 'safe',
 	select: 'safe',
 	extract_text: 'safe',
 	extract_table: 'safe',
 	screenshot: 'safe',
 	get_page_state: 'safe',
+	refresh_page_state: 'safe',
 };

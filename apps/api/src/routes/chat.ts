@@ -1,11 +1,12 @@
 import type { SSEEvent } from '@afe/shared';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import { cancelRecording, isRecording, startRecording, stopRecording } from '../agent/recorder.js';
 import { db } from '../db/index.js';
-import { conversations, messages } from '../db/schema.js';
+import { conversations, messages, pages, sites } from '../db/schema.js';
+import { getOrgOrUserScope } from '../db/scope.js';
 import { getFastModel, getProvider } from '../llm/index.js';
 import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
@@ -128,8 +129,8 @@ chatRoutes.post('/', async (c) => {
 	const canAct = !!connectionId;
 	if (connectionId) resetKill(connectionId);
 
-	// Load domain memory and user memory if we have page context
-	const pi = pageIndex as { url?: string } | undefined;
+	// Load domain memory, user memory, and site pages context
+	const pi = pageIndex as { url?: string; urlPattern?: string; sitePages?: unknown; lastIndexedAt?: unknown } | undefined;
 	let domain: string | undefined;
 	let domainMem: string | undefined;
 	let userMem: string | undefined;
@@ -142,6 +143,61 @@ chatRoutes.post('/', async (c) => {
 			]);
 			domainMem = dm ?? undefined;
 			userMem = um ?? undefined;
+
+			// Enrich pageIndex with all indexed pages for this site so the agent
+			// knows the full site structure (what pages exist, their purpose, key elements)
+			if (!pi.sitePages) {
+				const [site] = await db
+					.select({ id: sites.id })
+					.from(sites)
+					.where(and(eq(sites.domain, domain), getOrgOrUserScope(user, sites)))
+					.limit(1);
+
+				if (site) {
+					const sitePages = await db
+						.select({
+							url: pages.url,
+							urlPattern: pages.urlPattern,
+							title: pages.title,
+							pageType: pages.pageType,
+							elements: pages.elements,
+							navigationLinks: pages.navigationLinks,
+							lastIndexedAt: pages.lastIndexedAt,
+						})
+						.from(pages)
+						.where(eq(pages.siteId, site.id));
+
+					// Attach site pages context — exclude the current page (already in pageIndex)
+					const currentPattern = pi.urlPattern;
+					pi.sitePages = sitePages
+						.filter((p) => p.urlPattern !== currentPattern)
+						.map((p) => {
+							const elements = (p.elements as { type: string; label: string; selector: string }[]) || [];
+							return {
+								url: p.url,
+								urlPattern: p.urlPattern || '',
+								title: p.title || '',
+								pageType: p.pageType || 'other',
+								elementCount: elements.length,
+								lastIndexedAt: p.lastIndexedAt,
+								keyElements: elements.slice(0, 15).map((el) => ({
+									type: el.type,
+									label: el.label,
+									selector: el.selector,
+								})),
+								navigationLinks: ((p.navigationLinks as { label: string; href: string }[]) || []).slice(0, 10),
+							};
+						});
+
+					// Also set lastIndexedAt for the current page from DB if not set
+					if (!pi.lastIndexedAt) {
+						const currentPage = sitePages.find((p) => p.urlPattern === currentPattern);
+						if (currentPage?.lastIndexedAt) {
+							pi.lastIndexedAt = currentPage.lastIndexedAt;
+						}
+					}
+				}
+			}
 		} catch {
 			// Invalid URL, skip memory
 		}

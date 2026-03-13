@@ -33,6 +33,8 @@ export function classifyAction({ toolName, args, elementLabel }: ClassifyInput):
 	// Read-only tools are always safe
 	if (
 		toolName === 'get_page_state' ||
+		toolName === 'refresh_page_state' ||
+		toolName === 'go_back' ||
 		toolName === 'scroll' ||
 		toolName === 'wait_for_element' ||
 		toolName === 'read_text' ||

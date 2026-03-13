@@ -8,12 +8,14 @@ describe('actions types', () => {
 			'click',
 			'type',
 			'navigate',
+			'go_back',
 			'scroll',
 			'select',
 			'extract_text',
 			'extract_table',
 			'screenshot',
 			'get_page_state',
+			'refresh_page_state',
 		];
 
 		for (const action of expectedActions) {
@@ -23,12 +25,14 @@ describe('actions types', () => {
 
 	it('classifies read actions as safe', () => {
 		expect(ACTION_SAFETY.navigate).toBe('safe');
+		expect(ACTION_SAFETY.go_back).toBe('safe');
 		expect(ACTION_SAFETY.scroll).toBe('safe');
 		expect(ACTION_SAFETY.select).toBe('safe');
 		expect(ACTION_SAFETY.extract_text).toBe('safe');
 		expect(ACTION_SAFETY.extract_table).toBe('safe');
 		expect(ACTION_SAFETY.screenshot).toBe('safe');
 		expect(ACTION_SAFETY.get_page_state).toBe('safe');
+		expect(ACTION_SAFETY.refresh_page_state).toBe('safe');
 	});
 
 	it('classifies write actions as review', () => {
