@@ -182,6 +182,9 @@ export const userSettings = pgTable('user_settings', {
 	llmApiKey: text('llm_api_key'),
 	llmModelStrong: text('llm_model_strong').default('sonnet'),
 	llmModelFast: text('llm_model_fast').default('haiku'),
+	embeddingProvider: text('embedding_provider').default('voyage'),
+	embeddingApiKey: text('embedding_api_key'),
+	embeddingModel: text('embedding_model').default('voyage-3.5'),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 

@@ -147,19 +147,20 @@ export function getEmbeddingProvider(): EmbeddingProvider {
 		llmProvider === 'ollama' ? 'ollama' : 'voyage'
 	);
 
+	// Single EMBEDDING_API_KEY env var; falls back to provider-specific keys or LLM_API_KEY
+	const embeddingApiKey = process.env.EMBEDDING_API_KEY || process.env.VOYAGE_API_KEY || process.env.OPENAI_API_KEY || process.env.LLM_API_KEY;
+
 	switch (providerId) {
 		case 'voyage': {
-			const apiKey = process.env.VOYAGE_API_KEY || process.env.EMBEDDING_API_KEY;
-			if (!apiKey) throw new Error('No API key for Voyage AI embeddings. Set VOYAGE_API_KEY or EMBEDDING_API_KEY.');
+			if (!embeddingApiKey) throw new Error('No API key for Voyage AI embeddings. Set EMBEDDING_API_KEY or VOYAGE_API_KEY.');
 			const model = process.env.EMBEDDING_MODEL || 'voyage-3.5';
-			cachedEmbeddingProvider = new VoyageEmbeddingProvider(apiKey, model);
+			cachedEmbeddingProvider = new VoyageEmbeddingProvider(embeddingApiKey, model);
 			break;
 		}
 		case 'openai': {
-			const apiKey = process.env.EMBEDDING_API_KEY || process.env.OPENAI_API_KEY || process.env.LLM_API_KEY;
-			if (!apiKey) throw new Error('No API key for OpenAI embeddings. Set EMBEDDING_API_KEY or OPENAI_API_KEY.');
+			if (!embeddingApiKey) throw new Error('No API key for OpenAI embeddings. Set EMBEDDING_API_KEY, OPENAI_API_KEY, or LLM_API_KEY.');
 			const model = process.env.EMBEDDING_MODEL || 'text-embedding-3-small';
-			cachedEmbeddingProvider = new OpenAIEmbeddingProvider(apiKey, model);
+			cachedEmbeddingProvider = new OpenAIEmbeddingProvider(embeddingApiKey, model);
 			break;
 		}
 		case 'ollama': {
