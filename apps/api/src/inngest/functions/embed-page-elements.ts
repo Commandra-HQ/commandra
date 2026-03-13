@@ -91,7 +91,7 @@ export const embedPageElements = inngest.createFunction(
 			elementType: el.type,
 			selector: el.selector,
 			labelHash: hashLabel(el.label, el.type),
-			embeddingModel: `${provider.id}/${process.env.EMBEDDING_MODEL || 'text-embedding-3-small'}`,
+			embeddingModel: `${provider.id}/${process.env.EMBEDDING_MODEL || 'default'}`,
 			embedding: vectors[i],
 		}));
 

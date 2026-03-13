@@ -11,6 +11,58 @@ export interface EmbeddingProvider {
 	embed(texts: string[]): Promise<number[][]>;
 }
 
+// --- Voyage AI Adapter (Anthropic-recommended) ---
+
+class VoyageEmbeddingProvider implements EmbeddingProvider {
+	id = 'voyage';
+	dimensions = 1024;
+	private apiKey: string;
+	private model: string;
+
+	constructor(apiKey: string, model = 'voyage-3.5') {
+		this.apiKey = apiKey;
+		this.model = model;
+	}
+
+	async embed(texts: string[]): Promise<number[][]> {
+		if (texts.length === 0) return [];
+
+		// Voyage supports up to 128 texts per request
+		const batches: string[][] = [];
+		for (let i = 0; i < texts.length; i += 128) {
+			batches.push(texts.slice(i, i + 128));
+		}
+
+		const allEmbeddings: number[][] = [];
+		for (const batch of batches) {
+			const response = await fetch('https://api.voyageai.com/v1/embeddings', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${this.apiKey}`,
+				},
+				body: JSON.stringify({
+					input: batch,
+					model: this.model,
+				}),
+			});
+
+			if (!response.ok) {
+				throw new Error(`Voyage embed failed: ${response.status} ${await response.text()}`);
+			}
+
+			const data = (await response.json()) as {
+				data: { embedding: number[]; index: number }[];
+			};
+			for (const item of data.data) {
+				allEmbeddings.push(item.embedding);
+			}
+		}
+
+		return allEmbeddings;
+	}
+}
+
 // --- OpenAI Adapter ---
 
 class OpenAIEmbeddingProvider implements EmbeddingProvider {
@@ -88,15 +140,23 @@ let cachedEmbeddingProvider: EmbeddingProvider | null = null;
 export function getEmbeddingProvider(): EmbeddingProvider {
 	if (cachedEmbeddingProvider) return cachedEmbeddingProvider;
 
-	// Anthropic/Google don't have embedding APIs — fall back to OpenAI
 	const llmProvider = process.env.LLM_PROVIDER || 'anthropic';
 	const providerId = process.env.EMBEDDING_PROVIDER || (
-		llmProvider === 'openai' || llmProvider === 'ollama' ? llmProvider : 'openai'
+		llmProvider === 'anthropic' ? 'voyage' :
+		llmProvider === 'openai' ? 'openai' :
+		llmProvider === 'ollama' ? 'ollama' : 'voyage'
 	);
-	const apiKey = process.env.EMBEDDING_API_KEY || process.env.OPENAI_API_KEY || process.env.LLM_API_KEY;
 
 	switch (providerId) {
+		case 'voyage': {
+			const apiKey = process.env.VOYAGE_API_KEY || process.env.EMBEDDING_API_KEY;
+			if (!apiKey) throw new Error('No API key for Voyage AI embeddings. Set VOYAGE_API_KEY or EMBEDDING_API_KEY.');
+			const model = process.env.EMBEDDING_MODEL || 'voyage-3.5';
+			cachedEmbeddingProvider = new VoyageEmbeddingProvider(apiKey, model);
+			break;
+		}
 		case 'openai': {
+			const apiKey = process.env.EMBEDDING_API_KEY || process.env.OPENAI_API_KEY || process.env.LLM_API_KEY;
 			if (!apiKey) throw new Error('No API key for OpenAI embeddings. Set EMBEDDING_API_KEY or OPENAI_API_KEY.');
 			const model = process.env.EMBEDDING_MODEL || 'text-embedding-3-small';
 			cachedEmbeddingProvider = new OpenAIEmbeddingProvider(apiKey, model);
@@ -109,7 +169,7 @@ export function getEmbeddingProvider(): EmbeddingProvider {
 			break;
 		}
 		default:
-			throw new Error(`Unknown embedding provider: ${providerId}. Supported: openai, ollama`);
+			throw new Error(`Unknown embedding provider: ${providerId}. Supported: voyage, openai, ollama`);
 	}
 
 	console.log(`[Embeddings] Using provider: ${cachedEmbeddingProvider.id} (${cachedEmbeddingProvider.dimensions} dims)`);

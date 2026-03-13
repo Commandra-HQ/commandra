@@ -49,7 +49,7 @@ export const embedFlow = inngest.createFunction(
 		await db.insert(flowEmbeddings).values({
 			flowId,
 			text,
-			embeddingModel: `${provider.id}/${process.env.EMBEDDING_MODEL || 'text-embedding-3-small'}`,
+			embeddingModel: `${provider.id}/${process.env.EMBEDDING_MODEL || 'default'}`,
 			embedding: vector,
 		});
 

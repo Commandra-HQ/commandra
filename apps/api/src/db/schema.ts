@@ -75,7 +75,7 @@ export const elementEmbeddings = pgTable('element_embeddings', {
 	selector: text('selector').notNull(),
 	labelHash: text('label_hash'),
 	embeddingModel: text('embedding_model'),
-	embedding: vector('embedding', { dimensions: 1536 }),
+	embedding: vector('embedding', { dimensions: 1024 }),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -86,7 +86,7 @@ export const flowEmbeddings = pgTable('flow_embeddings', {
 		.notNull(),
 	text: text('text').notNull(),
 	embeddingModel: text('embedding_model'),
-	embedding: vector('embedding', { dimensions: 1536 }),
+	embedding: vector('embedding', { dimensions: 1024 }),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -98,7 +98,7 @@ export const memoryEmbeddings = pgTable('memory_embeddings', {
 	memoryKey: text('memory_key').notNull(),
 	memoryText: text('memory_text').notNull(),
 	embeddingModel: text('embedding_model'),
-	embedding: vector('embedding', { dimensions: 1536 }),
+	embedding: vector('embedding', { dimensions: 1024 }),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
