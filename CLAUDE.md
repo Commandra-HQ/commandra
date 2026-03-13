@@ -13,10 +13,10 @@ commandra/
 │   ├── apps/api/             # Backend (Hono + orchestrator)
 │   ├── apps/web/             # Dashboard (Next.js)
 │   └── packages/shared/      # Shared types
-└── landing-page/             # SEPARATE REPO — landing page, Clerk auth + billing (not open source)
+└── landing-page/             # SEPARATE REPO — landing page + Clerk auth (not open source)
 ```
 
-This monorepo is the product. It's what gets open-sourced. It's what self-hosted users run. The landing page and billing live in a separate project.
+This monorepo is the product. It's what gets open-sourced. It's what self-hosted users run. The landing page and auth bridge live in a separate project.
 
 ## Architecture in One Paragraph
 

@@ -260,11 +260,10 @@ That's it. User opens `localhost:3000`, creates an account, copies the JWT to th
 
 ### Cloud
 
-Same product, deployed with cloud infrastructure + the separate `landing-page/` repo for billing:
+Same product, deployed with cloud infrastructure + the separate `landing-page/` repo:
 - JWT auth (same as self-hosted — landing page exchanges Clerk tokens for JWTs via token exchange, auto-redirects to dashboard)
-- Organizations for team plans (Clerk orgs → commandra orgs via token exchange)
+- Organizations for teams (Clerk orgs → commandra orgs via token exchange)
 - Managed Postgres (Neon)
 - LLM key pooling (our keys, metered per user)
-- Clerk Billing (lives in separate `landing-page/` project)
 
-See `docs/BUSINESS_PLAN.md` for the two-mode business model.
+See `docs/BUSINESS_PLAN.md` for the two-mode model.
