@@ -86,7 +86,12 @@ export function buildSystemPrompt(
 	let siteSummary = '';
 	if (pi.sitePages?.length) {
 		const pageDetails = pi.sitePages.map((p) => {
-			let detail = `### ${p.title || p.urlPattern} (${p.pageType})\n  URL: ${p.url}`;
+			let detail = `### ${p.title || p.urlPattern} (${p.pageType})\n  URL: ${p.url}\n  ${p.elementCount} elements`;
+			if (p.lastIndexedAt) {
+				const age = Date.now() - new Date(p.lastIndexedAt).getTime();
+				const mins = Math.floor(age / 60000);
+				detail += mins < 60 ? ` (indexed ${mins}m ago)` : ` (indexed ${Math.floor(mins / 60)}h ago)`;
+			}
 			if (p.keyElements?.length) {
 				const grouped: Record<string, string[]> = {};
 				for (const el of p.keyElements) {
