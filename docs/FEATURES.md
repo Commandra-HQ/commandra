@@ -220,16 +220,15 @@ This is the enterprise selling point. Every action goes through classification b
 
 ---
 
-## Business Model
+## Distribution
 
 **Two modes:**
 - **Open source (MIT):** Full platform, self-host with Docker, bring your own LLM key, built-in auth. Free forever.
-- **Cloud (hosted by us):** Free tier (50 actions/month) → Pro ($29/user) → Team ($19/user, 5+ seats). We manage infra, pool LLM keys, handle auth + billing.
+- **Cloud (hosted by us):** We manage infra, pool LLM keys, handle auth. Landing page lives in a separate project (`landing-page/`), not in this repo.
 
-Cloud billing and landing page live in a separate project (`landing-page/`), not in this repo. This repo is the product — clean, self-contained, works with `docker-compose up`.
+This repo is the product — clean, self-contained, works with `docker-compose up`.
 
 **Why open source works here:**
 - Builds trust with security teams ("audit our code")
 - Community contributes LLM adapters and auth integrations
-- Free users become advocates inside their companies
 - Self-hosted users convert to cloud when they don't want to manage infra

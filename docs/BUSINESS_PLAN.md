@@ -19,11 +19,11 @@ User's Browser                    Our Infrastructure
 │ (thin client)    │   WebSocket  │ Orchestrator         │
 │                  │              │ Postgres + pgvector   │
 │ DOM interaction  │              │ LLM keys (pooled)    │
-│ stays local      │              │ Auth (Clerk Billing) │
+│ stays local      │              │ Auth (Clerk)         │
 └─────────────────┘              └──────────────────────┘
 ```
 
-**We manage:** API servers, database, LLM API keys (pooled), auth, billing, updates.
+**We manage:** API servers, database, LLM API keys (pooled), auth, updates.
 **Stays local:** All DOM interaction, page content, credentials, cookies. Screenshots are configurable.
 
 ### 2. Open Source (The Distribution)
@@ -43,34 +43,6 @@ User's Machine
 ```
 
 OSS gets us: GitHub stars, community trust, security audits from the crowd, PRs, and a pipeline into cloud conversions ("I tried self-hosted, it works, but I don't want to maintain Postgres — just give me the hosted version").
-
-No paid self-hosted tiers. No support contracts. No Helm charts. That's stuff we build after 100 paying cloud users, not before.
-
----
-
-## Cloud Pricing
-
-| Tier     | Price                     | Target           | Includes                                                    |
-| -------- | ------------------------- | ---------------- | ----------------------------------------------------------- |
-| **Free** | $0                        | Individual users | 50 agent actions/month, our LLM keys, 1 user               |
-| **Pro**  | $29/user/month            | Power users      | Unlimited actions, saved flows, scheduling, priority models |
-| **Team** | $19/user/month (5+ seats) | Departments      | Shared flows, team admin, audit logs                        |
-
-No "Enterprise" tier yet. We'll add SSO/SAML when someone asks for it with a PO attached.
-
-Free tier uses our pooled keys (not BYOK) — lower friction, better first experience, we control the quality.
-
-### Unit Economics
-
-| Cost Item                     | Per User/Month               |
-| ----------------------------- | ---------------------------- |
-| LLM tokens (Anthropic/OpenAI) | ~$3-8 (pooled, with caching) |
-| Postgres (Neon)               | ~$0.50                       |
-| Compute (API server)          | ~$1                          |
-| Auth (Clerk)                  | ~$0.50                       |
-| **Total COGS**                | **~$5-10**                   |
-| **Pro price**                 | **$29**                      |
-| **Gross margin**              | **~65-80%**                  |
 
 ---
 
@@ -92,12 +64,14 @@ Free tier uses our pooled keys (not BYOK) — lower friction, better first exper
 | Teach mode (record flows, replay with parameters)          | Done   |
 | Domain memory + user memory (adaptive)                     | Done   |
 | Multi-tenant isolation (org + user scoping via `getOrgOrUserScope`) | Done   |
+| JWT-only auth (email/password + token exchange bridge)     | Done   |
+| Auth redirect flow (Clerk → token exchange → dashboard)    | Done   |
+| Organizations (team sharing, shared data)                  | Done   |
 
 ### Needed for Product (Both Modes)
 
 | Capability                                                | Priority |
 | --------------------------------------------------------- | -------- |
-| **JWT-only auth** (email/password + token exchange bridge) | Done     |
 | **Fix dashboard auth** (stats show 0 — 401 bug)          | P0       |
 | **Fix recording step events** (SSE wiring)                | P0       |
 
@@ -106,11 +80,8 @@ Free tier uses our pooled keys (not BYOK) — lower friction, better first exper
 | Capability                                        | Priority |
 | ------------------------------------------------- | -------- |
 | **Landing page** (Next.js + shadcn)               | Done     |
-| **Clerk Billing** (plans + checkout via Clerk)    | Done     |
 | **Auth redirect flow** (Clerk → token exchange → dashboard) | Done |
-| **Organizations** (team plans, shared data)       | Done     |
 | **LLM key pooling** (our keys for all cloud users)| P1       |
-| **Rate limiting per tier** (free = 50/month)      | P1       |
 | **Chrome Web Store listing**                      | P1       |
 
 ### Nice for OSS (Community Can Contribute)
@@ -131,10 +102,10 @@ commandra/
 │   ├── apps/api/             # Backend API
 │   ├── apps/web/             # Dashboard
 │   └── packages/shared/      # Shared types
-└── landing-page/             # Not open source — landing page + Clerk Billing
+└── landing-page/             # Not open source — landing page + Clerk auth
 ```
 
-The product repo has no Clerk, no landing page, no cloud billing logic. It's a clean open-source project that works out of the box with `docker-compose up`. The cloud wrapper (landing-page/) adds billing, LLM key pooling, and managed auth on top.
+The product repo has no Clerk, no landing page, no cloud-specific logic. It's a clean open-source project that works out of the box with `docker-compose up`. The cloud wrapper (landing-page/) adds LLM key pooling and managed auth on top.
 
 ---
 
@@ -174,7 +145,6 @@ The product repo has no Clerk, no landing page, no cloud billing logic. It's a c
 - Hosted infra (no Docker to manage)
 - Pooled LLM keys (no API key setup)
 - Managed auth (Clerk in landing-page/ → token exchange → auto-redirect to dashboard)
-- Billing + usage dashboard
 - Automatic updates
 
 This follows the Supabase/GitLab model: core is open, cloud adds convenience. The product is the same — cloud just removes the ops burden.

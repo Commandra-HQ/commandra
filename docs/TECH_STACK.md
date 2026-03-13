@@ -116,7 +116,7 @@ Self-hosted needs only an LLM provider key + Postgres. Everything else is option
 |----------|---------|-----------|
 | **Anthropic or OpenAI** | LLM (strong + fast models) | Yes (pick one) |
 | **OpenAI** | Embeddings (text-embedding-3-small) | Optional (can use Ollama) |
-| **Clerk** | Auth + Billing (cloud — lives in landing-page/ repo) | Cloud only |
+| **Clerk** | Auth (cloud — lives in landing-page/ repo) | Cloud only |
 | **Neon** | Managed Postgres (cloud) | Cloud only |
 
 ---
@@ -166,5 +166,5 @@ commandra/                      # Parent folder
 │   ├── pnpm-workspace.yaml
 │   └── .env.example
 │
-└── landing-page/               # SEPARATE PROJECT — landing page + Clerk Billing (not open source)
+└── landing-page/               # SEPARATE PROJECT — landing page + Clerk auth (not open source)
 ```
