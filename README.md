@@ -179,7 +179,7 @@ Kill switch: press Escape to halt all agent activity immediately.
 - [Architecture](docs/ARCHITECTURE.md) — system design, data flow, deployment
 - [Features](docs/FEATURES.md) — user flows, feature tiers, safety model
 - [Tech Stack](docs/TECH_STACK.md) — why we chose what we chose
-- [Business Plan](docs/BUSINESS_PLAN.md) — cloud vs OSS, pricing, competitive landscape
+- [Business Plan](docs/BUSINESS_PLAN.md) — cloud vs OSS, competitive landscape
 
 ## License
 
