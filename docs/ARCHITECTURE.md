@@ -158,7 +158,7 @@ The agent doesn't guess what's on the page — it knows. The site index is a str
 - Auto-indexed whenever the user visits a page
 - Full site crawl via background tabs (extension opens pages in hidden tabs, extracts structure, closes them)
 - Incremental updates via MutationObserver
-- Synced to Postgres via API, with pgvector embeddings for semantic search
+- Synced to Postgres via API, with pgvector embeddings for semantic search (Voyage AI, OpenAI, or Ollama — configurable via `EMBEDDING_PROVIDER`)
 
 **Why this matters:**
 General browser agents (like OpenAI Operator) figure out the UI from scratch every time. Our agents already have a map. They're faster, more reliable, and cheaper (fewer LLM tokens spent figuring out the page).

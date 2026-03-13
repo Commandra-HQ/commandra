@@ -86,7 +86,9 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Postgres + pgvector, single database for everything
 - Use Drizzle migrations, never manual schema changes
 - Audit logs are append-only, never update or delete them
-- Element embeddings use pgvector, no separate vector DB
+- Element embeddings use pgvector (1024 dims), no separate vector DB
+- Embedding provider is configurable via `EMBEDDING_PROVIDER` env var: `voyage` (default for Anthropic), `openai`, or `ollama`
+- Embedding adapters live in `apps/api/src/llm/embeddings.ts` alongside the LLM provider layer
 - Org-scoped tables have nullable `orgId` — use `getOrgOrUserScope()` for queries
 
 ### File Structure

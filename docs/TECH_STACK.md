@@ -58,8 +58,9 @@
 | **OpenAI GPT-4.1 / o-series** | Alternative provider, reasoning token streaming |
 | — Strong model (Sonnet/GPT-4.1) | Planning, complex reasoning, form logic |
 | — Fast model (Haiku/GPT-4.1-mini) | Data reads, navigation, memory extraction |
-| **OpenAI Embeddings** | Element/flow/memory vector search |
-| **Ollama** (planned) | Local embeddings + LLM for self-hosted |
+| **Voyage AI** (default) | Element/flow/memory vector search (Anthropic-recommended) |
+| **OpenAI Embeddings** | Alternative embedding provider |
+| **Ollama** | Local embeddings + LLM for self-hosted |
 
 ### Monorepo
 
@@ -115,7 +116,7 @@ Self-hosted needs only an LLM provider key + Postgres. Everything else is option
 | Provider | Purpose | Required? |
 |----------|---------|-----------|
 | **Anthropic or OpenAI** | LLM (strong + fast models) | Yes (pick one) |
-| **OpenAI** | Embeddings (text-embedding-3-small) | Optional (can use Ollama) |
+| **Voyage AI, OpenAI, or Ollama** | Embeddings (configurable via `EMBEDDING_PROVIDER`) | Yes (pick one) |
 | **Clerk** | Auth (cloud — lives in landing-page/ repo) | Cloud only |
 | **Neon** | Managed Postgres (cloud) | Cloud only |
 
