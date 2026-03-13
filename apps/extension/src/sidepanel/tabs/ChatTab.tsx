@@ -258,9 +258,13 @@ export function ChatTab() {
 				setSiteData(response);
 				if (response.site.crawlStatus === 'crawling') {
 					setMode('crawling');
-				} else if (response.pages.length > 0) {
+				} else {
+					// Always allow chat — even without indexed pages, user can chat about the current page
 					setMode('chat');
 				}
+			} else {
+				// No site data yet — still allow chatting about the current page
+				setMode('chat');
 			}
 		});
 	}, []);
@@ -343,11 +347,10 @@ export function ChatTab() {
 		setMode('indexing');
 		chrome.runtime.sendMessage({ type: 'INDEX_PAGE_SINGLE', payload: { tabId } }, (response) => {
 			if (response?.ok) {
-				setMode('chat');
 				loadSiteData(domain);
-			} else {
-				setMode('onboarding');
 			}
+			// Always go to chat mode — user should be able to chat even if indexing failed
+			setMode('chat');
 		});
 	}
 
@@ -849,7 +852,7 @@ export function ChatTab() {
 				className="px-4 py-2 border-b border-border flex items-center justify-between hover:bg-secondary/30"
 			>
 				<span className="text-xs text-muted-foreground">
-					{domain} · {siteData.site?.totalPages ?? 0} pages ·{' '}
+					{domain} · {siteData.pages.length || siteData.site?.totalPages || 0} pages ·{' '}
 					{wsConnected ? 'connected' : 'chat only'}
 				</span>
 				<span className="text-xs text-muted-foreground">{showContext ? '▲' : '▼'}</span>

@@ -60,7 +60,14 @@ siteRoutes.get('/:domain', async (c) => {
 		.where(eq(sites.domain, domain))
 		.limit(1);
 
-	if (!site || (user.orgId ? site.orgId !== user.orgId : site.userId !== user.id)) {
+	if (!site) {
+		return c.json({ error: 'Not found' }, 404);
+	}
+
+	// User can access if: they own it personally OR it belongs to their org
+	const isOwner = site.userId === user.id;
+	const isOrgMember = user.orgId && site.orgId === user.orgId;
+	if (!isOwner && !isOrgMember) {
 		return c.json({ error: 'Not found' }, 404);
 	}
 
