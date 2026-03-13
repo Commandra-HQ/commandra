@@ -67,7 +67,7 @@ class VoyageEmbeddingProvider implements EmbeddingProvider {
 
 class OpenAIEmbeddingProvider implements EmbeddingProvider {
 	id = 'openai';
-	dimensions = 1536;
+	dimensions = 1024; // Request 1024 dims from OpenAI to match Voyage, enabling provider switching
 	private client: OpenAI;
 	private model: string;
 
