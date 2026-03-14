@@ -46,6 +46,10 @@ export type SSEEvent =
 			toolName: string;
 			label: string;
 			success: boolean;
+			args?: Record<string, unknown>;
+			result?: unknown;
+			error?: string;
+			screenshot?: string;
 	  }
 	| {
 			type: 'sub_agent_end';

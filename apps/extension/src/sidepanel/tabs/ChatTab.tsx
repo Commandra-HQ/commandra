@@ -92,7 +92,15 @@ type MessageBlock =
 			task: string;
 			targetUrl: string;
 			status: 'running' | 'success' | 'error';
-			actions: string[];
+			actions: {
+				toolName: string;
+				label: string;
+				status: 'running' | 'success' | 'error';
+				args?: Record<string, unknown>;
+				result?: unknown;
+				error?: string;
+				screenshot?: string;
+			}[];
 			summary?: string;
 	  };
 
@@ -602,7 +610,15 @@ export function ChatTab() {
 								for (let i = blocks.length - 1; i >= 0; i--) {
 									const b = blocks[i];
 									if (b.type === 'sub_agent' && b.agentId === event.agentId) {
-										b.actions.push(`${event.toolName}: ${event.label}`);
+										b.actions.push({
+											toolName: event.toolName,
+											label: event.label,
+											status: event.success ? 'success' : 'error',
+											args: event.args,
+											result: event.result,
+											error: event.error,
+											screenshot: event.screenshot,
+										});
 										break;
 									}
 								}
@@ -1478,15 +1494,22 @@ function SubAgentBlock({
 						<span className="text-foreground/80">{block.task}</span>
 					</div>
 					{block.actions.length > 0 && (
-						<div>
-							<span className="text-muted-foreground">Actions:</span>
-							<ul className="mt-0.5 space-y-0.5">
-								{block.actions.map((a, j) => (
-									<li key={j} className="text-foreground/60 font-mono text-[10px] truncate">
-										{a}
-									</li>
-								))}
-							</ul>
+						<div className="space-y-1">
+							{block.actions.map((action, j) => (
+								<ToolCallBlock
+									key={j}
+									block={{
+										type: 'tool_call',
+										toolName: action.toolName,
+										label: action.label,
+										status: action.status,
+										args: action.args,
+										result: action.result,
+										error: action.error,
+										screenshot: action.screenshot,
+									}}
+								/>
+							))}
 						</div>
 					)}
 					{block.summary && (

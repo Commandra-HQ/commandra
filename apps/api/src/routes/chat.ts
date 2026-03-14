@@ -16,16 +16,45 @@ import { getConnectionByUser, resetKill } from '../ws/handler.js';
 import { searchConversations, searchElements, searchFlows } from '../db/vector-search.js';
 
 /**
- * Detect if a user message references multiple distinct websites/domains,
- * indicating the task should be handled by the multi-agent swarm.
+ * Detect if a user message clearly requires PARALLEL work across multiple distinct websites.
+ * Only triggers when the message contains action verbs targeting 2+ different domains.
+ * Single-site mentions (even multiple) don't trigger if the task is sequential.
  */
 function detectMultiSiteIntent(message: string): boolean {
-	const sitePatterns =
-		/\b(gmail|github|linkedin|slack|jira|confluence|salesforce|hubspot|notion|trello|asana|figma|drive|docs|sheets|outlook|teams|twitter|reddit|youtube|facebook|instagram|whatsapp|discord|dropbox|airtable|monday|clickup|zendesk|intercom|stripe|shopify|amazon|ebay|wikipedia|stackoverflow|bitbucket|gitlab|vercel|netlify|aws|azure|gcp)\b/gi;
-	const matches = message.match(sitePatterns);
-	if (!matches) return false;
-	const unique = new Set(matches.map((m) => m.toLowerCase()));
-	return unique.size >= 2;
+	// Look for explicit URLs pointing to different domains
+	const urlMatches = message.match(/https?:\/\/[^\s]+/gi) || [];
+	const urlDomains = new Set(
+		urlMatches.map((u) => {
+			try {
+				return new URL(u).hostname.replace(/^www\./, '');
+			} catch {
+				return '';
+			}
+		}).filter(Boolean),
+	);
+	if (urlDomains.size >= 2) return true;
+
+	// Look for conjunction patterns that imply parallel tasks on different sites
+	// e.g., "check Gmail AND update Jira", "compare Notion and Confluence"
+	const parallelPatterns = [
+		/\b(and|then|also|plus|while)\b.+\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana)\b/i,
+		/\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana)\b.+\b(and|then|also|plus)\b.+\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana)\b/i,
+		/\bcompare\b.+\band\b/i,
+	];
+
+	for (const pattern of parallelPatterns) {
+		if (pattern.test(message)) {
+			// Verify 2+ different site names
+			const sitePattern = /\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana|salesforce|hubspot|figma)\b/gi;
+			const matches = message.match(sitePattern);
+			if (matches) {
+				const unique = new Set(matches.map((m) => m.toLowerCase()));
+				if (unique.size >= 2) return true;
+			}
+		}
+	}
+
+	return false;
 }
 
 async function embedUserMessage(conversationId: string, messageText: string): Promise<void> {
@@ -336,16 +365,10 @@ chatRoutes.post('/', async (c) => {
 		}
 	}
 
-	// Detect multi-site intent and inject swarm hint
+	// Detect multi-site intent — only for genuinely parallel cross-domain tasks
 	const multiSiteDetected = detectMultiSiteIntent(message);
 	if (multiSiteDetected) {
-		console.log('[Chat] Multi-site intent detected, swarm hint active');
-		// Inject a system-level hint so the LLM knows to use spawn_agent
-		chatMessages.splice(chatMessages.length - 1, 0, {
-			role: 'assistant' as const,
-			content:
-				"[Internal note: The user's next message involves multiple websites. I MUST use spawn_agent to handle each site in parallel rather than doing them sequentially.]",
-		});
+		console.log('[Chat] Multi-site parallel intent detected');
 	}
 
 	// Get the abort signal from the request (fires when client disconnects)

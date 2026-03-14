@@ -429,13 +429,6 @@ async function runSubAgent(params: {
 				}
 
 				// Execute tool — inject tabId so the extension targets the sub-agent's tab
-				await onEvent({
-					type: 'tool_start',
-					toolName: block.name,
-					label: `[Sub-agent] ${elementLabel}`,
-					args: block.input,
-				});
-
 				try {
 					const argsWithTab = { ...block.input, tabId };
 					const result = await executeTool(block.name, argsWithTab, context);
@@ -451,15 +444,6 @@ async function runSubAgent(params: {
 						metadata: { args: block.input, result, subAgentId: agentId, tabId },
 					});
 
-					// Emit both the sub-agent action (for the sub-agent block) and tool_end (for the tool block)
-					await onEvent({
-						type: 'sub_agent_action',
-						agentId,
-						toolName: block.name,
-						label: elementLabel,
-						success: true,
-					});
-
 					// Extract screenshot for frontend if present
 					const resultData = result as unknown as Record<string, unknown> | undefined;
 					const screenshotImage =
@@ -467,10 +451,14 @@ async function runSubAgent(params: {
 							? ((resultData.data as Record<string, unknown>)?.image as string | undefined)
 							: undefined;
 
+					// Emit rich sub_agent_action with full tool data — rendered inside the sub-agent accordion
 					await onEvent({
-						type: 'tool_end',
+						type: 'sub_agent_action',
+						agentId,
 						toolName: block.name,
+						label: elementLabel,
 						success: true,
+						args: block.input as Record<string, unknown>,
 						result: screenshotImage ? { success: true } : result,
 						screenshot: screenshotImage,
 					});
@@ -486,9 +474,12 @@ async function runSubAgent(params: {
 					actionsPerformed.push(`${block.name}: FAILED - ${errorMsg}`);
 
 					await onEvent({
-						type: 'tool_end',
+						type: 'sub_agent_action',
+						agentId,
 						toolName: block.name,
+						label: elementLabel,
 						success: false,
+						args: block.input as Record<string, unknown>,
 						error: errorMsg,
 					});
 
