@@ -14,6 +14,19 @@ import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 
+/**
+ * Detect if a user message references multiple distinct websites/domains,
+ * indicating the task should be handled by the multi-agent swarm.
+ */
+function detectMultiSiteIntent(message: string): boolean {
+	const sitePatterns =
+		/\b(gmail|github|linkedin|slack|jira|confluence|salesforce|hubspot|notion|trello|asana|figma|drive|docs|sheets|outlook|teams|twitter|reddit|youtube|facebook|instagram|whatsapp|discord|dropbox|airtable|monday|clickup|zendesk|intercom|stripe|shopify|amazon|ebay|wikipedia|stackoverflow|bitbucket|gitlab|vercel|netlify|aws|azure|gcp)\b/gi;
+	const matches = message.match(sitePatterns);
+	if (!matches) return false;
+	const unique = new Set(matches.map((m) => m.toLowerCase()));
+	return unique.size >= 2;
+}
+
 async function embedUserMessage(conversationId: string, messageText: string): Promise<void> {
 	// Get the message ID we just inserted
 	const [msg] = await db
@@ -236,6 +249,18 @@ chatRoutes.post('/', async (c) => {
 		} catch {
 			// Invalid URL, skip memory
 		}
+	}
+
+	// Detect multi-site intent and inject swarm hint
+	const multiSiteDetected = detectMultiSiteIntent(message);
+	if (multiSiteDetected) {
+		console.log('[Chat] Multi-site intent detected, swarm hint active');
+		// Inject a system-level hint so the LLM knows to use spawn_agent
+		chatMessages.splice(chatMessages.length - 1, 0, {
+			role: 'assistant' as const,
+			content:
+				"[Internal note: The user's next message involves multiple websites. I MUST use spawn_agent to handle each site in parallel rather than doing them sequentially.]",
+		});
 	}
 
 	// Get the abort signal from the request (fires when client disconnects)
