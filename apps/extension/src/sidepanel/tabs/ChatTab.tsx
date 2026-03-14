@@ -11,6 +11,7 @@ import {
 	Download,
 	Eye,
 	FileDown,
+	Globe,
 	Keyboard,
 	List,
 	ListChecks,
@@ -1238,6 +1239,8 @@ function AssistantMessage({
 						}
 						case 'tool_call':
 							return <ToolCallBlock key={i} block={block} />;
+						case 'sub_agent':
+							return <SubAgentBlock key={i} block={block} />;
 						case 'blocked':
 							return <BlockedBlock key={i} toolName={block.toolName} reason={block.reason} />;
 						case 'plan':
@@ -1413,6 +1416,85 @@ function ToolCallBlock({
 						<Download size={13} />
 						<span>Download {(block.result as { filename?: string }).filename || 'export'}</span>
 					</button>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function SubAgentBlock({
+	block,
+}: {
+	block: Extract<MessageBlock, { type: 'sub_agent' }>;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const statusColor =
+		block.status === 'running'
+			? 'border-purple-500/40 bg-purple-500/5'
+			: block.status === 'success'
+				? 'border-green-500/30 bg-green-500/5'
+				: 'border-red-500/30 bg-red-500/5';
+
+	const statusIcon =
+		block.status === 'running' ? (
+			<Loader2 size={12} className="text-purple-400 animate-spin shrink-0" />
+		) : block.status === 'success' ? (
+			<Check size={12} className="text-green-400 shrink-0" />
+		) : (
+			<X size={12} className="text-red-400 shrink-0" />
+		);
+
+	// Extract domain from URL for display
+	let domain = block.targetUrl;
+	try {
+		domain = new URL(block.targetUrl).hostname;
+	} catch {
+		/* keep full url */
+	}
+
+	return (
+		<div className={`border rounded-md text-xs ${statusColor}`}>
+			<button
+				onClick={() => setExpanded(!expanded)}
+				className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
+			>
+				<Globe size={13} className="shrink-0 text-purple-400" />
+				<span className="flex-1 truncate text-foreground">
+					<span className="font-medium text-purple-300">Sub-agent</span>
+					<span className="text-muted-foreground ml-1">on {domain}</span>
+				</span>
+				{block.actions.length > 0 && (
+					<span className="text-muted-foreground text-[10px]">
+						{block.actions.length} action{block.actions.length !== 1 ? 's' : ''}
+					</span>
+				)}
+				{statusIcon}
+			</button>
+
+			{expanded && (
+				<div className="px-2.5 pb-2 space-y-1.5 border-t border-border/30 pt-1.5">
+					<div>
+						<span className="text-muted-foreground">Task: </span>
+						<span className="text-foreground/80">{block.task}</span>
+					</div>
+					{block.actions.length > 0 && (
+						<div>
+							<span className="text-muted-foreground">Actions:</span>
+							<ul className="mt-0.5 space-y-0.5">
+								{block.actions.map((a, j) => (
+									<li key={j} className="text-foreground/60 font-mono text-[10px] truncate">
+										{a}
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
+					{block.summary && (
+						<div>
+							<span className="text-muted-foreground">Result: </span>
+							<span className="text-foreground/80">{block.summary.slice(0, 300)}</span>
+						</div>
+					)}
 				</div>
 			)}
 		</div>
