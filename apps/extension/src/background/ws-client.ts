@@ -261,6 +261,17 @@ async function handleActionRequest(message: {
 		return r;
 	}
 
+	// Helper: retry an action once after a short delay if element not found
+	async function withRetry(fn: () => Promise<unknown>): Promise<unknown> {
+		const first = await fn();
+		const r = first as { success?: boolean; error?: string } | null;
+		if (r?.success || !r?.error?.includes('not found')) return first;
+		// Wait 1.5s for DOM to settle (SPA renders, overlays appearing)
+		await new Promise((resolve) => setTimeout(resolve, 1500));
+		console.log(`[AFE WS] Retrying after element not found...`);
+		return fn();
+	}
+
 	try {
 		let result: unknown;
 
@@ -269,28 +280,34 @@ async function handleActionRequest(message: {
 			await waitForTabLoad(tab.id);
 			result = { success: true, data: { navigatedTo: payload.url } };
 		} else if (action === 'click_element') {
-			result = await executeInTab(tab.id, clickInPage, [
-				payload.selector as string,
-				fallbacksStr,
-				elementLabel,
-				elementType,
-			]);
+			result = await withRetry(() =>
+				executeInTab(tab.id!, clickInPage, [
+					payload.selector as string,
+					fallbacksStr,
+					elementLabel,
+					elementType,
+				]),
+			);
 			result = await withVectorFallback(tab.id, action, result, elementLabel, elementType);
 		} else if (action === 'type_text') {
-			result = await executeInTab(tab.id, typeInPage, [
-				payload.selector as string,
-				payload.text as string,
-				fallbacksStr,
-				elementLabel,
-			]);
+			result = await withRetry(() =>
+				executeInTab(tab.id!, typeInPage, [
+					payload.selector as string,
+					payload.text as string,
+					fallbacksStr,
+					elementLabel,
+				]),
+			);
 			result = await withVectorFallback(tab.id, action, result, elementLabel, 'input');
 		} else if (action === 'select_option') {
-			result = await executeInTab(tab.id, selectInPage, [
-				payload.selector as string,
-				payload.value as string,
-				fallbacksStr,
-				elementLabel,
-			]);
+			result = await withRetry(() =>
+				executeInTab(tab.id!, selectInPage, [
+					payload.selector as string,
+					payload.value as string,
+					fallbacksStr,
+					elementLabel,
+				]),
+			);
 			result = await withVectorFallback(tab.id, action, result, elementLabel, 'select');
 		} else if (action === 'get_page_state') {
 			result = await executeInTab(tab.id, getPageStateInPage, []);
@@ -545,15 +562,16 @@ function typeInPage(selector: string, text: string, fallbacks: string, label: st
 			button: 'button, [role="button"], input[type="submit"], input[type="button"]',
 			link: 'a[href], [role="link"]',
 			input:
-				'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])',
+				'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"], [role="textbox"]',
 			select: 'select',
-			textarea: 'textarea',
+			textarea: 'textarea, [contenteditable="true"], [role="textbox"]',
 			checkbox: 'input[type="checkbox"], [role="checkbox"]',
 			radio: 'input[type="radio"], [role="radio"]',
 			tab: '[role="tab"]',
 		};
 		const qs =
-			ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+			ts[et] ||
+			'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [contenteditable="true"], [role="textbox"]';
 		const candidates = document.querySelectorAll(qs);
 		const ll = l.toLowerCase().trim();
 		let bestMatch: Element | null = null;
@@ -593,17 +611,41 @@ function typeInPage(selector: string, text: string, fallbacks: string, label: st
 	}
 	const { element: el, usedSelector, method } = findElement(selector, fallbacks, label, 'input');
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
-	if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {
-		return { success: false, error: `Not a text input: ${selector}` };
+	const htmlEl = el as HTMLElement;
+	htmlEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	htmlEl.focus();
+
+	// Handle contenteditable elements (Gmail compose body, Notion, rich text editors)
+	if (
+		htmlEl.isContentEditable ||
+		htmlEl.getAttribute('contenteditable') === 'true' ||
+		htmlEl.getAttribute('role') === 'textbox'
+	) {
+		// Clear existing content
+		htmlEl.innerHTML = '';
+		// Insert text using execCommand (works with contenteditable and undo stack)
+		document.execCommand('insertText', false, text);
+		// Also dispatch input event for frameworks that listen
+		htmlEl.dispatchEvent(new Event('input', { bubbles: true }));
+		return {
+			success: true,
+			data: { typed: text, selector: usedSelector, method, inputType: 'contenteditable' },
+		};
 	}
-	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-	el.focus();
+
+	// Standard input/textarea
+	if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {
+		return { success: false, error: `Not a text input or contenteditable element: ${selector}` };
+	}
 	el.value = '';
 	el.dispatchEvent(new Event('input', { bubbles: true }));
 	el.value = text;
 	el.dispatchEvent(new Event('input', { bubbles: true }));
 	el.dispatchEvent(new Event('change', { bubbles: true }));
-	return { success: true, data: { typed: text, selector: usedSelector, method } };
+	return {
+		success: true,
+		data: { typed: text, selector: usedSelector, method, inputType: 'standard' },
+	};
 }
 
 function selectInPage(selector: string, value: string, fallbacks: string, label: string) {
@@ -686,7 +728,7 @@ function getPageStateInPage() {
 	// Lightweight page indexer — inline version for action context
 	const elements: { type: string; label: string; selector: string }[] = [];
 	const interactiveSelectors =
-		'a, button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick]';
+		'a, button, input, select, textarea, [contenteditable="true"], [role="textbox"], [role="button"], [role="link"], [role="tab"], [onclick]';
 
 	document.querySelectorAll(interactiveSelectors).forEach((el) => {
 		if (!(el instanceof HTMLElement)) return;
@@ -1034,6 +1076,8 @@ function refreshPageStateInPage() {
 		'input',
 		'select',
 		'textarea',
+		'[contenteditable="true"]',
+		'[role="textbox"]',
 		'[role="button"]',
 		'[role="link"]',
 		'[role="checkbox"]',

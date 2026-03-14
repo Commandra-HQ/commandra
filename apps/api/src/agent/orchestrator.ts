@@ -362,7 +362,17 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				console.log(`[Orchestrator] Executing ${partitioned.safe.length} safe tools in parallel`);
 				const safeResults = await Promise.allSettled(
 					partitioned.safe.map((block) =>
-						executeToolBlock(block, context, userId, connectionId, domain, onEvent, provider),
+						executeToolBlock(
+							block,
+							context,
+							userId,
+							connectionId,
+							domain,
+							onEvent,
+							provider,
+							domainMemory,
+							userMemory,
+						),
 					),
 				);
 
@@ -396,6 +406,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 					domain,
 					onEvent,
 					provider,
+					domainMemory,
+					userMemory,
 				);
 				toolResults.push(result);
 			}
@@ -542,6 +554,8 @@ async function executeToolBlock(
 	domain: string | undefined,
 	onEvent: (event: SSEEvent) => Promise<void>,
 	provider: { supportsVision: boolean },
+	domainMemoryStr?: string,
+	userMemoryStr?: string,
 ): Promise<ToolResultBlock> {
 	// Handle internal tools (no WS routing)
 
@@ -582,8 +596,8 @@ async function executeToolBlock(
 				connectionId,
 				task: args.task,
 				targetUrl: args.targetUrl,
-				domainMemory: undefined, // Will be loaded by coordinator context
-				userMemory: undefined,
+				domainMemory: domainMemoryStr,
+				userMemory: userMemoryStr,
 				domain,
 				timeout: args.timeout,
 				onEvent,
