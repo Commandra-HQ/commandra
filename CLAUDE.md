@@ -20,7 +20,7 @@ This monorepo is the product. It's what gets open-sourced. It's what self-hosted
 
 ## Architecture in One Paragraph
 
-Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Agents always execute in the user's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores everything. The whole thing runs in Docker. Auth is JWT-only in this repo — no Clerk dependency. External auth providers (Clerk, OIDC) can exchange tokens for JWTs via the `/api/token/exchange` endpoint.
+Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, user identity detection, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Page state auto-refreshes after state-changing actions (click, navigate, type, select). Before each conversation turn, the backend enriches context by searching conversation/element/flow embeddings via pgvector for semantically relevant past interactions. Pre-seeded domain knowledge gives the agent baseline understanding of popular apps (Gmail, GitHub, etc.) on first use. Agents always execute in the user's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores everything. The whole thing runs in Docker. Auth is JWT-only in this repo — no Clerk dependency. External auth providers (Clerk, OIDC) can exchange tokens for JWTs via the `/api/token/exchange` endpoint.
 
 ## Rules
 
@@ -83,16 +83,21 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - **Token budget management**: strips old screenshots, truncates long results, catches context_length_exceeded and retries with aggressive trimming
 - **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`
 - **Multi-agent swarm**: coordinator (strong model) spawns sub-agents (fast model) in separate browser tabs via `open_tab`/`close_tab` WS actions. Max 3 concurrent, 5 iterations each, 60s timeout. Tabs auto-cleaned on completion.
+- **Auto page state refresh**: after `click_element`, `navigate`, `type_text`, `select_option` — orchestrator auto-calls `get_page_state` and merges updated DOM into the tool result (500ms delay for SPA transitions)
+- **Embedding-powered context enrichment**: before orchestrator runs, `chat.ts` searches `conversation_embeddings`, `element_embeddings`, and `flow_embeddings` in parallel; results injected as "Prior Context" in system prompt
+- **Structured tool call history**: assistant messages stored with `toolData` jsonb (tool names, args, results, success). On conversation resume, tool summaries appended to history for multi-turn action context
+- **Site identity detection**: extension indexer detects logged-in user via avatar alt text, profile elements, aria-labels, meta tags. Injected into system prompt as "Logged-in user"
 
 ### Memory System
 - 3 layers: conversation memory (summarization), domain memory (shared per-domain), user memory (per-user-per-domain)
 - User memory is relevance-scored: confidence × recency × reinforcement × category priority. Top-15 injected into prompt. Corrections always loaded.
-- `recall_memory` tool for on-demand memory search mid-conversation
+- `recall_memory` tool for on-demand memory search mid-conversation — uses vector similarity with keyword fallback
 - `save_memory` used in real-time when corrections/preferences detected (not just post-conversation)
 - Domain memory cached in-memory with 5-min TTL, invalidated on updates
+- **Pre-seeded domain knowledge**: `apps/api/src/memory/domain-seeds.ts` provides baseline knowledge for popular apps (Gmail, GitHub, LinkedIn, Slack, Linear, Notion, Outlook, Trello). Falls back to seeds when no learned memory exists — agent knows how Gmail compose works on first use.
 - Smart extraction: strong model used when correction signals detected in conversation
 - Outcome tracking: users rate conversations (success/failure), reinforces/flags memories accordingly
-- Conversation embeddings: user messages embedded for "do that thing again" recall
+- Conversation embeddings: user messages embedded for "do that thing again" recall — actively searched during context enrichment
 
 ### Prompt Caching
 - Anthropic: `cache_control: { type: 'ephemeral' }` on system prompt for ~90% input token cost reduction on multi-turn conversations
@@ -105,6 +110,8 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Embedding provider is configurable via `EMBEDDING_PROVIDER` env var: `voyage` (default for Anthropic), `openai`, or `ollama`
 - Embedding adapters live in `apps/api/src/llm/embeddings.ts` alongside the LLM provider layer
 - Org-scoped tables have nullable `orgId` — use `getOrgOrUserScope()` for queries
+- `messages.tool_data` (jsonb): stores structured tool call records (name, args, result, success) alongside assistant text for multi-turn context
+- Four embedding tables actively used: `element_embeddings`, `conversation_embeddings`, `flow_embeddings` (all searched during context enrichment), `memory_embeddings` (reserved)
 
 ### File Structure
 - Monorepo with Turborepo: `apps/extension`, `apps/api`, `apps/web`, `packages/shared`
@@ -113,10 +120,12 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Agent-related code goes in `apps/api/src/agent/`
 - Orchestrator: `apps/api/src/agent/orchestrator.ts` (main agentic loop)
 - Multi-agent swarm: `apps/api/src/agent/swarm.ts` (sub-agent lifecycle + tab management)
-- Memory: `apps/api/src/memory/` (conversation.ts, domain.ts, user.ts)
+- Planning: `apps/api/src/agent/planner.ts` (plan parsing, approval, workflow templates)
+- Memory: `apps/api/src/memory/` (conversation.ts, domain.ts, user.ts, domain-seeds.ts)
+- Domain seeds: `apps/api/src/memory/domain-seeds.ts` (pre-built knowledge for popular apps)
 - LLM provider adapters go in `apps/api/src/llm/providers/`
 - Embeddings: `apps/api/src/llm/embeddings.ts`
-- Vector search: `apps/api/src/db/vector-search.ts`
+- Vector search: `apps/api/src/db/vector-search.ts` (element, conversation, flow, user memory search)
 - Auth middleware: `apps/api/src/middleware/auth.ts`
 - Org + data scoping: `apps/api/src/db/scope.ts`, `apps/api/src/routes/orgs.ts`
 - Dashboard (Next.js) goes in `apps/web/`
