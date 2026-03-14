@@ -84,7 +84,16 @@ type MessageBlock =
 			screenshot?: string;
 	  }
 	| { type: 'blocked'; toolName: string; reason: string }
-	| { type: 'plan'; plan: Plan };
+	| { type: 'plan'; plan: Plan }
+	| {
+			type: 'sub_agent';
+			agentId: string;
+			task: string;
+			targetUrl: string;
+			status: 'running' | 'success' | 'error';
+			actions: string[];
+			summary?: string;
+	  };
 
 interface ChatMessage {
 	id: string;
@@ -559,6 +568,57 @@ export function ChatTab() {
 									stepStatus: event.steps.map(() => 'pending' as const),
 								};
 								blocksRef.current.push({ type: 'plan', plan: planData });
+								scheduleFlush();
+								break;
+							}
+
+							case 'sub_agent_start': {
+								const blocks = blocksRef.current;
+								// Remove empty thinking block
+								if (
+									blocks.length > 0 &&
+									blocks[blocks.length - 1].type === 'thinking' &&
+									!(blocks[blocks.length - 1] as { content: string }).content
+								) {
+									blocks.pop();
+								}
+								textAccumRef.current = '';
+								thinkingAccumRef.current = '';
+								blocks.push({
+									type: 'sub_agent',
+									agentId: event.agentId,
+									task: event.task,
+									targetUrl: event.targetUrl,
+									status: 'running',
+									actions: [],
+								});
+								scheduleFlush();
+								break;
+							}
+
+							case 'sub_agent_action': {
+								const blocks = blocksRef.current;
+								for (let i = blocks.length - 1; i >= 0; i--) {
+									const b = blocks[i];
+									if (b.type === 'sub_agent' && b.agentId === event.agentId) {
+										b.actions.push(`${event.toolName}: ${event.label}`);
+										break;
+									}
+								}
+								scheduleFlush();
+								break;
+							}
+
+							case 'sub_agent_end': {
+								const blocks = blocksRef.current;
+								for (let i = blocks.length - 1; i >= 0; i--) {
+									const b = blocks[i];
+									if (b.type === 'sub_agent' && b.agentId === event.agentId) {
+										b.status = event.success ? 'success' : 'error';
+										b.summary = event.summary;
+										break;
+									}
+								}
 								scheduleFlush();
 								break;
 							}
