@@ -52,8 +52,16 @@ export interface OrchestratorParams {
 	maxIterations?: number;
 }
 
+export interface ToolCallRecord {
+	name: string;
+	args: unknown;
+	result: unknown;
+	success: boolean;
+}
+
 export interface OrchestratorResult {
 	response: string;
+	toolCalls: ToolCallRecord[];
 }
 
 /**
@@ -182,6 +190,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
 	let fullResponse = '';
 	let iterations = 0;
+	const allToolCalls: ToolCallRecord[] = [];
 
 	while (iterations < maxIterations) {
 		// Token budget guard — strip old screenshots and truncate if messages are too large
@@ -427,6 +436,18 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				});
 			}
 
+			// Track tool calls for structured history
+			for (let i = 0; i < toolBlocks.length; i++) {
+				const block = toolBlocks[i];
+				const result = toolResults.find((r) => r.toolUseId === block.id);
+				allToolCalls.push({
+					name: block.name,
+					args: block.input,
+					result: result ? (typeof result.content === 'string' ? (() => { try { return JSON.parse(result.content); } catch { return result.content; } })() : '[structured]') : null,
+					success: result ? !result.isError : false,
+				});
+			}
+
 			// Sort results back to original tool call order (LLM expects this)
 			const orderMap = new Map(toolBlocks.map((b, i) => [b.id, i]));
 			toolResults.sort(
@@ -448,7 +469,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		];
 	}
 
-	return { response: fullResponse };
+	return { response: fullResponse, toolCalls: allToolCalls };
 }
 
 /**
@@ -975,6 +996,23 @@ async function handleToolCall(
 			metadata: { args: toolArgs, result },
 		});
 
+		// Auto-refresh page state after state-changing actions so the agent always has current DOM
+		const STATE_CHANGING_TOOLS = ['click_element', 'navigate', 'type_text', 'select_option'];
+		let pageStateUpdate: unknown = undefined;
+		if (STATE_CHANGING_TOOLS.includes(name)) {
+			try {
+				// Brief wait for SPA transitions / DOM updates
+				await new Promise((resolve) => setTimeout(resolve, 500));
+				const freshState = await executeTool('get_page_state', {}, context);
+				const freshData = freshState as Record<string, unknown>;
+				if (freshData?.success) {
+					pageStateUpdate = freshData.data;
+				}
+			} catch {
+				// Non-critical — agent can still call refresh_page_state manually
+			}
+		}
+
 		// Extract screenshot for the frontend if this was a screenshot tool
 		const resultData = result as unknown as Record<string, unknown> | undefined;
 		const screenshotImage =
@@ -982,11 +1020,17 @@ async function handleToolCall(
 				? ((resultData.data as Record<string, unknown>)?.image as string | undefined)
 				: undefined;
 
+		// Merge page state update into the result so LLM sees current elements
+		const enrichedResult =
+			pageStateUpdate && resultData?.success
+				? { ...resultData, pageState: pageStateUpdate }
+				: result;
+
 		await onEvent({
 			type: 'tool_end',
 			toolName: name,
 			success: true,
-			result: screenshotImage ? { success: true } : result,
+			result: screenshotImage ? { success: true } : enrichedResult,
 			screenshot: screenshotImage,
 		});
 
@@ -1008,7 +1052,7 @@ async function handleToolCall(
 			}
 		}
 
-		return { data: result, isError: false };
+		return { data: enrichedResult, isError: false };
 	} catch (err) {
 		const errorMsg = err instanceof Error ? err.message : String(err);
 		await logAction({

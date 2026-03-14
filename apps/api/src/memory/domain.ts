@@ -14,6 +14,7 @@ import { db } from '../db/index.js';
 import { domainMemory } from '../db/schema.js';
 import { collectStream } from '../llm/index.js';
 import type { LLMProvider } from '../llm/types.js';
+import { getDomainSeed } from './domain-seeds.js';
 
 // In-memory cache: domain → { result, expiresAt }
 const domainMemoryCache = new Map<string, { result: string | null; expiresAt: number }>();
@@ -31,8 +32,46 @@ export interface DomainKnowledge {
 }
 
 /**
+ * Format domain knowledge into a readable markdown string for prompt injection.
+ */
+function formatDomainKnowledge(knowledge: DomainKnowledge): string | null {
+	const sections: string[] = [];
+
+	if (knowledge.knownPages?.length) {
+		sections.push('### Known Pages');
+		for (const p of knowledge.knownPages) {
+			sections.push(`- **${p.path}**: ${p.description} (reach via: ${p.howToReach})`);
+		}
+	}
+
+	if (knowledge.workflows?.length) {
+		sections.push('### Known Workflows');
+		for (const w of knowledge.workflows) {
+			sections.push(`- **${w.name}**: ${w.steps.join(' → ')}`);
+		}
+	}
+
+	if (knowledge.elementNotes?.length) {
+		sections.push('### Element Notes');
+		for (const n of knowledge.elementNotes) {
+			sections.push(`- \`${n.selector}\`: ${n.note}`);
+		}
+	}
+
+	if (knowledge.appNotes?.length) {
+		sections.push('### App Behavior');
+		for (const note of knowledge.appNotes) {
+			sections.push(`- ${note}`);
+		}
+	}
+
+	return sections.length > 0 ? sections.join('\n') : null;
+}
+
+/**
  * Load domain memory for a given domain. Returns null if no memory exists.
  * Uses in-memory cache with 5-minute TTL to avoid repeated DB queries.
+ * Falls back to pre-seeded knowledge for popular apps.
  */
 export async function loadDomainMemory(domain: string): Promise<string | null> {
 	// Check cache first
@@ -48,41 +87,18 @@ export async function loadDomainMemory(domain: string): Promise<string | null> {
 		.limit(1);
 
 	if (!record) {
+		// Fall back to pre-seeded domain knowledge for popular apps
+		const seed = getDomainSeed(domain);
+		if (seed) {
+			const seedResult = formatDomainKnowledge(seed);
+			domainMemoryCache.set(domain, { result: seedResult, expiresAt: Date.now() + CACHE_TTL_MS });
+			return seedResult;
+		}
 		domainMemoryCache.set(domain, { result: null, expiresAt: Date.now() + CACHE_TTL_MS });
 		return null;
 	}
 
-	const sections: string[] = [];
-
-	if (record.knownPages?.length) {
-		sections.push('### Known Pages');
-		for (const p of record.knownPages) {
-			sections.push(`- **${p.path}**: ${p.description} (reach via: ${p.howToReach})`);
-		}
-	}
-
-	if (record.workflows?.length) {
-		sections.push('### Known Workflows');
-		for (const w of record.workflows) {
-			sections.push(`- **${w.name}**: ${w.steps.join(' → ')}`);
-		}
-	}
-
-	if (record.elementNotes?.length) {
-		sections.push('### Element Notes');
-		for (const n of record.elementNotes) {
-			sections.push(`- \`${n.selector}\`: ${n.note}`);
-		}
-	}
-
-	if (record.appNotes?.length) {
-		sections.push('### App Behavior');
-		for (const note of record.appNotes) {
-			sections.push(`- ${note}`);
-		}
-	}
-
-	const result = sections.length > 0 ? sections.join('\n') : null;
+	const result = formatDomainKnowledge(record);
 	domainMemoryCache.set(domain, { result, expiresAt: Date.now() + CACHE_TTL_MS });
 	return result;
 }

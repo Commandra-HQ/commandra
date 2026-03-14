@@ -30,6 +30,8 @@ export interface PageIndex {
 	elements: IndexedElement[];
 	navigationLinks: { label: string; href: string }[];
 	timestamp: number;
+	/** Detected logged-in user identity from DOM (avatar, profile elements) */
+	userIdentity?: { username?: string; avatar?: string };
 }
 
 export interface SiteIndex {

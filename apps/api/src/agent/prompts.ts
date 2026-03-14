@@ -88,6 +88,7 @@ interface PageContext {
 	title?: string;
 	pageType?: string;
 	lastIndexedAt?: string | Date;
+	userIdentity?: { username?: string; avatar?: string };
 	elements?: { type: string; label: string; selector: string }[];
 	navigationLinks?: { label: string; href: string }[];
 	sitePages?: {
@@ -194,19 +195,29 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		userMemorySummary = `\n\n## What You Know About This User\n${userMemory}`;
 	}
 
+	let priorContextSummary = '';
+	if (priorContext) {
+		priorContextSummary = `\n\n## Prior Context (from embeddings)\nThese are semantically similar past interactions, relevant elements, and saved automations found via vector search. Use this context to inform your approach — the user may be asking to repeat or build on previous work.\n${priorContext}`;
+	}
+
+	let identitySummary = '';
+	if (pi.userIdentity?.username) {
+		identitySummary = `\n- **Logged-in user:** ${pi.userIdentity.username}`;
+	}
+
 	return `${BASE_PROMPT}
 
 ## Current Page
 - **URL:** ${pi.url || 'Unknown'}
 - **Title:** ${pi.title || 'Unknown'}
 - **Page type:** ${pi.pageType || 'Unknown'}
-- **Last indexed:** ${pi.lastIndexedAt ? formatIndexAge(pi.lastIndexedAt) : 'Unknown'}
+- **Last indexed:** ${pi.lastIndexedAt ? formatIndexAge(pi.lastIndexedAt) : 'Unknown'}${identitySummary}
 
 ## Interactive Elements
 ${elementsSummary}
 
 ## Navigation Links
-${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${PLANNING_INSTRUCTIONS}`;
+${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${priorContextSummary}${PLANNING_INSTRUCTIONS}`;
 }
 
 function formatIndexAge(lastIndexedAt: string | Date): string {

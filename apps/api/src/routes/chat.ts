@@ -163,10 +163,23 @@ chatRoutes.post('/', async (c) => {
 		.where(eq(messages.conversationId, convId))
 		.orderBy(asc(messages.createdAt));
 
-	const chatMessages = history.map((m) => ({
-		role: m.role as 'user' | 'assistant',
-		content: m.content,
-	}));
+	const chatMessages = history.map((m) => {
+		// Include tool call summary in assistant messages for multi-turn context
+		const td = m.toolData as { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } | null;
+		if (m.role === 'assistant' && td?.tools?.length) {
+			const toolSummary = td.tools
+				.map((t) => `[Tool: ${t.name}${t.success ? ' ✓' : ' ✗'}]`)
+				.join(' ');
+			return {
+				role: m.role as 'user' | 'assistant',
+				content: `${m.content}\n\n---\nActions taken: ${toolSummary}`,
+			};
+		}
+		return {
+			role: m.role as 'user' | 'assistant',
+			content: m.content,
+		};
+	});
 
 	// Check if extension is connected
 	const connectionId = getConnectionByUser(user.id);
@@ -348,6 +361,7 @@ chatRoutes.post('/', async (c) => {
 		};
 
 		try {
+			let toolData: { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } | undefined;
 			if (canAct) {
 				const result = await runOrchestrator({
 					userId: user.id,
@@ -363,6 +377,9 @@ chatRoutes.post('/', async (c) => {
 					signal,
 				});
 				fullResponse = result.response;
+				if (result.toolCalls.length > 0) {
+					toolData = { tools: result.toolCalls };
+				}
 			} else {
 				fullResponse = await runSimpleChat({
 					messages: chatMessages,
@@ -378,12 +395,13 @@ chatRoutes.post('/', async (c) => {
 
 			if (signal.aborted) return;
 
-			// Store assistant response (only actual text, not tool status)
+			// Store assistant response with structured tool data
 			if (fullResponse.trim()) {
 				await db.insert(messages).values({
 					conversationId: convId!,
 					role: 'assistant',
 					content: fullResponse,
+					...(toolData && { toolData }),
 				});
 			}
 

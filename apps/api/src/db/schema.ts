@@ -122,6 +122,8 @@ export const messages = pgTable('messages', {
 		.notNull(),
 	role: text('role').notNull(), // 'user' | 'assistant' | 'system'
 	content: text('content').notNull(),
+	/** Structured tool call data (tool names, args, results) for multi-turn context */
+	toolData: jsonb('tool_data').$type<{ tools: { name: string; args: unknown; result: unknown; success: boolean }[] }>(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
