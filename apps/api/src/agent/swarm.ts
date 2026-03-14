@@ -261,7 +261,11 @@ async function runSubAgent(params: {
 	try {
 		const pageResult = (await executeTool('get_page_state', { tabId }, context)) as {
 			success?: boolean;
-			data?: { elements?: { type: string; label: string; selector: string }[]; url?: string; title?: string };
+			data?: {
+				elements?: { type: string; label: string; selector: string }[];
+				url?: string;
+				title?: string;
+			};
 		};
 		if (pageResult?.success && pageResult.data?.elements) {
 			const elements = pageResult.data.elements;
@@ -270,7 +274,11 @@ async function runSubAgent(params: {
 				if (!grouped[el.type]) grouped[el.type] = [];
 				grouped[el.type].push(`"${el.label}" [${el.selector}]`);
 			}
-			const lines: string[] = [`Page: ${pageResult.data.title || targetUrl}`, `URL: ${pageResult.data.url || targetUrl}`, ''];
+			const lines: string[] = [
+				`Page: ${pageResult.data.title || targetUrl}`,
+				`URL: ${pageResult.data.url || targetUrl}`,
+				'',
+			];
 			for (const [type, els] of Object.entries(grouped)) {
 				lines.push(`${type}s (${els.length}):`);
 				for (const el of els.slice(0, 20)) {
@@ -285,7 +293,13 @@ async function runSubAgent(params: {
 		// Page state fetch failed — sub-agent will have to call it manually
 	}
 
-	const systemPrompt = buildSubAgentPrompt(task, targetUrl, domainMemory, userMemory, initialPageState);
+	const systemPrompt = buildSubAgentPrompt(
+		task,
+		targetUrl,
+		domainMemory,
+		userMemory,
+		initialPageState,
+	);
 
 	let currentMessages: Message[] = [
 		{
@@ -512,18 +526,22 @@ function buildSubAgentPrompt(
 	targetUrl: string,
 	domainMemory?: string,
 	userMemory?: string,
+	initialPageState?: string,
 ): string {
-	let prompt = `You are a sub-agent performing a specific task in your own browser tab. Work quickly and efficiently.
+	let prompt = `You are a sub-agent performing a specific task in your own browser tab. You have the same browser tools as the main agent: click_element, type_text, select_option, navigate, scroll, screenshot, get_page_state, refresh_page_state, read_text, read_table, wait_for_element, go_back.
 
 Your task: ${task}
-Your tab is already on: ${targetUrl}
+Your tab URL: ${targetUrl}
+
+${initialPageState ? `## Current Page Elements\n${initialPageState}` : 'Use get_page_state to see the current page elements.'}
 
 Instructions:
-- Use get_page_state first to see the current page
-- Complete the assigned task using browser tools
-- Be concise and efficient — minimize the number of actions
-- Report your findings clearly in your final text response
-- If you encounter an error, describe what went wrong
+- Reference elements by their label and use the provided selectors
+- If a selector doesn't work, use refresh_page_state to re-index the page (SPAs change DOM dynamically)
+- After clicking something that changes the page (navigation, modal, compose window), use refresh_page_state before trying to interact with new elements
+- For Gmail: after clicking Compose, wait 2 seconds then refresh_page_state to see the compose form fields
+- For GitHub: click on folder/file links directly using their selectors
+- Be thorough — complete ALL parts of the task
 - Do NOT ask for clarification — work with what you have
 - Do NOT try to spawn sub-agents
 
