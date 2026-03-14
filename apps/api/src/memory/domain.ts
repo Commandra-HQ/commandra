@@ -98,7 +98,12 @@ export async function loadDomainMemory(domain: string): Promise<string | null> {
 		return null;
 	}
 
-	const result = formatDomainKnowledge(record);
+	const result = formatDomainKnowledge({
+		knownPages: record.knownPages || [],
+		elementNotes: record.elementNotes || [],
+		workflows: record.workflows || [],
+		appNotes: record.appNotes || [],
+	});
 	domainMemoryCache.set(domain, { result, expiresAt: Date.now() + CACHE_TTL_MS });
 	return result;
 }

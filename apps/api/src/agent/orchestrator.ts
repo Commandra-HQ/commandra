@@ -1004,7 +1004,7 @@ async function handleToolCall(
 				// Brief wait for SPA transitions / DOM updates
 				await new Promise((resolve) => setTimeout(resolve, 500));
 				const freshState = await executeTool('get_page_state', {}, context);
-				const freshData = freshState as Record<string, unknown>;
+				const freshData = freshState as unknown as Record<string, unknown>;
 				if (freshData?.success) {
 					pageStateUpdate = freshData.data;
 				}
