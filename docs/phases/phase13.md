@@ -8,13 +8,13 @@ The orchestrator works but is slow (sequential tool execution), memory is a blun
 
 ## What Ships
 
-### 13a. Parallel Tool Calling
-### 13b. Intelligent Memory System
-### 13c. Multi-Agent Swarm
-### 13d. Embedding Improvements
-### 13e. Learning Feedback Loops
-### 13f. Re-Indexing Improvements
-### 13g. Speed Optimizations
+### 13a. Parallel Tool Calling ✅
+### 13b. Intelligent Memory System ✅
+### 13c. Multi-Agent Swarm ✅
+### 13d. Embedding Improvements ✅
+### 13e. Learning Feedback Loops ✅
+### 13f. Re-Indexing Improvements ✅
+### 13g. Speed Optimizations ✅
 
 ---
 
