@@ -389,6 +389,35 @@ Total: ~2-3 weeks
 
 ---
 
+## 13h. Token Budget Management (added post-implementation)
+
+**Problem:** Multi-iteration conversations with screenshots overflow the context window (320K tokens on a 272K limit). Base64 screenshots accumulate across turns without cleanup.
+
+### Implementation
+
+1. **Pre-iteration token budget guard:**
+   - Before each LLM call, estimate total message size (chars / 4 ≈ tokens)
+   - Phase 1: Strip base64 images from all but the most recent screenshot
+   - Phase 2: Truncate long tool result strings to 2000 chars
+   - Phase 3: Drop oldest message pairs if still over 200K tokens
+
+2. **Context length error recovery:**
+   - Catch `context_length_exceeded` errors from LLM providers
+   - Aggressively trim to last 2 messages, strip all images
+   - Retry the iteration with trimmed context
+   - Emit a user-visible note about the trim
+
+3. **Swarm prompting for cross-site tasks:**
+   - System prompt explicitly instructs agent to use `spawn_agent` for multi-site tasks
+   - Reduces sequential navigation across domains (which accumulates screenshots)
+   - Context management instructions: "Don't take excessive screenshots"
+
+### Files modified
+- `apps/api/src/agent/orchestrator.ts` — `trimMessagesForTokenBudget()`, error recovery
+- `apps/api/src/agent/prompts.ts` — Swarm instructions, context management guidance
+
+---
+
 ## Key Architectural Constraints
 
 - **No new infrastructure.** Everything stays in Postgres + pgvector. No Redis, no separate vector DB.
