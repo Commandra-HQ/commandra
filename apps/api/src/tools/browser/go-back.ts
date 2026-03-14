@@ -3,7 +3,8 @@ import type { ExecutableTool } from '../types.js';
 
 export const goBack: ExecutableTool = {
 	name: 'go_back',
-	description: 'Go back to the previous page in the browser history. Equivalent to clicking the browser back button.',
+	description:
+		'Go back to the previous page in the browser history. Equivalent to clicking the browser back button.',
 	parameters: {
 		type: 'object',
 		properties: {},

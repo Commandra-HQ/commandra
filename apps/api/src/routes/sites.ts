@@ -36,7 +36,12 @@ siteRoutes.get('/', async (c) => {
 			pageCount: count(pages.id),
 		})
 		.from(pages)
-		.where(sql`${pages.siteId} IN (${sql.join(siteIds.map((id) => sql`${id}`), sql`, `)})`)
+		.where(
+			sql`${pages.siteId} IN (${sql.join(
+				siteIds.map((id) => sql`${id}`),
+				sql`, `,
+			)})`,
+		)
 		.groupBy(pages.siteId);
 
 	const countMap = new Map(liveCounts.map((r) => [r.siteId, r.pageCount]));
@@ -54,11 +59,7 @@ siteRoutes.get('/:domain', async (c) => {
 	const user = c.get('user');
 	const domain = c.req.param('domain');
 
-	const [site] = await db
-		.select()
-		.from(sites)
-		.where(eq(sites.domain, domain))
-		.limit(1);
+	const [site] = await db.select().from(sites).where(eq(sites.domain, domain)).limit(1);
 
 	if (!site) {
 		return c.json({ error: 'Not found' }, 404);
@@ -154,15 +155,18 @@ export async function upsertPage(siteId: string, pageIndex: PageIndexPayload): P
 			})
 			.where(eq(pages.id, existing.id));
 	} else {
-		const [inserted] = await db.insert(pages).values({
-			siteId,
-			url: pageIndex.url,
-			urlPattern,
-			title: pageIndex.title || null,
-			pageType: pageIndex.pageType || null,
-			elements: pageIndex.elements || [],
-			navigationLinks: pageIndex.navigationLinks || [],
-		}).returning({ id: pages.id });
+		const [inserted] = await db
+			.insert(pages)
+			.values({
+				siteId,
+				url: pageIndex.url,
+				urlPattern,
+				title: pageIndex.title || null,
+				pageType: pageIndex.pageType || null,
+				elements: pageIndex.elements || [],
+				navigationLinks: pageIndex.navigationLinks || [],
+			})
+			.returning({ id: pages.id });
 		pageId = inserted.id;
 	}
 

@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useAuth } from '@/lib/auth-context';
-import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { Trash2, UserPlus } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface OrgMember {
 	id: string;
@@ -113,8 +113,8 @@ export default function OrgPage() {
 			<div className="space-y-6">
 				<h1 className="text-2xl font-bold tracking-tight">Organization</h1>
 				<p className="text-muted-foreground">
-					You are not part of an organization. Organizations are created through
-					team plans or by your administrator.
+					You are not part of an organization. Organizations are created through team plans or by
+					your administrator.
 				</p>
 			</div>
 		);
@@ -136,7 +136,9 @@ export default function OrgPage() {
 			</div>
 
 			{error && (
-				<div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
+				<div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+					{error}
+				</div>
 			)}
 			{success && (
 				<div className="rounded-md bg-green-500/10 px-3 py-2 text-sm text-green-700">{success}</div>
@@ -191,7 +193,9 @@ export default function OrgPage() {
 			<Card>
 				<CardHeader>
 					<CardTitle className="text-lg">Members</CardTitle>
-					<CardDescription>{members.length} member{members.length !== 1 ? 's' : ''}</CardDescription>
+					<CardDescription>
+						{members.length} member{members.length !== 1 ? 's' : ''}
+					</CardDescription>
 				</CardHeader>
 				<CardContent>
 					<div className="divide-y">

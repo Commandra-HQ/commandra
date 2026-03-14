@@ -27,4 +27,15 @@ export type SSEEvent =
 	| { type: 'recording_stopped'; flowId: string; stepCount: number }
 	| { type: 'flow_step_start'; stepIndex: number; totalSteps: number; intent: string }
 	| { type: 'flow_step_end'; stepIndex: number; success: boolean; error?: string }
-	| { type: 'flow_done'; flowRunId: string; success: boolean };
+	| { type: 'flow_done'; flowRunId: string; success: boolean }
+	| {
+			type: 'flow_adaptation';
+			flowId: string;
+			adaptations: {
+				stepIndex: number;
+				originalSelector: string;
+				usedSelector: string;
+				reason: string;
+			}[];
+			message: string;
+	  };

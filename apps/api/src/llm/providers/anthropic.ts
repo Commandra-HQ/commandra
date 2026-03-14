@@ -37,10 +37,19 @@ export class AnthropicProvider implements LLMProvider {
 
 	async *chat(params: ChatParams): AsyncIterable<StreamEvent> {
 		// Build create params — conditionally add thinking
+		// Use prompt caching for system prompt (static per domain session)
+		const systemContent: Anthropic.TextBlockParam[] = [
+			{
+				type: 'text',
+				text: params.system,
+				cache_control: { type: 'ephemeral' },
+			} as Anthropic.TextBlockParam,
+		];
+
 		const createParams: Record<string, unknown> = {
 			model: resolveModel(params.model),
 			max_tokens: params.maxTokens ?? 4096,
-			system: params.system,
+			system: systemContent,
 			messages: toAnthropicMessages(params.messages),
 			tools: params.tools ? toAnthropicTools(params.tools) : undefined,
 			stream: true,
@@ -75,7 +84,13 @@ export class AnthropicProvider implements LLMProvider {
 					yield { type: 'tool_use_start', id: currentToolId, name: currentToolName };
 				}
 			} else if (event.type === 'content_block_delta') {
-				const delta = event.delta as { type: string; text?: string; partial_json?: string; thinking?: string; signature?: string };
+				const delta = event.delta as {
+					type: string;
+					text?: string;
+					partial_json?: string;
+					thinking?: string;
+					signature?: string;
+				};
 				if (delta.type === 'text_delta') {
 					yield { type: 'text', text: delta.text || '' };
 				} else if (delta.type === 'input_json_delta') {
@@ -135,7 +150,11 @@ function toAnthropicBlock(block: ContentBlock): Anthropic.ContentBlockParam {
 			return { type: 'text', text: block.text };
 		case 'thinking':
 			// Pass thinking blocks back for multi-turn with extended thinking (signature required)
-			return { type: 'thinking', thinking: block.thinking, signature: block.signature } as unknown as Anthropic.ContentBlockParam;
+			return {
+				type: 'thinking',
+				thinking: block.thinking,
+				signature: block.signature,
+			} as unknown as Anthropic.ContentBlockParam;
 		case 'image':
 			return {
 				type: 'image',

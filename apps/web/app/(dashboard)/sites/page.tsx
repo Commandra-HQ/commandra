@@ -1,10 +1,10 @@
 'use client';
 
-import { ChevronDown, ChevronRight, Globe, FileText } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch } from '@/lib/api';
+import { ChevronDown, ChevronRight, FileText, Globe } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface SitePage {
 	id: string;
@@ -107,7 +107,9 @@ function SiteCard({ site }: { site: Site }) {
 											<p className="font-medium truncate">
 												{page.title || page.urlPattern || page.url}
 											</p>
-											<p className="text-muted-foreground truncate">{page.urlPattern || page.url}</p>
+											<p className="text-muted-foreground truncate">
+												{page.urlPattern || page.url}
+											</p>
 											<div className="flex gap-2 mt-1">
 												<Badge variant="outline" className="text-[10px] px-1 py-0">
 													{page.pageType || 'other'}

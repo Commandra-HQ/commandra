@@ -168,9 +168,19 @@ async function handleActionRequest(message: {
 		if (action === 'click_element') {
 			return executeInTab(tabId, clickInPage, [vectorSelector, '', label, elementType]);
 		} else if (action === 'type_text') {
-			return executeInTab(tabId, typeInPage, [vectorSelector, message.payload.text as string, '', label]);
+			return executeInTab(tabId, typeInPage, [
+				vectorSelector,
+				message.payload.text as string,
+				'',
+				label,
+			]);
 		} else if (action === 'select_option') {
-			return executeInTab(tabId, selectInPage, [vectorSelector, message.payload.value as string, '', label]);
+			return executeInTab(tabId, selectInPage, [
+				vectorSelector,
+				message.payload.value as string,
+				'',
+				label,
+			]);
 		}
 		return r;
 	}
@@ -285,12 +295,20 @@ async function executeInTab(
 		});
 		const result = results[0]?.result;
 		if (result === null || result === undefined) {
-			console.warn('[AFE WS] executeInTab returned null/undefined. Function:', func.name, 'Results:', JSON.stringify(results));
+			console.warn(
+				'[AFE WS] executeInTab returned null/undefined. Function:',
+				func.name,
+				'Results:',
+				JSON.stringify(results),
+			);
 		}
 		return result;
 	} catch (err) {
 		console.error('[AFE WS] executeInTab error:', err, 'Function:', func.name);
-		return { success: false, error: `Script execution failed: ${err instanceof Error ? err.message : String(err)}` };
+		return {
+			success: false,
+			error: `Script execution failed: ${err instanceof Error ? err.message : String(err)}`,
+		};
 	}
 }
 
@@ -315,62 +333,156 @@ async function executeInTabAsync(
 
 function clickInPage(selector: string, fallbacks: string, label: string, elementType: string) {
 	// Inline findElement — chrome.scripting.executeScript can't access outer functions
-	function findElement(s: string, fb: string, l: string, et: string): { element: Element | null; usedSelector: string; method: string } {
+	function findElement(
+		s: string,
+		fb: string,
+		l: string,
+		et: string,
+	): { element: Element | null; usedSelector: string; method: string } {
 		let el = document.querySelector(s);
 		if (el) return { element: el, usedSelector: s, method: 'primary' };
 		const fbs = fb ? fb.split('|||') : [];
-		for (const f of fbs) { if (!f) continue; el = document.querySelector(f); if (el) return { element: el, usedSelector: f, method: 'fallback' }; }
+		for (const f of fbs) {
+			if (!f) continue;
+			el = document.querySelector(f);
+			if (el) return { element: el, usedSelector: f, method: 'fallback' };
+		}
 		if (!l) return { element: null, usedSelector: s, method: 'none' };
-		const ts: Record<string, string> = { button: 'button, [role="button"], input[type="submit"], input[type="button"]', link: 'a[href], [role="link"]', input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])', select: 'select', textarea: 'textarea', checkbox: 'input[type="checkbox"], [role="checkbox"]', radio: 'input[type="radio"], [role="radio"]', tab: '[role="tab"]' };
-		const qs = ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+		const ts: Record<string, string> = {
+			button: 'button, [role="button"], input[type="submit"], input[type="button"]',
+			link: 'a[href], [role="link"]',
+			input:
+				'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])',
+			select: 'select',
+			textarea: 'textarea',
+			checkbox: 'input[type="checkbox"], [role="checkbox"]',
+			radio: 'input[type="radio"], [role="radio"]',
+			tab: '[role="tab"]',
+		};
+		const qs =
+			ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
 		const candidates = document.querySelectorAll(qs);
 		const ll = l.toLowerCase().trim();
-		let bestMatch: Element | null = null; let bestScore = 0;
+		let bestMatch: Element | null = null;
+		let bestScore = 0;
 		for (const c of candidates) {
 			if (!(c instanceof HTMLElement)) continue;
-			const r = c.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
-			const cl = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent?.trim().slice(0, 100) || c.getAttribute('placeholder') || c.getAttribute('name') || '').toLowerCase().trim();
+			const r = c.getBoundingClientRect();
+			if (r.width === 0 || r.height === 0) continue;
+			const cl = (
+				c.getAttribute('aria-label') ||
+				c.getAttribute('title') ||
+				c.textContent?.trim().slice(0, 100) ||
+				c.getAttribute('placeholder') ||
+				c.getAttribute('name') ||
+				''
+			)
+				.toLowerCase()
+				.trim();
 			if (!cl) continue;
 			if (cl === ll) return { element: c, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
 			let score = 0;
-			if (cl.includes(ll) || ll.includes(cl)) { score = 0.8; } else { const lw = ll.split(/\s+/); const cw = cl.split(/\s+/); score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1); }
-			if (score > bestScore && score > 0.4) { bestScore = score; bestMatch = c; }
+			if (cl.includes(ll) || ll.includes(cl)) {
+				score = 0.8;
+			} else {
+				const lw = ll.split(/\s+/);
+				const cw = cl.split(/\s+/);
+				score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1);
+			}
+			if (score > bestScore && score > 0.4) {
+				bestScore = score;
+				bestMatch = c;
+			}
 		}
-		if (bestMatch) return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
+		if (bestMatch)
+			return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
 		return { element: null, usedSelector: s, method: 'none' };
 	}
-	const { element: el, usedSelector, method } = findElement(selector, fallbacks, label, elementType);
+	const {
+		element: el,
+		usedSelector,
+		method,
+	} = findElement(selector, fallbacks, label, elementType);
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLElement)) return { success: false, error: `Not clickable: ${selector}` };
 	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	el.click();
-	return { success: true, data: { clicked: usedSelector, method, tag: el.tagName.toLowerCase(), text: el.textContent?.trim().slice(0, 100) } };
+	return {
+		success: true,
+		data: {
+			clicked: usedSelector,
+			method,
+			tag: el.tagName.toLowerCase(),
+			text: el.textContent?.trim().slice(0, 100),
+		},
+	};
 }
 
 function typeInPage(selector: string, text: string, fallbacks: string, label: string) {
 	// Inline findElement — chrome.scripting.executeScript can't access outer functions
-	function findElement(s: string, fb: string, l: string, et: string): { element: Element | null; usedSelector: string; method: string } {
+	function findElement(
+		s: string,
+		fb: string,
+		l: string,
+		et: string,
+	): { element: Element | null; usedSelector: string; method: string } {
 		let el = document.querySelector(s);
 		if (el) return { element: el, usedSelector: s, method: 'primary' };
 		const fbs = fb ? fb.split('|||') : [];
-		for (const f of fbs) { if (!f) continue; el = document.querySelector(f); if (el) return { element: el, usedSelector: f, method: 'fallback' }; }
+		for (const f of fbs) {
+			if (!f) continue;
+			el = document.querySelector(f);
+			if (el) return { element: el, usedSelector: f, method: 'fallback' };
+		}
 		if (!l) return { element: null, usedSelector: s, method: 'none' };
-		const ts: Record<string, string> = { button: 'button, [role="button"], input[type="submit"], input[type="button"]', link: 'a[href], [role="link"]', input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])', select: 'select', textarea: 'textarea', checkbox: 'input[type="checkbox"], [role="checkbox"]', radio: 'input[type="radio"], [role="radio"]', tab: '[role="tab"]' };
-		const qs = ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+		const ts: Record<string, string> = {
+			button: 'button, [role="button"], input[type="submit"], input[type="button"]',
+			link: 'a[href], [role="link"]',
+			input:
+				'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])',
+			select: 'select',
+			textarea: 'textarea',
+			checkbox: 'input[type="checkbox"], [role="checkbox"]',
+			radio: 'input[type="radio"], [role="radio"]',
+			tab: '[role="tab"]',
+		};
+		const qs =
+			ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
 		const candidates = document.querySelectorAll(qs);
 		const ll = l.toLowerCase().trim();
-		let bestMatch: Element | null = null; let bestScore = 0;
+		let bestMatch: Element | null = null;
+		let bestScore = 0;
 		for (const c of candidates) {
 			if (!(c instanceof HTMLElement)) continue;
-			const r = c.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
-			const cl = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent?.trim().slice(0, 100) || c.getAttribute('placeholder') || c.getAttribute('name') || '').toLowerCase().trim();
+			const r = c.getBoundingClientRect();
+			if (r.width === 0 || r.height === 0) continue;
+			const cl = (
+				c.getAttribute('aria-label') ||
+				c.getAttribute('title') ||
+				c.textContent?.trim().slice(0, 100) ||
+				c.getAttribute('placeholder') ||
+				c.getAttribute('name') ||
+				''
+			)
+				.toLowerCase()
+				.trim();
 			if (!cl) continue;
 			if (cl === ll) return { element: c, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
 			let score = 0;
-			if (cl.includes(ll) || ll.includes(cl)) { score = 0.8; } else { const lw = ll.split(/\s+/); const cw = cl.split(/\s+/); score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1); }
-			if (score > bestScore && score > 0.4) { bestScore = score; bestMatch = c; }
+			if (cl.includes(ll) || ll.includes(cl)) {
+				score = 0.8;
+			} else {
+				const lw = ll.split(/\s+/);
+				const cw = cl.split(/\s+/);
+				score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1);
+			}
+			if (score > bestScore && score > 0.4) {
+				bestScore = score;
+				bestMatch = c;
+			}
 		}
-		if (bestMatch) return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
+		if (bestMatch)
+			return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
 		return { element: null, usedSelector: s, method: 'none' };
 	}
 	const { element: el, usedSelector, method } = findElement(selector, fallbacks, label, 'input');
@@ -390,28 +502,69 @@ function typeInPage(selector: string, text: string, fallbacks: string, label: st
 
 function selectInPage(selector: string, value: string, fallbacks: string, label: string) {
 	// Inline findElement — chrome.scripting.executeScript can't access outer functions
-	function findElement(s: string, fb: string, l: string, et: string): { element: Element | null; usedSelector: string; method: string } {
+	function findElement(
+		s: string,
+		fb: string,
+		l: string,
+		et: string,
+	): { element: Element | null; usedSelector: string; method: string } {
 		let el = document.querySelector(s);
 		if (el) return { element: el, usedSelector: s, method: 'primary' };
 		const fbs = fb ? fb.split('|||') : [];
-		for (const f of fbs) { if (!f) continue; el = document.querySelector(f); if (el) return { element: el, usedSelector: f, method: 'fallback' }; }
+		for (const f of fbs) {
+			if (!f) continue;
+			el = document.querySelector(f);
+			if (el) return { element: el, usedSelector: f, method: 'fallback' };
+		}
 		if (!l) return { element: null, usedSelector: s, method: 'none' };
-		const ts: Record<string, string> = { button: 'button, [role="button"], input[type="submit"], input[type="button"]', link: 'a[href], [role="link"]', input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])', select: 'select', textarea: 'textarea', checkbox: 'input[type="checkbox"], [role="checkbox"]', radio: 'input[type="radio"], [role="radio"]', tab: '[role="tab"]' };
-		const qs = ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+		const ts: Record<string, string> = {
+			button: 'button, [role="button"], input[type="submit"], input[type="button"]',
+			link: 'a[href], [role="link"]',
+			input:
+				'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])',
+			select: 'select',
+			textarea: 'textarea',
+			checkbox: 'input[type="checkbox"], [role="checkbox"]',
+			radio: 'input[type="radio"], [role="radio"]',
+			tab: '[role="tab"]',
+		};
+		const qs =
+			ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
 		const candidates = document.querySelectorAll(qs);
 		const ll = l.toLowerCase().trim();
-		let bestMatch: Element | null = null; let bestScore = 0;
+		let bestMatch: Element | null = null;
+		let bestScore = 0;
 		for (const c of candidates) {
 			if (!(c instanceof HTMLElement)) continue;
-			const r = c.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
-			const cl = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent?.trim().slice(0, 100) || c.getAttribute('placeholder') || c.getAttribute('name') || '').toLowerCase().trim();
+			const r = c.getBoundingClientRect();
+			if (r.width === 0 || r.height === 0) continue;
+			const cl = (
+				c.getAttribute('aria-label') ||
+				c.getAttribute('title') ||
+				c.textContent?.trim().slice(0, 100) ||
+				c.getAttribute('placeholder') ||
+				c.getAttribute('name') ||
+				''
+			)
+				.toLowerCase()
+				.trim();
 			if (!cl) continue;
 			if (cl === ll) return { element: c, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
 			let score = 0;
-			if (cl.includes(ll) || ll.includes(cl)) { score = 0.8; } else { const lw = ll.split(/\s+/); const cw = cl.split(/\s+/); score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1); }
-			if (score > bestScore && score > 0.4) { bestScore = score; bestMatch = c; }
+			if (cl.includes(ll) || ll.includes(cl)) {
+				score = 0.8;
+			} else {
+				const lw = ll.split(/\s+/);
+				const cw = cl.split(/\s+/);
+				score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1);
+			}
+			if (score > bestScore && score > 0.4) {
+				bestScore = score;
+				bestMatch = c;
+			}
 		}
-		if (bestMatch) return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
+		if (bestMatch)
+			return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
 		return { element: null, usedSelector: s, method: 'none' };
 	}
 	const { element: el, usedSelector, method } = findElement(selector, fallbacks, label, 'select');
@@ -770,13 +923,33 @@ function getDomainFromTab(tab: chrome.tabs.Tab): string | null {
 function refreshPageStateInPage() {
 	// Full re-index — same as content script indexer but inline for executeScript
 	const INTERACTIVE_SELECTORS = [
-		'button', 'a[href]', 'input', 'select', 'textarea',
-		'[role="button"]', '[role="link"]', '[role="checkbox"]',
-		'[role="radio"]', '[role="tab"]', '[role="menuitem"]',
-		'[onclick]', 'table', 'form',
+		'button',
+		'a[href]',
+		'input',
+		'select',
+		'textarea',
+		'[role="button"]',
+		'[role="link"]',
+		'[role="checkbox"]',
+		'[role="radio"]',
+		'[role="tab"]',
+		'[role="menuitem"]',
+		'[onclick]',
+		'table',
+		'form',
 	];
 
-	type ElemType = 'button' | 'link' | 'input' | 'select' | 'textarea' | 'checkbox' | 'radio' | 'table' | 'form' | 'other';
+	type ElemType =
+		| 'button'
+		| 'link'
+		| 'input'
+		| 'select'
+		| 'textarea'
+		| 'checkbox'
+		| 'radio'
+		| 'table'
+		| 'form'
+		| 'other';
 
 	function getElemType(el: Element): ElemType {
 		const tag = el.tagName.toLowerCase();
@@ -800,8 +973,17 @@ function refreshPageStateInPage() {
 		const ariaLabel = el.getAttribute('aria-label');
 		if (ariaLabel) return ariaLabel;
 		const id = el.getAttribute('id');
-		if (id) { const lbl = document.querySelector(`label[for="${id}"]`); if (lbl?.textContent?.trim()) return lbl.textContent.trim().slice(0, 100); }
-		return el.getAttribute('title') || el.textContent?.trim().slice(0, 100) || el.getAttribute('placeholder') || el.getAttribute('name') || el.tagName.toLowerCase();
+		if (id) {
+			const lbl = document.querySelector(`label[for="${id}"]`);
+			if (lbl?.textContent?.trim()) return lbl.textContent.trim().slice(0, 100);
+		}
+		return (
+			el.getAttribute('title') ||
+			el.textContent?.trim().slice(0, 100) ||
+			el.getAttribute('placeholder') ||
+			el.getAttribute('name') ||
+			el.tagName.toLowerCase()
+		);
 	}
 
 	function buildSel(el: Element): string {
@@ -814,7 +996,10 @@ function refreshPageStateInPage() {
 		const name = el.getAttribute('name');
 		if (name) return `${tag}[name="${name}"]`;
 		const cls = Array.from(el.classList).slice(0, 3).join('.');
-		if (cls) { const s = `${tag}.${cls}`; if (document.querySelectorAll(s).length === 1) return s; }
+		if (cls) {
+			const s = `${tag}.${cls}`;
+			if (document.querySelectorAll(s).length === 1) return s;
+		}
 		// nth-child fallback
 		const parts: string[] = [];
 		let cur: Element | null = el;
@@ -857,8 +1042,11 @@ function refreshPageStateInPage() {
 	const navLinks = Array.from(document.querySelectorAll('a[href]'))
 		.filter((a) => {
 			const href = a.getAttribute('href') || '';
-			return (href.startsWith('/') || href.startsWith(window.location.origin)) &&
-				!href.startsWith('javascript:') && !href.match(/\.(pdf|png|jpg|jpeg|gif|svg|css|js|zip|csv)$/i);
+			return (
+				(href.startsWith('/') || href.startsWith(window.location.origin)) &&
+				!href.startsWith('javascript:') &&
+				!href.match(/\.(pdf|png|jpg|jpeg|gif|svg|css|js|zip|csv)$/i)
+			);
 		})
 		.map((a) => ({
 			label: a.textContent?.trim().slice(0, 80) || '',
@@ -869,10 +1057,15 @@ function refreshPageStateInPage() {
 	const path = window.location.pathname;
 	let pageType = 'other';
 	if (path.includes('settings') || path.includes('preferences')) pageType = 'settings';
-	else if (document.querySelectorAll('form').length > 0 && document.querySelectorAll('table').length === 0) pageType = 'form';
+	else if (
+		document.querySelectorAll('form').length > 0 &&
+		document.querySelectorAll('table').length === 0
+	)
+		pageType = 'form';
 	else if (document.querySelectorAll('table').length > 0) pageType = 'table';
 	else if (path.match(/\/\d+$/) || path.match(/\/[a-f0-9-]{36}$/)) pageType = 'detail';
-	else if (path === '/' || path.includes('dashboard') || path.includes('home')) pageType = 'dashboard';
+	else if (path === '/' || path.includes('dashboard') || path.includes('home'))
+		pageType = 'dashboard';
 
 	const pageIndex = {
 		url: window.location.href,
@@ -999,14 +1192,16 @@ function requestVectorSearch(label: string, elementType: string): Promise<string
 				resolve(result?.selector || null);
 			});
 
-			ws!.send(JSON.stringify({
-				type: 'find_element',
-				label,
-				elementType,
-				domain,
-				requestId,
-				timestamp: Date.now(),
-			}));
+			ws!.send(
+				JSON.stringify({
+					type: 'find_element',
+					label,
+					elementType,
+					domain,
+					requestId,
+					timestamp: Date.now(),
+				}),
+			);
 		});
 	});
 }

@@ -15,6 +15,14 @@ import { domainMemory } from '../db/schema.js';
 import { collectStream } from '../llm/index.js';
 import type { LLMProvider } from '../llm/types.js';
 
+// In-memory cache: domain → { result, expiresAt }
+const domainMemoryCache = new Map<string, { result: string | null; expiresAt: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export function invalidateDomainMemoryCache(domain: string): void {
+	domainMemoryCache.delete(domain);
+}
+
 export interface DomainKnowledge {
 	knownPages: { path: string; description: string; howToReach: string }[];
 	elementNotes: { selector: string; note: string }[];
@@ -24,15 +32,25 @@ export interface DomainKnowledge {
 
 /**
  * Load domain memory for a given domain. Returns null if no memory exists.
+ * Uses in-memory cache with 5-minute TTL to avoid repeated DB queries.
  */
 export async function loadDomainMemory(domain: string): Promise<string | null> {
+	// Check cache first
+	const cached = domainMemoryCache.get(domain);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.result;
+	}
+
 	const [record] = await db
 		.select()
 		.from(domainMemory)
 		.where(eq(domainMemory.domain, domain))
 		.limit(1);
 
-	if (!record) return null;
+	if (!record) {
+		domainMemoryCache.set(domain, { result: null, expiresAt: Date.now() + CACHE_TTL_MS });
+		return null;
+	}
 
 	const sections: string[] = [];
 
@@ -64,7 +82,9 @@ export async function loadDomainMemory(domain: string): Promise<string | null> {
 		}
 	}
 
-	return sections.length > 0 ? sections.join('\n') : null;
+	const result = sections.length > 0 ? sections.join('\n') : null;
+	domainMemoryCache.set(domain, { result, expiresAt: Date.now() + CACHE_TTL_MS });
+	return result;
 }
 
 const LEARN_PROMPT = `You are analyzing a completed browser automation session. Based on the conversation, extract knowledge about the web application that would help future sessions on the same site.
@@ -164,6 +184,8 @@ export async function updateDomainMemory(
 		});
 	}
 
+	// Invalidate cache so next load picks up fresh data
+	invalidateDomainMemoryCache(domain);
 	console.log(`[DomainMemory] Updated memory for ${domain}`);
 }
 

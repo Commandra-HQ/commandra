@@ -32,7 +32,15 @@ When the user wants to READ or EXTRACT data from the page:
 - Use export_data to format extracted data as CSV or JSON for download
 
 Prefer read_table over read_text for tabular data — it returns structured headers and rows.
-Prefer get_page_state for understanding page structure, read_text/read_table for actual content.`;
+Prefer get_page_state for understanding page structure, read_text/read_table for actual content.
+
+When the user CORRECTS you ("no, not that", "actually use...", "wrong button") or expresses a PREFERENCE ("I always want...", "use X instead of Y"):
+- Use save_memory IMMEDIATELY with the correction/preference — don't wait until end of conversation
+- Category "correction" for mistakes you made, "preference" for how they like things done
+
+When you need context about this user's past behavior, workflows, or preferences that isn't in your system prompt:
+- Use recall_memory to search for relevant memories before guessing
+- This is especially useful when the user references something from a previous session`;
 
 interface SelectedElement {
 	selector: string;
@@ -78,7 +86,7 @@ export function buildSystemPrompt(
 
 	const navSummary = pi.navigationLinks?.length
 		? pi.navigationLinks
-				.slice(0, 20)
+				.slice(0, 15)
 				.map((l) => `  - ${l.label || '(no label)'} → ${l.href}`)
 				.join('\n')
 		: 'No navigation links found.';
@@ -90,7 +98,8 @@ export function buildSystemPrompt(
 			if (p.lastIndexedAt) {
 				const age = Date.now() - new Date(p.lastIndexedAt).getTime();
 				const mins = Math.floor(age / 60000);
-				detail += mins < 60 ? ` (indexed ${mins}m ago)` : ` (indexed ${Math.floor(mins / 60)}h ago)`;
+				detail +=
+					mins < 60 ? ` (indexed ${mins}m ago)` : ` (indexed ${Math.floor(mins / 60)}h ago)`;
 			}
 			if (p.keyElements?.length) {
 				const grouped: Record<string, string[]> = {};
@@ -158,13 +167,31 @@ When the user refers to "these elements" or "the selected elements", they mean t
 - **URL:** ${pi.url || 'Unknown'}
 - **Title:** ${pi.title || 'Unknown'}
 - **Page type:** ${pi.pageType || 'Unknown'}
-- **Last indexed:** ${pi.lastIndexedAt ? new Date(pi.lastIndexedAt).toISOString() : 'Unknown'}${pi.lastIndexedAt && (Date.now() - new Date(pi.lastIndexedAt).getTime()) > 5 * 60 * 1000 ? ' ⚠ Data may be stale — use refresh_page_state to re-index' : ''}
+- **Last indexed:** ${pi.lastIndexedAt ? formatIndexAge(pi.lastIndexedAt) : 'Unknown'}
 
 ## Interactive Elements
 ${elementsSummary}
 
 ## Navigation Links
 ${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${PLANNING_INSTRUCTIONS}`;
+}
+
+function formatIndexAge(lastIndexedAt: string | Date): string {
+	const age = Date.now() - new Date(lastIndexedAt).getTime();
+	const hours = Math.floor(age / (1000 * 60 * 60));
+	const mins = Math.floor(age / (1000 * 60));
+
+	if (hours >= 24) {
+		const days = Math.floor(hours / 24);
+		return `${days}d ago ⚠ STALE — page structure may have changed. Use refresh_page_state before interacting with elements.`;
+	}
+	if (hours >= 1) {
+		return `${hours}h ago${hours > 6 ? ' ⚠ Data may be stale — consider using refresh_page_state' : ''}`;
+	}
+	if (mins > 5) {
+		return `${mins}m ago — use refresh_page_state if elements seem wrong`;
+	}
+	return `${mins}m ago (fresh)`;
 }
 
 function formatElements(elements: { type: string; label: string; selector: string }[]): string {
@@ -179,11 +206,11 @@ function formatElements(elements: { type: string; label: string; selector: strin
 	const lines: string[] = [];
 	for (const [type, els] of Object.entries(grouped)) {
 		lines.push(`### ${type}s (${els.length})`);
-		for (const el of els.slice(0, 30)) {
+		for (const el of els.slice(0, 20)) {
 			lines.push(`  - "${el.label}" [selector: ${el.selector}]`);
 		}
-		if (els.length > 30) {
-			lines.push(`  - ...and ${els.length - 30} more`);
+		if (els.length > 20) {
+			lines.push(`  - ...and ${els.length - 20} more`);
 		}
 	}
 

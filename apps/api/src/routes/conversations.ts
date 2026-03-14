@@ -44,11 +44,7 @@ conversationRoutes.get('/:id', async (c) => {
 	const user = c.get('user');
 	const convId = c.req.param('id');
 
-	const [conv] = await db
-		.select()
-		.from(conversations)
-		.where(eq(conversations.id, convId))
-		.limit(1);
+	const [conv] = await db.select().from(conversations).where(eq(conversations.id, convId)).limit(1);
 
 	if (!conv || (user.orgId ? conv.orgId !== user.orgId : conv.userId !== user.id)) {
 		return c.json({ error: 'Not found' }, 404);
@@ -66,4 +62,33 @@ conversationRoutes.get('/:id', async (c) => {
 		.orderBy(messages.createdAt);
 
 	return c.json({ conversation: conv, messages: msgs });
+});
+
+// Rate conversation outcome (thumbs up/down)
+conversationRoutes.post('/:id/outcome', async (c) => {
+	const user = c.get('user');
+	const convId = c.req.param('id');
+	const body = await c.req.json();
+	const { outcome } = body as { outcome: 'success' | 'failure' | 'partial' };
+
+	if (!['success', 'failure', 'partial'].includes(outcome)) {
+		return c.json({ error: 'outcome must be success, failure, or partial' }, 400);
+	}
+
+	const [conv] = await db
+		.select({ id: conversations.id, userId: conversations.userId, orgId: conversations.orgId })
+		.from(conversations)
+		.where(eq(conversations.id, convId))
+		.limit(1);
+
+	if (!conv || (user.orgId ? conv.orgId !== user.orgId : conv.userId !== user.id)) {
+		return c.json({ error: 'Not found' }, 404);
+	}
+
+	await db
+		.update(conversations)
+		.set({ outcome, updatedAt: new Date() })
+		.where(eq(conversations.id, convId));
+
+	return c.json({ ok: true, outcome });
 });

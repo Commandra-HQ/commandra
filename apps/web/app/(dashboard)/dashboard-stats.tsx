@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Globe, History, Shield } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch } from '@/lib/api';
+import { Globe, History, Shield } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface Stats {
 	conversations: number;
@@ -41,7 +41,11 @@ export function DashboardStats() {
 				</CardHeader>
 				<CardContent>
 					<div className="text-2xl font-bold">
-						{loading ? <span className="text-muted-foreground">--</span> : (stats?.conversations ?? 0)}
+						{loading ? (
+							<span className="text-muted-foreground">--</span>
+						) : (
+							(stats?.conversations ?? 0)
+						)}
 					</div>
 				</CardContent>
 			</Card>

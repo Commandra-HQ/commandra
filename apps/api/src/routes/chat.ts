@@ -1,17 +1,42 @@
 import type { SSEEvent } from '@afe/shared';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import { cancelRecording, isRecording, startRecording, stopRecording } from '../agent/recorder.js';
 import { db } from '../db/index.js';
-import { conversations, messages, pages, sites } from '../db/schema.js';
+import { conversationEmbeddings, conversations, messages, pages, sites } from '../db/schema.js';
+import { embedText, getEmbeddingProvider } from '../llm/embeddings.js';
 import { getOrgOrUserScope } from '../db/scope.js';
-import { getFastModel, getProvider } from '../llm/index.js';
+import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
+
+async function embedUserMessage(conversationId: string, messageText: string): Promise<void> {
+	// Get the message ID we just inserted
+	const [msg] = await db
+		.select({ id: messages.id })
+		.from(messages)
+		.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
+		.orderBy(desc(messages.createdAt))
+		.limit(1);
+	if (!msg) return;
+
+	try {
+		const vector = await embedText(messageText);
+		await db.insert(conversationEmbeddings).values({
+			conversationId,
+			messageId: msg.id,
+			messageText: messageText.slice(0, 500), // Cap stored text
+			embeddingModel: getEmbeddingProvider().id,
+			embedding: vector,
+		});
+	} catch {
+		// Embedding may not be configured — that's fine, skip silently
+	}
+}
 
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
@@ -112,6 +137,11 @@ chatRoutes.post('/', async (c) => {
 		content: message,
 	});
 
+	// Background: embed user message for conversational recall
+	embedUserMessage(convId!, message).catch((err) =>
+		console.warn('[Embeddings] User message embed failed:', err),
+	);
+
 	// Load conversation history
 	const history = await db
 		.select()
@@ -130,7 +160,9 @@ chatRoutes.post('/', async (c) => {
 	if (connectionId) resetKill(connectionId);
 
 	// Load domain memory, user memory, and site pages context
-	const pi = pageIndex as { url?: string; urlPattern?: string; sitePages?: unknown; lastIndexedAt?: unknown } | undefined;
+	const pi = pageIndex as
+		| { url?: string; urlPattern?: string; sitePages?: unknown; lastIndexedAt?: unknown }
+		| undefined;
 	let domain: string | undefined;
 	let domainMem: string | undefined;
 	let userMem: string | undefined;
@@ -172,7 +204,8 @@ chatRoutes.post('/', async (c) => {
 					pi.sitePages = sitePages
 						.filter((p) => p.urlPattern !== currentPattern)
 						.map((p) => {
-							const elements = (p.elements as { type: string; label: string; selector: string }[]) || [];
+							const elements =
+								(p.elements as { type: string; label: string; selector: string }[]) || [];
 							return {
 								url: p.url,
 								urlPattern: p.urlPattern || '',
@@ -180,12 +213,14 @@ chatRoutes.post('/', async (c) => {
 								pageType: p.pageType || 'other',
 								elementCount: elements.length,
 								lastIndexedAt: p.lastIndexedAt,
-								keyElements: elements.slice(0, 15).map((el) => ({
+								keyElements: elements.slice(0, 10).map((el) => ({
 									type: el.type,
 									label: el.label,
 									selector: el.selector,
 								})),
-								navigationLinks: ((p.navigationLinks as { label: string; href: string }[]) || []).slice(0, 10),
+								navigationLinks: (
+									(p.navigationLinks as { label: string; href: string }[]) || []
+								).slice(0, 10),
 							};
 						});
 
@@ -268,6 +303,7 @@ chatRoutes.post('/', async (c) => {
 					transcript,
 					getProvider(),
 					getFastModel(),
+					getStrongModel(),
 				).catch((err) => console.warn('[UserMemory] Extraction failed:', err));
 			}
 

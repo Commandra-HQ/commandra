@@ -1,9 +1,9 @@
 'use client';
 
-import { Copy, Check } from 'lucide-react';
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
+import { Check, Copy } from 'lucide-react';
+import { useState } from 'react';
 
 export function ExtensionToken() {
 	const { token } = useAuth();
@@ -22,11 +22,7 @@ export function ExtensionToken() {
 	}
 
 	if (!revealed) {
-		return (
-			<Button onClick={() => setRevealed(true)}>
-				Reveal Extension Token
-			</Button>
-		);
+		return <Button onClick={() => setRevealed(true)}>Reveal Extension Token</Button>;
 	}
 
 	return (

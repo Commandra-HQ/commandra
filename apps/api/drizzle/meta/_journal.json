@@ -64,6 +64,20 @@
       "when": 1773811200000,
       "tag": "0008_voyage_embeddings",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1773984000000,
+      "tag": "0009_agentic_overhaul",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1774070400000,
+      "tag": "0010_conversation_embeddings",
+      "breakpoints": true
     }
   ]
 }

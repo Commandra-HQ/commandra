@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { desc } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
 import { auditLogs } from '../db/schema.js';

@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { organizations, orgMembers, users } from '../db/schema.js';
+import { orgMembers, organizations, users } from '../db/schema.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 
 export const orgRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -33,13 +33,13 @@ orgRoutes.post('/', async (c) => {
 	const { name } = await c.req.json<{ name: string }>();
 	if (!name?.trim()) return c.json({ error: 'name required' }, 400);
 
-	const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+	const slug = name
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/(^-|-$)/g, '');
 
 	try {
-		const [org] = await db
-			.insert(organizations)
-			.values({ name: name.trim(), slug })
-			.returning();
+		const [org] = await db.insert(organizations).values({ name: name.trim(), slug }).returning();
 
 		await db.insert(orgMembers).values({
 			orgId: org.id,
@@ -101,11 +101,7 @@ orgRoutes.post('/:id/members', async (c) => {
 	}
 
 	// Find user by email
-	const [targetUser] = await db
-		.select()
-		.from(users)
-		.where(eq(users.email, email.trim()))
-		.limit(1);
+	const [targetUser] = await db.select().from(users).where(eq(users.email, email.trim())).limit(1);
 	if (!targetUser) return c.json({ error: 'User not found' }, 404);
 
 	try {

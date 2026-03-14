@@ -51,9 +51,7 @@ export function startRecorderInPage() {
 		while (current && current !== document.body) {
 			const parent = current.parentElement;
 			if (!parent) break;
-			const siblings = Array.from(parent.children).filter(
-				(c) => c.tagName === current!.tagName,
-			);
+			const siblings = Array.from(parent.children).filter((c) => c.tagName === current!.tagName);
 			if (siblings.length === 1) {
 				parts.unshift(current.tagName.toLowerCase());
 			} else {

@@ -20,7 +20,9 @@ let reindexTimer: ReturnType<typeof setTimeout> | null = null;
 function reindexAndPush() {
 	cachedIndex = indexPage();
 	lastElementCount = cachedIndex.elements.length;
-	console.log(`[AFE] Re-indexed ${cachedIndex.elements.length} elements on ${window.location.href}`);
+	console.log(
+		`[AFE] Re-indexed ${cachedIndex.elements.length} elements on ${window.location.href}`,
+	);
 	pushIndexToBackend(cachedIndex);
 }
 

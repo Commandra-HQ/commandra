@@ -4,12 +4,12 @@
 
 import { Hono } from 'hono';
 import {
+	type MemoryCategory,
 	clearUserMemoryForDomain,
 	deleteUserMemoryById,
 	editUserMemory,
 	listUserMemories,
 	saveUserMemory,
-	type MemoryCategory,
 } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 

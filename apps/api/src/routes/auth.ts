@@ -1,6 +1,6 @@
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { SignJWT, jwtVerify } from 'jose';
-import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { orgMembers, organizations, users } from '../db/schema.js';
 
@@ -109,7 +109,12 @@ authRoutes.post('/login', async (c) => {
 
 // --- Helpers ---
 
-async function issueJwt(userId: string, email: string, orgId?: string, role?: string): Promise<string> {
+async function issueJwt(
+	userId: string,
+	email: string,
+	orgId?: string,
+	role?: string,
+): Promise<string> {
 	const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
 	const payload: Record<string, string> = { userId, email };
 	if (orgId) {
@@ -126,9 +131,13 @@ async function issueJwt(userId: string, email: string, orgId?: string, role?: st
 async function hashPassword(password: string): Promise<string> {
 	const encoder = new TextEncoder();
 	const salt = crypto.getRandomValues(new Uint8Array(16));
-	const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, [
-		'deriveBits',
-	]);
+	const keyMaterial = await crypto.subtle.importKey(
+		'raw',
+		encoder.encode(password),
+		'PBKDF2',
+		false,
+		['deriveBits'],
+	);
 	const hash = await crypto.subtle.deriveBits(
 		{ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
 		keyMaterial,
@@ -143,9 +152,13 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
 	const [saltHex, hashHex] = stored.split(':');
 	const salt = Buffer.from(saltHex, 'hex');
 	const encoder = new TextEncoder();
-	const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, [
-		'deriveBits',
-	]);
+	const keyMaterial = await crypto.subtle.importKey(
+		'raw',
+		encoder.encode(password),
+		'PBKDF2',
+		false,
+		['deriveBits'],
+	);
 	const hash = await crypto.subtle.deriveBits(
 		{ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
 		keyMaterial,

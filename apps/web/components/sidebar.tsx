@@ -1,5 +1,9 @@
 'use client';
 
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { useAuth } from '@/lib/auth-context';
+import { cn } from '@/lib/utils';
 import {
 	Brain,
 	Building2,
@@ -15,10 +19,6 @@ import {
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { cn } from '@/lib/utils';
-import { useAuth } from '@/lib/auth-context';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 const baseNavItems = [
 	{ href: '/', label: 'Home', icon: Home },
@@ -72,18 +72,13 @@ export function Sidebar() {
 					<div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center">
 						<span className="text-primary-foreground text-xs font-bold">C</span>
 					</div>
-					<span className="font-semibold text-sm text-sidebar-foreground">
-						Commandra
-					</span>
+					<span className="font-semibold text-sm text-sidebar-foreground">Commandra</span>
 				</div>
 
 				{/* Nav */}
 				<nav className="flex-1 px-2 py-3 space-y-1">
 					{navItems.map((item) => {
-						const isActive =
-							item.href === '/'
-								? pathname === '/'
-								: pathname.startsWith(item.href);
+						const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
 						return (
 							<Link
 								key={item.href}

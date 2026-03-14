@@ -35,7 +35,7 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 
 | Phase | Name              | What Ships                                                       | Status |
 | ----- | ----------------- | ---------------------------------------------------------------- | ------ |
-| 13    | Multi-Agent Swarm | Parallel subagents, cross-tab coordination, coordinator dispatch |        |
+| 13    | Agentic System Overhaul | Parallel tool calling, intelligent memory, multi-agent swarm, embedding improvements, learning loops, speed optimizations | 🔧 In Progress |
 | 14    | Teams + Sharing   | Org schema + API, member management, org-scoped data, dashboard org UI | ✅ Done |
 
 ---

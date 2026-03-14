@@ -29,9 +29,50 @@ export interface UserMemoryEntry {
 
 const MAX_MEMORIES_PER_DOMAIN = 50;
 const PRUNE_AGE_DAYS = 90;
+const MAX_PROMPT_MEMORIES = 15; // Top-K memories to inject into system prompt
+
+/**
+ * Score a memory for relevance ranking.
+ * Higher score = more relevant / should be loaded first.
+ */
+function scoreMemory(entry: {
+	category: string;
+	confidence: number | null;
+	timesReinforced: number | null;
+	lastUsedAt: Date | null;
+	source: string;
+	createdAt: Date;
+}): number {
+	const confidence = entry.confidence ?? 1;
+	const timesReinforced = entry.timesReinforced ?? 1;
+
+	// Recency weight: 1.0 if used in last 7 days, decays to 0.3 after 90 days
+	const lastUsed = entry.lastUsedAt ?? entry.createdAt;
+	const daysSinceUse = (Date.now() - lastUsed.getTime()) / (1000 * 60 * 60 * 24);
+	const recencyWeight = daysSinceUse <= 7 ? 1.0 : Math.max(0.3, 1.0 - (daysSinceUse / 90) * 0.7);
+
+	// Reinforcement bonus: 1 + 0.1 per reinforcement, capped at 2.0
+	const reinforcementBonus = Math.min(2.0, 1 + 0.1 * timesReinforced);
+
+	// Category priority: corrections > terminology > preferences > workflows
+	const categoryBoost =
+		entry.category === 'correction'
+			? 2.0
+			: entry.category === 'terminology'
+				? 1.5
+				: entry.category === 'preference'
+					? 1.3
+					: 1.0;
+
+	// Explicit saves get a boost
+	const sourceBoost = entry.source === 'explicit' ? 1.2 : 1.0;
+
+	return confidence * recencyWeight * reinforcementBonus * categoryBoost * sourceBoost;
+}
 
 /**
  * Load user memory for a given user + domain. Returns formatted string for prompt injection.
+ * Uses relevance scoring to select top-K memories. Corrections are always included.
  */
 export async function loadUserMemory(userId: string, domain: string): Promise<string | null> {
 	const entries = await db
@@ -41,18 +82,24 @@ export async function loadUserMemory(userId: string, domain: string): Promise<st
 
 	if (!entries.length) return null;
 
-	// Update lastUsedAt for loaded memories
-	const ids = entries.map((e) => e.id);
+	// Score and rank memories
+	const scored = entries.map((e) => ({ ...e, score: scoreMemory(e) }));
+	scored.sort((a, b) => b.score - a.score);
+
+	// Always include all corrections + top-K from other categories
+	const corrections = scored.filter((e) => e.category === 'correction');
+	const others = scored.filter((e) => e.category !== 'correction');
+	const selected = [...corrections, ...others.slice(0, MAX_PROMPT_MEMORIES - corrections.length)];
+
+	// Update lastUsedAt for loaded memories (batch update)
+	const ids = selected.map((e) => e.id);
 	for (const id of ids) {
-		await db
-			.update(userMemory)
-			.set({ lastUsedAt: new Date() })
-			.where(eq(userMemory.id, id));
+		await db.update(userMemory).set({ lastUsedAt: new Date() }).where(eq(userMemory.id, id));
 	}
 
 	// Group by category
 	const grouped: Record<string, string[]> = {};
-	for (const entry of entries) {
+	for (const entry of selected) {
 		if (!grouped[entry.category]) grouped[entry.category] = [];
 		grouped[entry.category].push(entry.content);
 	}
@@ -74,6 +121,13 @@ export async function loadUserMemory(userId: string, domain: string): Promise<st
 	if (grouped.workflow?.length) {
 		sections.push('### Workflow Patterns');
 		for (const w of grouped.workflow) sections.push(`- ${w}`);
+	}
+
+	const totalSkipped = entries.length - selected.length;
+	if (totalSkipped > 0) {
+		sections.push(
+			`\n_${totalSkipped} additional memories available — use recall_memory to access them._`,
+		);
 	}
 
 	return sections.length > 0 ? sections.join('\n') : null;
@@ -255,9 +309,14 @@ Example:
 
 Return valid JSON only.`;
 
+/** Correction signal patterns — if detected, use strong model for extraction */
+const CORRECTION_SIGNALS =
+	/\b(no[,.]?\s|not that|wrong|actually|instead|don't|stop|use .+ instead|I (always|never|prefer)|that's incorrect)\b/i;
+
 /**
  * Extract user-specific learnings from a conversation and save to user memory.
  * Called in the background after each conversation, alongside domain memory updates.
+ * Uses strong model when corrections/feedback detected, fast model otherwise.
  */
 export async function extractAndSaveUserMemory(
 	userId: string,
@@ -265,9 +324,17 @@ export async function extractAndSaveUserMemory(
 	conversationTranscript: string,
 	provider: LLMProvider,
 	fastModel: string,
+	strongModel?: string,
 ): Promise<void> {
+	// Use strong model for conversations with corrections (better extraction quality)
+	const hasCorrections = CORRECTION_SIGNALS.test(conversationTranscript);
+	const model = hasCorrections && strongModel ? strongModel : fastModel;
+	if (hasCorrections) {
+		console.log('[UserMemory] Correction detected — using strong model for extraction');
+	}
+
 	const stream = provider.chat({
-		model: fastModel,
+		model,
 		system: USER_LEARN_PROMPT,
 		messages: [
 			{

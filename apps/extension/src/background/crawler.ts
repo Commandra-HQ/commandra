@@ -374,7 +374,9 @@ export async function startCrawl(
 			status: finalStatus,
 		});
 
-		console.log(`[Commandra Crawler] Finished: ${visited.size} pages indexed within scope ${pathScope}`);
+		console.log(
+			`[Commandra Crawler] Finished: ${visited.size} pages indexed within scope ${pathScope}`,
+		);
 	}
 }
 

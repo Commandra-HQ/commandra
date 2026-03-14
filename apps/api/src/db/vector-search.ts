@@ -6,7 +6,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { embedText } from '../llm/embeddings.js';
 import { db } from './index.js';
-import { elementEmbeddings, flowEmbeddings, memoryEmbeddings, pages } from './schema.js';
+import { elementEmbeddings, memoryEmbeddings, pages, userMemory } from './schema.js';
 
 interface ElementSearchResult {
 	id: string;
@@ -55,12 +55,7 @@ export async function searchElements(
 		})
 		.from(elementEmbeddings)
 		.innerJoin(pages, eq(elementEmbeddings.pageId, pages.id))
-		.where(
-			and(
-				eq(pages.siteId, siteId),
-				sql`${elementEmbeddings.embedding} IS NOT NULL`,
-			),
-		)
+		.where(and(eq(pages.siteId, siteId), sql`${elementEmbeddings.embedding} IS NOT NULL`))
 		.orderBy(sql`${elementEmbeddings.embedding} <=> ${vectorStr}::vector`)
 		.limit(limit);
 
@@ -89,10 +84,7 @@ export async function searchElementsOnPage(
 		})
 		.from(elementEmbeddings)
 		.where(
-			and(
-				eq(elementEmbeddings.pageId, pageId),
-				sql`${elementEmbeddings.embedding} IS NOT NULL`,
-			),
+			and(eq(elementEmbeddings.pageId, pageId), sql`${elementEmbeddings.embedding} IS NOT NULL`),
 		)
 		.orderBy(sql`${elementEmbeddings.embedding} <=> ${vectorStr}::vector`)
 		.limit(limit);
@@ -154,14 +146,108 @@ export async function searchMemories(
 			score: sql<number>`1 - (${memoryEmbeddings.embedding} <=> ${vectorStr}::vector)`,
 		})
 		.from(memoryEmbeddings)
-		.where(
-			and(
-				eq(memoryEmbeddings.siteId, siteId),
-				sql`${memoryEmbeddings.embedding} IS NOT NULL`,
-			),
-		)
+		.where(and(eq(memoryEmbeddings.siteId, siteId), sql`${memoryEmbeddings.embedding} IS NOT NULL`))
 		.orderBy(sql`${memoryEmbeddings.embedding} <=> ${vectorStr}::vector`)
 		.limit(limit);
 
 	return results;
+}
+
+// --- Conversation search (for "do that thing again" recall) ---
+
+interface ConversationSearchResult {
+	id: string;
+	conversationId: string;
+	messageText: string;
+	score: number;
+}
+
+/**
+ * Search past user messages by semantic similarity.
+ */
+export async function searchConversations(
+	query: string,
+	userId: string,
+	limit = 5,
+): Promise<ConversationSearchResult[]> {
+	const queryVector = await embedText(query);
+	const vectorStr = `[${queryVector.join(',')}]`;
+
+	const results = await db.execute<{
+		id: string;
+		conversationId: string;
+		messageText: string;
+		score: number;
+	}>(sql`
+		SELECT
+			ce.id,
+			ce.conversation_id as "conversationId",
+			ce.message_text as "messageText",
+			1 - (ce.embedding <=> ${vectorStr}::vector) as score
+		FROM conversation_embeddings ce
+		INNER JOIN conversations c ON ce.conversation_id = c.id
+		WHERE c.user_id = ${userId}
+		AND ce.embedding IS NOT NULL
+		ORDER BY ce.embedding <=> ${vectorStr}::vector
+		LIMIT ${limit}
+	`);
+
+	return results as unknown as ConversationSearchResult[];
+}
+
+// --- User memory search (for recall_memory tool) ---
+
+interface UserMemorySearchResult {
+	id: string;
+	category: string;
+	content: string;
+	confidence: number;
+	timesReinforced: number;
+	score: number;
+}
+
+/**
+ * Search user memories by keyword relevance.
+ * Scores by word overlap + confidence + reinforcement.
+ */
+export async function searchUserMemories(
+	query: string,
+	userId: string,
+	domain: string,
+	limit = 5,
+): Promise<UserMemorySearchResult[]> {
+	const queryLower = query.toLowerCase();
+
+	const results = await db
+		.select({
+			id: userMemory.id,
+			category: userMemory.category,
+			content: userMemory.content,
+			confidence: userMemory.confidence,
+			timesReinforced: userMemory.timesReinforced,
+		})
+		.from(userMemory)
+		.where(and(eq(userMemory.userId, userId), eq(userMemory.domain, domain)));
+
+	// Score by keyword overlap + confidence
+	const scored = results
+		.map((r) => {
+			const contentLower = r.content.toLowerCase();
+			const words = queryLower.split(/\s+/).filter((w) => w.length > 2);
+			const matchedWords = words.filter((w) => contentLower.includes(w));
+			const wordScore = words.length > 0 ? matchedWords.length / words.length : 0;
+			const confidenceScore = (r.confidence ?? 1) / 5;
+			const reinforceScore = Math.min(1, (r.timesReinforced ?? 1) / 10);
+			return {
+				...r,
+				confidence: r.confidence ?? 1,
+				timesReinforced: r.timesReinforced ?? 1,
+				score: wordScore * 0.6 + confidenceScore * 0.25 + reinforceScore * 0.15,
+			};
+		})
+		.filter((r) => r.score > 0)
+		.sort((a, b) => b.score - a.score)
+		.slice(0, limit);
+
+	return scored;
 }

@@ -56,9 +56,7 @@ export const embedPageElements = inngest.createFunction(
 			);
 
 		const existingHashes = new Set(existing.map((e) => e.labelHash));
-		const toEmbed = meaningful.filter(
-			(el) => !existingHashes.has(hashLabel(el.label, el.type)),
-		);
+		const toEmbed = meaningful.filter((el) => !existingHashes.has(hashLabel(el.label, el.type)));
 
 		if (toEmbed.length === 0) return { skipped: true, reason: 'all elements already embedded' };
 
@@ -74,9 +72,7 @@ export const embedPageElements = inngest.createFunction(
 			.map((e) => e.id);
 
 		if (staleIds.length > 0) {
-			await db
-				.delete(elementEmbeddings)
-				.where(inArray(elementEmbeddings.id, staleIds));
+			await db.delete(elementEmbeddings).where(inArray(elementEmbeddings.id, staleIds));
 		}
 
 		// Batch embed — combine type + label for better semantic signal

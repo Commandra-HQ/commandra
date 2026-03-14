@@ -2,8 +2,8 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth-context';
-import { ExtensionToken } from './extension-token';
 import { DashboardStats } from './dashboard-stats';
+import { ExtensionToken } from './extension-token';
 
 export default function HomePage() {
 	const { user } = useAuth();
@@ -13,7 +13,8 @@ export default function HomePage() {
 			<div>
 				<h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
 				<p className="text-muted-foreground mt-1">
-					Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}. Here&apos;s your agent overview.
+					Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}. Here&apos;s your agent
+					overview.
 				</p>
 			</div>
 

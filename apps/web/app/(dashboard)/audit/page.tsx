@@ -1,10 +1,10 @@
 'use client';
 
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { apiFetch } from '@/lib/api';
 import { Shield } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { apiFetch } from '@/lib/api';
 
 interface AuditLog {
 	id: string;
@@ -119,9 +119,7 @@ export default function AuditPage() {
 											)}
 										</td>
 										<td className="p-3 text-xs text-muted-foreground max-w-[200px] truncate">
-											{log.metadata?.args
-												? JSON.stringify(log.metadata.args)
-												: '—'}
+											{log.metadata?.args ? JSON.stringify(log.metadata.args) : '—'}
 										</td>
 									</tr>
 								))}
@@ -133,4 +131,3 @@ export default function AuditPage() {
 		</div>
 	);
 }
-

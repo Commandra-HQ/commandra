@@ -10,12 +10,25 @@ import type { FlowParameter, FlowStep, SSEEvent, StepResult } from '@afe/shared'
 import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { flowRuns, flows } from '../db/schema.js';
-import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
-import type { ContentBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
+import { getProvider, getStrongModel } from '../llm/index.js';
+import type {
+	ContentBlock,
+	Message,
+	TextBlock,
+	ToolResultBlock,
+	ToolUseBlock,
+} from '../llm/types.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
+
+export interface FlowAdaptation {
+	stepIndex: number;
+	originalSelector: string;
+	usedSelector: string;
+	reason: string;
+}
 
 export interface FlowExecutionParams {
 	userId: string;
@@ -96,6 +109,7 @@ export async function runFlowExecution(params: FlowExecutionParams): Promise<voi
 	const tools = getToolDefinitions();
 	const context = { connectionId, userId };
 	const stepResults: StepResult[] = [];
+	const adaptations: FlowAdaptation[] = [];
 	let stepsCompleted = 0;
 
 	const systemPrompt = buildFlowSystemPrompt(
@@ -115,7 +129,7 @@ export async function runFlowExecution(params: FlowExecutionParams): Promise<voi
 	let fullResponse = '';
 	let iterations = 0;
 	const maxIterations = flowSteps.length * 3 + 5; // Allow extra iterations for adaptation
-	let flowFailed = false;
+	const flowFailed = false;
 
 	await onEvent({ type: 'thinking' });
 
@@ -185,7 +199,8 @@ export async function runFlowExecution(params: FlowExecutionParams): Promise<voi
 				hasToolUse = true;
 				const toolBlock = block as ToolUseBlock;
 				const { name, input: toolArgs } = toolBlock;
-				const elementLabel = (toolArgs.description as string) || (toolArgs.selector as string) || '';
+				const elementLabel =
+					(toolArgs.description as string) || (toolArgs.selector as string) || '';
 				const stepStart = Date.now();
 
 				if (isKilled(connectionId)) {
@@ -305,6 +320,19 @@ export async function runFlowExecution(params: FlowExecutionParams): Promise<voi
 							toolName: name,
 							duration,
 						});
+
+						// Track adaptation if selector changed
+						const originalSelector = matchingStep.args?.selector as string | undefined;
+						const usedSelector = toolArgs.selector as string | undefined;
+						if (originalSelector && usedSelector && originalSelector !== usedSelector) {
+							adaptations.push({
+								stepIndex: matchingStep.index,
+								originalSelector,
+								usedSelector,
+								reason: `Selector changed from "${originalSelector}" to "${usedSelector}"`,
+							});
+						}
+
 						await onEvent({
 							type: 'flow_step_end',
 							stepIndex: matchingStep.index,
@@ -327,7 +355,9 @@ export async function runFlowExecution(params: FlowExecutionParams): Promise<voi
 					});
 
 					// Build tool result for LLM — include image for screenshots
-					let toolContent: string | (TextBlock | { type: 'image'; data: string; mediaType: string })[];
+					let toolContent:
+						| string
+						| (TextBlock | { type: 'image'; data: string; mediaType: string })[];
 					if (screenshotImage && provider.supportsVision) {
 						const { image, ...rest } = (resultData?.data as Record<string, unknown>) || {};
 						toolContent = [
@@ -401,10 +431,28 @@ export async function runFlowExecution(params: FlowExecutionParams): Promise<voi
 	const finalStatus = flowFailed || failedSteps.length > 0 ? 'failed' : 'completed';
 	const errorMsg = failedSteps.length > 0 ? `${failedSteps.length} step(s) failed` : undefined;
 
-	await updateFlowRun(flowRunId, finalStatus, stepsCompleted, stepResults, errorMsg);
+	await updateFlowRun(flowRunId, finalStatus, stepsCompleted, stepResults, errorMsg, adaptations);
 
 	// Update flow's lastRunAt
 	await db.update(flows).set({ lastRunAt: new Date() }).where(eq(flows.id, flowRunId));
+
+	// Emit adaptation suggestion if the flow succeeded with changes
+	if (finalStatus === 'completed' && adaptations.length > 0) {
+		// Find the flowId from the run record
+		const [run] = await db
+			.select({ flowId: flowRuns.flowId })
+			.from(flowRuns)
+			.where(eq(flowRuns.id, flowRunId))
+			.limit(1);
+		if (run) {
+			await onEvent({
+				type: 'flow_adaptation',
+				flowId: run.flowId,
+				adaptations,
+				message: `This flow adapted ${adaptations.length} step(s) to work. Would you like to update the saved flow?`,
+			});
+		}
+	}
 
 	await onEvent({ type: 'flow_done', flowRunId, success: finalStatus === 'completed' });
 }
@@ -415,6 +463,7 @@ async function updateFlowRun(
 	stepsCompleted: number,
 	stepResults: StepResult[],
 	error?: string,
+	adaptations?: FlowAdaptation[],
 ) {
 	await db
 		.update(flowRuns)
@@ -422,6 +471,7 @@ async function updateFlowRun(
 			status,
 			stepsCompleted,
 			stepResults,
+			adaptations: adaptations && adaptations.length > 0 ? adaptations : [],
 			error: error || null,
 			completedAt: new Date(),
 		})

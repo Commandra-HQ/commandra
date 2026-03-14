@@ -1,5 +1,4 @@
 import type { CrawlProgress, FlowStep, SSEEvent, SelectedElement } from '@afe/shared';
-import ReactMarkdown from 'react-markdown';
 import {
 	AlertCircle,
 	ArrowRight,
@@ -26,6 +25,7 @@ import {
 	X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 /** Site data shapes returned by backend API (via background script) */
 interface StoredSite {
