@@ -27,6 +27,7 @@ import { isKilled, sendApprovalRequest } from '../ws/handler.js';
 import { parsePlan } from './planner.js';
 import { buildSystemPrompt } from './prompts.js';
 import { isRecording, recordStep } from './recorder.js';
+import { spawnSubAgent, waitForAgents } from './swarm.js';
 
 export interface OrchestratorParams {
 	userId: string;
@@ -115,7 +116,52 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			required: ['query'],
 		},
 	};
-	const tools = [...browserTools, saveMemoryTool, recallMemoryTool];
+	const spawnAgentTool = {
+		name: 'spawn_agent',
+		description:
+			'Spawn a sub-agent to perform a task in a separate browser context. Use for parallel operations like reading data from multiple pages simultaneously. Sub-agents use the fast model and have max 5 iterations.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				task: {
+					type: 'string',
+					description: 'Natural language description of the task for the sub-agent',
+				},
+				targetUrl: {
+					type: 'string',
+					description: 'URL the sub-agent should navigate to first',
+				},
+				timeout: {
+					type: 'number',
+					description: 'Max execution time in milliseconds (default: 60000)',
+				},
+			},
+			required: ['task', 'targetUrl'],
+		},
+	};
+	const waitForAgentsTool = {
+		name: 'wait_for_agents',
+		description:
+			'Wait for one or more spawned sub-agents to complete and get their results. Call this after spawning agents to collect their findings.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				agentIds: {
+					type: 'array',
+					items: { type: 'string' },
+					description: 'Array of agent IDs returned by spawn_agent',
+				},
+			},
+			required: ['agentIds'],
+		},
+	};
+	const tools = [
+		...browserTools,
+		saveMemoryTool,
+		recallMemoryTool,
+		spawnAgentTool,
+		waitForAgentsTool,
+	];
 	const context = { connectionId, userId };
 
 	// Compress long conversation histories before sending to LLM
@@ -409,7 +455,7 @@ function partitionToolsBySafety(
 
 	for (const block of toolBlocks) {
 		// Internal tools are always safe (no WS routing)
-		if ((block.name === 'save_memory' || block.name === 'recall_memory') && domain) {
+		if (['save_memory', 'recall_memory', 'spawn_agent', 'wait_for_agents'].includes(block.name)) {
 			safe.push(block);
 			continue;
 		}
@@ -464,6 +510,69 @@ async function executeToolBlock(
 				type: 'tool_result',
 				toolUseId: block.id,
 				content: JSON.stringify({ success: true, memories: formatted, count: results.length }),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// spawn_agent — launch a sub-agent for parallel work
+	if (block.name === 'spawn_agent') {
+		const args = block.input as { task: string; targetUrl: string; timeout?: number };
+		try {
+			const result = await spawnSubAgent({
+				userId,
+				connectionId,
+				task: args.task,
+				targetUrl: args.targetUrl,
+				domainMemory: undefined, // Will be loaded by coordinator context
+				userMemory: undefined,
+				domain,
+				timeout: args.timeout,
+				onEvent,
+				signal: undefined,
+			});
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify(
+					result.error
+						? { success: false, error: result.error }
+						: {
+								success: true,
+								agentId: result.agentId,
+								message: 'Sub-agent spawned. Use wait_for_agents to get results.',
+							},
+				),
+				isError: !!result.error,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// wait_for_agents — collect results from spawned sub-agents
+	if (block.name === 'wait_for_agents') {
+		const args = block.input as { agentIds: string[] };
+		try {
+			const results = await waitForAgents(userId, args.agentIds);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: true, results }),
 				isError: false,
 			};
 		} catch (err) {

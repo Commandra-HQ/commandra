@@ -38,4 +38,19 @@ export type SSEEvent =
 				reason: string;
 			}[];
 			message: string;
+	  }
+	| { type: 'sub_agent_start'; agentId: string; task: string; targetUrl: string }
+	| {
+			type: 'sub_agent_action';
+			agentId: string;
+			toolName: string;
+			label: string;
+			success: boolean;
+	  }
+	| {
+			type: 'sub_agent_end';
+			agentId: string;
+			success: boolean;
+			summary: string;
+			actionsPerformed: string[];
 	  };
