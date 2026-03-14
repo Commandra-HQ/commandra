@@ -61,55 +61,42 @@ With Docker, run the same in the API container or in a one-off migration job.
 
 ### 1.5 Deploy to Railway
 
-Railway gives each service **one public port**. The API supports **single-port mode**: HTTP and WebSocket both use that port; WebSocket is on path **`/ws`**. So you only need one API service.
+Railway gives each service **one public port**. The API supports **single-port mode**: HTTP and WebSocket both use that port; WebSocket is on path **`/ws`**. This repo includes config-as-code so you can deploy **API** and **Dashboard** as two services with **per-folder auto-deploy** (watch paths).
+
+**Config files (already in repo)**
+
+- **Root `railway.toml`** → API service: Dockerfile build, watch `apps/api/**` and `packages/shared/**`, healthcheck `/health`.
+- **`apps/web/railway.toml`** → Dashboard service: pnpm build/start from monorepo root, watch `apps/web/**` and `packages/shared/**`.
 
 **1. Create a project and add Postgres (with pgvector)**
 
 - [Railway](https://railway.app) → New Project.
 - Add **Postgres**: use the [pgvector template](https://railway.app/template/3jJFCA) or add Postgres and enable the pgvector extension.
-- In the Postgres service, copy the `DATABASE_URL` variable (Railway adds it automatically when you connect the API to Postgres).
+- Connect Postgres to the API service (or copy `DATABASE_URL` into the API service variables).
 
-**2. Add the API service from this repo**
+**2. API service (first service from this repo)**
 
-- New Service → **GitHub Repo** (connect and select this repo).
-- In the API service **Variables** tab, set:
-  - `RAILWAY_DOCKERFILE_PATH` = `apps/api/Dockerfile` (so Railway uses the API Dockerfile; build context stays repo root).
-  - `DATABASE_URL` = (reference the Postgres `DATABASE_URL` from step 1, or paste the value).
-  - `JWT_SECRET` = (e.g. `openssl rand -base64 32`).
-  - `LLM_API_KEY` = your Anthropic or OpenAI key.
-  - `LLM_PROVIDER` = `anthropic` or `openai`.
-  - `CORS_ORIGINS` = your dashboard URL, e.g. `https://your-app.railway.app` (no trailing slash; add both if you deploy API and web on Railway).
-- Do **not** set `PORT` (Railway sets it) or `WS_PORT` (so the app uses single-port mode and serves WS on `/ws`).
+- Your existing **commandra** service that’s linked to GitHub is the API. Ensure it uses the **root** config (don’t set a custom Config File Path so it uses `railway.toml` at repo root).
+- **Variables**: `DATABASE_URL` (from Postgres), `JWT_SECRET`, `LLM_API_KEY`, `LLM_PROVIDER`, `CORS_ORIGINS` (dashboard URL; set after you have the web domain). Do **not** set `PORT` or `WS_PORT`.
+- **Settings** → **Networking** → **Generate Domain** for the API.
+- Deploy. Then run migrations once (CLI or one-off): `pnpm --filter @afe/api db:migrate`.
 
-**3. Generate a domain**
+**3. Dashboard service (second service, same repo)**
 
-- API service → **Settings** → **Networking** → **Generate Domain**. You’ll get a URL like `https://commandra-api-production-xxxx.up.railway.app`.
+- **+ Add** → **GitHub Repo** → select the **same** repo.
+- In the new service: **Settings** → **Build** → set **Config File Path** to `apps/web/railway.toml` (path from repo root). Leave **Root Directory** empty.
+- **Variables**: `NEXT_PUBLIC_API_URL` = the API’s Railway URL (e.g. `https://commandra-xxx.up.railway.app`).
+- **Settings** → **Networking** → **Generate Domain** for the web service.
+- Add that dashboard URL to the **API** service’s `CORS_ORIGINS` variable.
+- Deploy.
 
-**4. Run migrations**
+**4. Auto-deploy**
 
-- In the API service, run migrations once (e.g. **Settings** → run a one-off command, or use Railway CLI):
-  ```bash
-  pnpm --filter @afe/api db:migrate
-  ```
-  Ensure `DATABASE_URL` is set when this runs.
+- Both services use **watch patterns** from their config files. Pushes that only touch `apps/api` or `packages/shared` trigger API deploys; pushes that only touch `apps/web` or `packages/shared` trigger dashboard deploys. Enable **Deploy on push** in each service’s **Settings** → **Source** if you use GitHub.
 
-**5. Dashboard and extension URLs**
+**5. Extension**
 
-- **Dashboard**: Set `NEXT_PUBLIC_API_URL` to the API domain (e.g. `https://commandra-api-production-xxxx.up.railway.app`). Deploy the web app (see section 2) to Railway, Vercel, or elsewhere, and add that dashboard URL to the API’s `CORS_ORIGINS`.
-- **Extension**: Build with the same API URL. The WebSocket URL is derived as `wss://<api-host>/ws` when the API URL is HTTPS, so you can build with:
-  ```bash
-  API_URL=https://commandra-api-production-xxxx.up.railway.app pnpm --filter @afe/extension build
-  ```
-  No need to set `WS_URL`; it becomes `wss://.../ws` automatically.
-
-**Optional: Deploy the dashboard on Railway**
-
-- New Service → same repo.
-- **Root Directory**: leave empty (monorepo root).
-- **Build Command**: `pnpm install && pnpm --filter @afe/shared build && pnpm --filter @afe/web build` (or use a Nixpacks/Node build with custom build).
-- **Start Command**: `pnpm --filter @afe/web start`.
-- **Variables**: `NEXT_PUBLIC_API_URL` = your API Railway URL.
-- Generate a domain for the web service and add that URL to the API’s `CORS_ORIGINS`.
+- Build the extension with `API_URL=<your-api-railway-url>`; `WS_URL` is derived as `wss://<api-host>/ws`. Do not deploy the extension as a Railway service.
 
 ---
 

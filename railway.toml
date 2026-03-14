@@ -1,7 +1,15 @@
-# Railway config for the API service (when this repo is deployed as a single service).
-# Build context is repo root; Dockerfile builds the API.
-# For dashboard, add a second service and set root directory / build commands in the dashboard.
+# Railway config for the API service.
+# Use this config when this service is the API (set in dashboard or use default from root).
+# For a second service (dashboard), create another service and set Config File Path to: apps/web/railway.toml
 
 [build]
-builder = "dockerfile"
+builder = "DOCKERFILE"
 dockerfilePath = "apps/api/Dockerfile"
+# Only redeploy when API or shared code changes
+watchPatterns = ["apps/api/**", "packages/shared/**"]
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+# Run migrations before starting (optional; or run once manually)
+# preDeployCommand = ["pnpm", "--filter", "@afe/api", "db:migrate"]
