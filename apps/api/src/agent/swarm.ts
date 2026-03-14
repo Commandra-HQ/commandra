@@ -15,7 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { SSEEvent } from '@afe/shared';
-import { getFastModel, getProvider } from '../llm/index.js';
+import { getProvider, getStrongModel } from '../llm/index.js';
 import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
@@ -23,8 +23,8 @@ import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendActionRequest, sendApprovalRequest } from '../ws/handler.js';
 
 const MAX_CONCURRENT_SUBAGENTS = 3;
-const MAX_SUBAGENT_ITERATIONS = 5;
-const DEFAULT_SUBAGENT_TIMEOUT = 60_000;
+const MAX_SUBAGENT_ITERATIONS = 10;
+const DEFAULT_SUBAGENT_TIMEOUT = 120_000; // 2 minutes
 
 interface SubAgent {
 	id: string;
@@ -248,17 +248,51 @@ async function runSubAgent(params: {
 	if (!subAgent) return;
 
 	const provider = getProvider();
-	const model = getFastModel();
+	const model = getStrongModel(); // Sub-agents need the strong model for reliable multi-step tasks
 	const tools = getToolDefinitions();
 	const context = { connectionId, userId };
 	const actionsPerformed: string[] = [];
 
-	const systemPrompt = buildSubAgentPrompt(task, targetUrl, domainMemory, userMemory);
+	// Wait a moment for the tab to finish loading + get indexed
+	await new Promise((resolve) => setTimeout(resolve, 3000));
+
+	// Get initial page state so the sub-agent knows what's on the page
+	let initialPageState = '';
+	try {
+		const pageResult = (await executeTool('get_page_state', { tabId }, context)) as {
+			success?: boolean;
+			data?: { elements?: { type: string; label: string; selector: string }[]; url?: string; title?: string };
+		};
+		if (pageResult?.success && pageResult.data?.elements) {
+			const elements = pageResult.data.elements;
+			const grouped: Record<string, string[]> = {};
+			for (const el of elements) {
+				if (!grouped[el.type]) grouped[el.type] = [];
+				grouped[el.type].push(`"${el.label}" [${el.selector}]`);
+			}
+			const lines: string[] = [`Page: ${pageResult.data.title || targetUrl}`, `URL: ${pageResult.data.url || targetUrl}`, ''];
+			for (const [type, els] of Object.entries(grouped)) {
+				lines.push(`${type}s (${els.length}):`);
+				for (const el of els.slice(0, 20)) {
+					lines.push(`  - ${el}`);
+				}
+				if (els.length > 20) lines.push(`  - ...and ${els.length - 20} more`);
+			}
+			initialPageState = lines.join('\n');
+			actionsPerformed.push('get_page_state: loaded initial page');
+		}
+	} catch {
+		// Page state fetch failed — sub-agent will have to call it manually
+	}
+
+	const systemPrompt = buildSubAgentPrompt(task, targetUrl, domainMemory, userMemory, initialPageState);
 
 	let currentMessages: Message[] = [
 		{
 			role: 'user',
-			content: `Execute this task: ${task}\n\nYou are already on ${targetUrl}. Complete the task using browser tools.`,
+			content: initialPageState
+				? `Execute this task: ${task}\n\nThe page is loaded and you can see the elements above. Start working.`
+				: `Execute this task: ${task}\n\nThe page is at ${targetUrl}. Use get_page_state first to see what's on the page, then complete the task.`,
 		},
 	];
 
