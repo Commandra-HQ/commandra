@@ -1,0 +1,7 @@
+# Railway config for the API service (when this repo is deployed as a single service).
+# Build context is repo root; Dockerfile builds the API.
+# For dashboard, add a second service and set root directory / build commands in the dashboard.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "apps/api/Dockerfile"

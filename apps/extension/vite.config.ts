@@ -8,8 +8,12 @@ function deriveWsUrl(apiUrl: string): string {
 	try {
 		const u = new URL(apiUrl);
 		const protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
-		// Production often uses same host; WS on 3002 or same port with path. Default: same host, port 3002.
-		const port = u.port === '3001' || u.port === '80' || u.port === '443' ? '3002' : u.port;
+		// HTTPS (production): same host/port, path /ws. HTTP localhost: use port 3002.
+		if (u.protocol === 'https:' || (u.protocol === 'http:' && (u.port === '443' || u.port === ''))) {
+			const port = u.port ? `:${u.port}` : '';
+			return `${protocol}//${u.hostname}${port}/ws`;
+		}
+		const port = u.port === '3001' || u.port === '80' ? '3002' : u.port || '3002';
 		return `${protocol}//${u.hostname}:${port}`;
 	} catch {
 		return 'ws://localhost:3002';
