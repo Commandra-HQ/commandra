@@ -27,6 +27,7 @@ import { isKilled, sendApprovalRequest } from '../ws/handler.js';
 import { parsePlan } from './planner.js';
 import { buildSystemPrompt } from './prompts.js';
 import { isRecording, recordStep } from './recorder.js';
+import { saveScreenshot } from '../screenshots/manager.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
 
 export interface OrchestratorParams {
@@ -678,7 +679,7 @@ async function executeToolBlock(
 	// Browser tool — classify, approve, execute
 	const result = await handleToolCall(block, context, userId, connectionId, onEvent);
 
-	// Build tool result content — include image for screenshot results
+	// Build tool result content — save screenshots to disk, keep compressed version for LLM
 	let toolContent: string | (TextBlock | ImageBlock)[];
 	const resultData = result.data as Record<string, unknown> | undefined;
 	const imageData = resultData?.data as Record<string, unknown> | undefined;
@@ -690,11 +691,19 @@ async function executeToolBlock(
 		provider.supportsVision
 	) {
 		const { image, ...rest } = imageData;
+		// Save full screenshot to disk for potential later use
+		const saved = saveScreenshot(image as string);
+		console.log(
+			`[Orchestrator] Screenshot saved: ${saved.id} (${Math.round(saved.sizeBytes / 1024)}KB)`,
+		);
 		toolContent = [
-			{ type: 'text' as const, text: JSON.stringify({ success: true, data: rest }) },
+			{
+				type: 'text' as const,
+				text: JSON.stringify({ success: true, data: { ...rest, screenshotId: saved.id } }),
+			},
 			{
 				type: 'image' as const,
-				data: image as string,
+				data: saved.base64,
 				mediaType: 'image/jpeg' as const,
 			},
 		];

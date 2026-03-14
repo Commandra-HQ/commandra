@@ -7,7 +7,7 @@
  * Old screenshots are auto-cleaned after 1 hour.
  */
 
-import { randomUUID } from "node:crypto";
+import { randomUUID } from 'node:crypto';
 import {
 	existsSync,
 	mkdirSync,
@@ -16,11 +16,11 @@ import {
 	statSync,
 	unlinkSync,
 	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-const SCREENSHOTS_DIR = join(tmpdir(), "commandra-screenshots");
+const SCREENSHOTS_DIR = join(tmpdir(), 'commandra-screenshots');
 const MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
 
 // Ensure directory exists
@@ -45,13 +45,13 @@ export function saveScreenshot(base64Data: string): SavedScreenshot {
 	const filePath = join(SCREENSHOTS_DIR, filename);
 
 	// Decode base64 to buffer
-	const buffer = Buffer.from(base64Data, "base64");
+	const buffer = Buffer.from(base64Data, 'base64');
 
 	// Write to disk
 	writeFileSync(filePath, buffer);
 
 	// Re-encode as base64 (same data, but now we have the file path too)
-	const compressedBase64 = buffer.toString("base64");
+	const compressedBase64 = buffer.toString('base64');
 
 	return {
 		id,
@@ -67,7 +67,7 @@ export function saveScreenshot(base64Data: string): SavedScreenshot {
 export function getScreenshotBase64(id: string): string | null {
 	const filePath = join(SCREENSHOTS_DIR, `${id}.jpg`);
 	if (!existsSync(filePath)) return null;
-	return readFileSync(filePath).toString("base64");
+	return readFileSync(filePath).toString('base64');
 }
 
 /**
@@ -111,7 +111,7 @@ export function cleanupOldScreenshots(): number {
 	try {
 		const files = readdirSync(SCREENSHOTS_DIR);
 		for (const file of files) {
-			if (!file.endsWith(".jpg")) continue;
+			if (!file.endsWith('.jpg')) continue;
 			const filePath = join(SCREENSHOTS_DIR, file);
 			try {
 				const stat = statSync(filePath);

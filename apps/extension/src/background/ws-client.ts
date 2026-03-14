@@ -295,11 +295,41 @@ async function handleActionRequest(message: {
 		} else if (action === 'get_page_state') {
 			result = await executeInTab(tab.id, getPageStateInPage, []);
 		} else if (action === 'screenshot') {
-			const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 75 });
-			const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+			// Capture at moderate quality, then resize via offscreen canvas for smaller context
+			const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 40 });
+			// Resize to max 1280px wide using offscreen document or direct encoding
+			let finalBase64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+			try {
+				// Use createImageBitmap + OffscreenCanvas to resize
+				const response = await fetch(dataUrl);
+				const blob = await response.blob();
+				const bitmap = await createImageBitmap(blob);
+				const maxWidth = 1280;
+				const scale = bitmap.width > maxWidth ? maxWidth / bitmap.width : 1;
+				const w = Math.round(bitmap.width * scale);
+				const h = Math.round(bitmap.height * scale);
+				const canvas = new OffscreenCanvas(w, h);
+				const ctx = canvas.getContext('2d');
+				if (ctx) {
+					ctx.drawImage(bitmap, 0, 0, w, h);
+					const resizedBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.35 });
+					const arrayBuffer = await resizedBlob.arrayBuffer();
+					// Convert to base64 in service worker
+					const bytes = new Uint8Array(arrayBuffer);
+					let binary = '';
+					for (let i = 0; i < bytes.length; i++) {
+						binary += String.fromCharCode(bytes[i]);
+					}
+					finalBase64 = btoa(binary);
+				}
+				bitmap.close();
+			} catch (resizeErr) {
+				// Fallback: use the original capture (still lower quality than before)
+				console.warn('[AFE WS] Screenshot resize failed, using original:', resizeErr);
+			}
 			result = {
 				success: true,
-				data: { image: base64, format: 'jpeg', url: tab.url, title: tab.title },
+				data: { image: finalBase64, format: 'jpeg', url: tab.url, title: tab.title },
 			};
 		} else if (action === 'scroll') {
 			result = await executeInTab(tab.id, scrollInPage, [
