@@ -17,22 +17,22 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 			{ path: '/mail/u/0/#search', description: 'Email search results', howToReach: 'Type in the search bar at top' },
 		],
 		elementNotes: [
-			{ selector: '[gh="cm"]', note: 'Compose button — opens a compose modal/window at bottom-right, not a new page' },
-			{ selector: '[name="to"]', note: 'To field in compose — supports autocomplete, type email and press Tab/Enter' },
-			{ selector: '[name="subjectbox"]', note: 'Subject field in compose window' },
-			{ selector: '[role="textbox"][aria-label*="Body"]', note: 'Email body — rich text editor, contenteditable div' },
-			{ selector: '[aria-label*="Send"]', note: 'Send button in compose window — look for aria-label containing "Send"' },
+			{ selector: '[gh="cm"]', note: 'Compose button — opens a compose modal/window at bottom-right, not a new page. MUST wait 1-2 seconds and refresh_page_state after clicking before interacting with compose fields.' },
+			{ selector: 'input[aria-label="To recipients"]', note: 'To field in compose — it is an input inside a combobox widget. Type the full email address then press Tab to confirm.' },
+			{ selector: 'input[name="subjectbox"]', note: 'Subject field in compose window — standard input element' },
+			{ selector: 'div[aria-label="Message Body"][contenteditable="true"]', note: 'Email body — this is a contenteditable div (rich text editor), NOT an input or textarea. type_text works on it. Use this selector.' },
+			{ selector: 'div[aria-label*="Send"][role="button"]', note: 'Send button in compose window' },
 		],
 		workflows: [
 			{
 				name: 'Send an email',
 				steps: [
-					'Click Compose button',
-					'Wait for compose window to appear (it\'s a modal, not a new page)',
-					'Type recipient email in To field',
-					'Tab or click to Subject field, type subject',
-					'Click in body area, type message',
-					'Click Send button',
+					'Click Compose button (selector: [gh="cm"])',
+					'CRITICAL: Wait 2 seconds then use refresh_page_state — compose is a modal that takes time to render, new elements won\'t appear until you refresh',
+					'Type recipient email in To field (selector: input[aria-label="To recipients"]) — type full email then press Tab',
+					'Type subject in Subject field (selector: input[name="subjectbox"])',
+					'Type message body in the contenteditable div (selector: div[aria-label="Message Body"][contenteditable="true"]) — this is NOT an input, it is a contenteditable div',
+					'Click Send button (requires user approval)',
 				],
 			},
 			{
