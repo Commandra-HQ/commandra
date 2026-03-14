@@ -133,6 +133,8 @@ Agent: "This spans 3 apps. I'll use sub-agents to work in parallel:
 
 Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent. Results flow between them.
 
+**Status: Implemented.** Sub-agents get real browser tabs via the extension, execute independently with their own tool access, and results are synthesized by the coordinator agent.
+
 ---
 
 ## Feature Set
@@ -158,17 +160,18 @@ Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent.
 | **Flow library** | Browse and run saved flows |
 | **Site crawl** | Index entire web app via background tabs |
 | **Self-healing selectors** | Multiple fallback strategies when UI changes |
+| **Self-healing flows** | Flow auto-repair: tracks selector adaptations, offers to update saved flows |
 
 ### Tier 3: Automation
 
-| Feature | Description |
-|---------|-------------|
-| **Scheduled agents** | Cron triggers (daily, weekly, monthly) |
-| **Webhook triggers** | External systems can trigger agent runs |
-| **Notifications** | Slack/email/webhook on agent completion |
-| **Multi-agent swarm** | Parallel sub-agents for complex tasks |
-| **Cross-app workflows** | Chain actions across different web apps |
-| **Agent sessions** | Resume interrupted agent runs |
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Scheduled agents** | Cron triggers (daily, weekly, monthly) | |
+| **Webhook triggers** | External systems can trigger agent runs | |
+| **Notifications** | Slack/email/webhook on agent completion | |
+| **Multi-agent swarm** | Parallel sub-agents in separate browser tabs, coordinated by lead agent | ✅ |
+| **Cross-app workflows** | Chain actions across different web apps via swarm | ✅ |
+| **Agent sessions** | Resume interrupted agent runs | |
 
 ### Tier 4: Teams & Enterprise
 
@@ -182,6 +185,20 @@ Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent.
 | **SSO** | SAML/OIDC for enterprise identity (via token exchange) | Partial |
 | **Self-hosted** | Docker deployment in customer's infra | Done |
 | **On-prem LLM** | Route to customer's own model for zero data leakage | |
+
+### Tier 5: Intelligence
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Parallel tool execution** | Safe tools run concurrently, review tools sequential with approval | ✅ |
+| **Intelligent memory** | Relevance-scored user memories, always-loaded corrections, on-demand recall | ✅ |
+| **Memory recall tool** | Agent can search past memories mid-conversation via recall_memory | ✅ |
+| **Real-time memory saving** | Agent saves corrections/preferences immediately, not just post-conversation | ✅ |
+| **Conversation recall** | Vector-embedded user messages for "do that thing again" queries | ✅ |
+| **Outcome tracking** | Users rate conversations (thumbs up/down), reinforces/flags memories | ✅ |
+| **Token budget management** | Auto-strips old screenshots, truncates history, recovers from context overflow | ✅ |
+| **Prompt caching** | Anthropic cache_control for ~90% input token cost reduction on multi-turn | ✅ |
+| **Smart memory extraction** | Strong model used when corrections detected in conversation | ✅ |
 
 ---
 
@@ -210,7 +227,7 @@ This is the enterprise selling point. Every action goes through classification b
 
 | Data Type | Where It Lives |
 |-----------|---------------|
-| Page HTML, screenshots, form data | Local (IndexedDB, never uploaded) |
+| Page HTML, screenshots, form data | Local browser. Screenshots sent to LLM (configurable, not stored on backend). Old screenshots auto-stripped from conversation history. |
 | Session cookies, auth tokens | Browser only (never touched) |
 | Page structure (element types, labels) | Synced to backend (no actual data values) |
 | Workflow definitions | Backend (parameterized, no real data) |

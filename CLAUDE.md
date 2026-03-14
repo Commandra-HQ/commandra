@@ -79,8 +79,23 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Use the strong model for planning and complex reasoning, fast model for data reads and navigation
 - Safety classification happens pre-execution in the orchestrator loop
 - Audit logging happens post-execution in the orchestrator loop
-- Per-domain memory: agent learns about each web app over time, stored in Postgres
-- Conversation memory: auto-summarize long conversations to stay within context limits
+- **Parallel tool calling**: safe tools execute in parallel via `Promise.allSettled`, review tools sequential with approval gates, blocked tools rejected immediately
+- **Token budget management**: strips old screenshots, truncates long results, catches context_length_exceeded and retries with aggressive trimming
+- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`
+- **Multi-agent swarm**: coordinator (strong model) spawns sub-agents (fast model) in separate browser tabs via `open_tab`/`close_tab` WS actions. Max 3 concurrent, 5 iterations each, 60s timeout. Tabs auto-cleaned on completion.
+
+### Memory System
+- 3 layers: conversation memory (summarization), domain memory (shared per-domain), user memory (per-user-per-domain)
+- User memory is relevance-scored: confidence × recency × reinforcement × category priority. Top-15 injected into prompt. Corrections always loaded.
+- `recall_memory` tool for on-demand memory search mid-conversation
+- `save_memory` used in real-time when corrections/preferences detected (not just post-conversation)
+- Domain memory cached in-memory with 5-min TTL, invalidated on updates
+- Smart extraction: strong model used when correction signals detected in conversation
+- Outcome tracking: users rate conversations (success/failure), reinforces/flags memories accordingly
+- Conversation embeddings: user messages embedded for "do that thing again" recall
+
+### Prompt Caching
+- Anthropic: `cache_control: { type: 'ephemeral' }` on system prompt for ~90% input token cost reduction on multi-turn conversations
 
 ### Database
 - Postgres + pgvector, single database for everything
@@ -96,7 +111,12 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Shared types go in `packages/shared`, never duplicate type definitions
 - Extension content scripts go in `apps/extension/src/content/`
 - Agent-related code goes in `apps/api/src/agent/`
+- Orchestrator: `apps/api/src/agent/orchestrator.ts` (main agentic loop)
+- Multi-agent swarm: `apps/api/src/agent/swarm.ts` (sub-agent lifecycle + tab management)
+- Memory: `apps/api/src/memory/` (conversation.ts, domain.ts, user.ts)
 - LLM provider adapters go in `apps/api/src/llm/providers/`
+- Embeddings: `apps/api/src/llm/embeddings.ts`
+- Vector search: `apps/api/src/db/vector-search.ts`
 - Auth middleware: `apps/api/src/middleware/auth.ts`
 - Org + data scoping: `apps/api/src/db/scope.ts`, `apps/api/src/routes/orgs.ts`
 - Dashboard (Next.js) goes in `apps/web/`

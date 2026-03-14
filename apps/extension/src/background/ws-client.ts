@@ -125,6 +125,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 	}
 });
 
+// Track sub-agent tabs so we can clean them up
+const subAgentTabs = new Map<number, string>(); // tabId → agentId
+
 async function handleActionRequest(message: {
 	requestId: string;
 	payload: Record<string, unknown>;
@@ -133,11 +136,84 @@ async function handleActionRequest(message: {
 	const action = payload.action as string;
 	console.log(`[AFE WS] Action: ${action}`, payload);
 
-	const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-	const tab = tabs[0];
+	// Sub-agent tab management — open_tab / close_tab don't need a target tab
+	if (action === 'open_tab') {
+		try {
+			const url = (payload.url as string) || 'about:blank';
+			const agentId = (payload.agentId as string) || '';
+			const newTab = await chrome.tabs.create({ url, active: false });
+			if (newTab.id) {
+				subAgentTabs.set(newTab.id, agentId);
+				// Wait for the tab to finish loading
+				await new Promise<void>((resolve) => {
+					const listener = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+						if (tabId === newTab.id && changeInfo.status === 'complete') {
+							chrome.tabs.onUpdated.removeListener(listener);
+							resolve();
+						}
+					};
+					chrome.tabs.onUpdated.addListener(listener);
+					// Timeout after 15s
+					setTimeout(() => {
+						chrome.tabs.onUpdated.removeListener(listener);
+						resolve();
+					}, 15000);
+				});
+			}
+			// Notify side panel about new sub-agent tab
+			chrome.runtime
+				.sendMessage({
+					type: 'SUB_AGENT_TAB_OPENED',
+					tabId: newTab.id,
+					agentId,
+					url,
+				})
+				.catch(() => {});
+			sendResult(requestId, { success: true, data: { tabId: newTab.id } });
+		} catch (err) {
+			sendResult(requestId, {
+				success: false,
+				error: `Failed to open tab: ${err instanceof Error ? err.message : String(err)}`,
+			});
+		}
+		return;
+	}
+
+	if (action === 'close_tab') {
+		try {
+			const tabId = payload.tabId as number;
+			if (tabId) {
+				subAgentTabs.delete(tabId);
+				await chrome.tabs.remove(tabId);
+				chrome.runtime.sendMessage({ type: 'SUB_AGENT_TAB_CLOSED', tabId }).catch(() => {});
+			}
+			sendResult(requestId, { success: true });
+		} catch (err) {
+			sendResult(requestId, { success: true }); // Don't fail if tab already closed
+		}
+		return;
+	}
+
+	// Determine target tab: use explicit tabId for sub-agents, else active tab
+	let tab: chrome.tabs.Tab | undefined;
+	if (payload.tabId) {
+		try {
+			tab = await chrome.tabs.get(payload.tabId as number);
+		} catch {
+			// Tab might have been closed
+			sendResult(requestId, {
+				success: false,
+				error: `Sub-agent tab ${payload.tabId} not found (may have been closed)`,
+			});
+			return;
+		}
+	} else {
+		const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+		tab = tabs[0];
+	}
 
 	if (!tab?.id) {
-		sendResult(requestId, { success: false, error: 'No active tab found' });
+		sendResult(requestId, { success: false, error: 'No target tab found' });
 		return;
 	}
 

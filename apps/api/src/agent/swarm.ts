@@ -7,39 +7,30 @@
  *     ├── Sub-Agent 2 (fast model, background tab) → task B
  *     └── Sub-Agent 3 (fast model, background tab) → task C
  *
- * Sub-agents:
- * - Use the fast model (cost/speed optimization)
- * - Max 5 iterations (sub-tasks should be small)
- * - Share domain memory (read-only) and user memory (read-only)
- * - Have their own isolated conversation context
- * - Cannot spawn further sub-agents (no recursion)
- * - Execute in the same browser via the extension (background tabs)
+ * Each sub-agent gets its own browser tab via the extension:
+ * 1. Backend sends `open_tab` action → extension creates background tab → returns tabId
+ * 2. All tool calls include `tabId` so the extension targets the right tab
+ * 3. On completion, backend sends `close_tab` → extension removes the tab
  */
 
 import { randomUUID } from 'node:crypto';
 import type { SSEEvent } from '@afe/shared';
 import { getFastModel, getProvider } from '../llm/index.js';
-import type {
-	ContentBlock,
-	Message,
-	TextBlock,
-	ToolResultBlock,
-	ToolUseBlock,
-} from '../llm/types.js';
+import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
-import { isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { isKilled, sendActionRequest, sendApprovalRequest } from '../ws/handler.js';
 
 const MAX_CONCURRENT_SUBAGENTS = 3;
 const MAX_SUBAGENT_ITERATIONS = 5;
-const DEFAULT_SUBAGENT_TIMEOUT = 60_000; // 60 seconds
+const DEFAULT_SUBAGENT_TIMEOUT = 60_000;
 
-/** Active sub-agent tracking */
 interface SubAgent {
 	id: string;
 	task: string;
 	targetUrl: string;
+	tabId?: number;
 	status: 'running' | 'completed' | 'failed' | 'timeout';
 	result?: SubAgentResult;
 	startedAt: number;
@@ -53,7 +44,6 @@ export interface SubAgentResult {
 	error?: string;
 }
 
-// Track active sub-agents per user to enforce concurrency limits
 const activeSubAgents = new Map<string, Map<string, SubAgent>>();
 
 function getUserSubAgents(userId: string): Map<string, SubAgent> {
@@ -64,8 +54,8 @@ function getUserSubAgents(userId: string): Map<string, SubAgent> {
 }
 
 /**
- * Spawn a sub-agent to perform a task. Returns immediately with an agent ID.
- * The sub-agent runs in the background and results can be collected via waitForAgents.
+ * Spawn a sub-agent to perform a task in a new browser tab.
+ * Opens a background tab via the extension, then runs an orchestrator loop on it.
  */
 export async function spawnSubAgent(params: {
 	userId: string;
@@ -79,72 +69,78 @@ export async function spawnSubAgent(params: {
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 }): Promise<{ agentId: string; error?: string }> {
-	const {
-		userId,
-		connectionId,
-		task,
-		targetUrl,
-		domainMemory,
-		userMemory,
-		domain,
-		onEvent,
-		signal,
-	} = params;
+	const { userId, connectionId, task, targetUrl, onEvent } = params;
 	const timeout = params.timeout ?? DEFAULT_SUBAGENT_TIMEOUT;
 	const userAgents = getUserSubAgents(userId);
 
-	// Enforce concurrency limit
 	const runningCount = [...userAgents.values()].filter((a) => a.status === 'running').length;
 	if (runningCount >= MAX_CONCURRENT_SUBAGENTS) {
 		return {
 			agentId: '',
-			error: `Maximum ${MAX_CONCURRENT_SUBAGENTS} concurrent sub-agents reached. Wait for existing agents to complete.`,
+			error: `Maximum ${MAX_CONCURRENT_SUBAGENTS} concurrent sub-agents. Wait for existing agents to complete.`,
 		};
 	}
 
-	const agentId = randomUUID();
-	const subAgent: SubAgent = {
-		id: agentId,
-		task,
-		targetUrl,
-		status: 'running',
-		startedAt: Date.now(),
-	};
-	userAgents.set(agentId, subAgent);
+	// Open a background tab in the extension
+	let tabId: number | undefined;
+	try {
+		const agentId = randomUUID();
+		const tabResult = (await sendActionRequest(
+			connectionId,
+			'open_tab',
+			{
+				action: 'open_tab',
+				url: targetUrl,
+				agentId,
+			},
+			20000,
+		)) as { success?: boolean; data?: { tabId?: number }; error?: string } | null;
 
-	// Emit sub-agent start event
-	await onEvent({
-		type: 'sub_agent_start',
-		agentId,
-		task,
-		targetUrl,
-	});
+		if (!tabResult?.success || !tabResult.data?.tabId) {
+			return {
+				agentId: '',
+				error: `Failed to open background tab: ${tabResult?.error || 'No tab ID returned'}`,
+			};
+		}
+		tabId = tabResult.data.tabId;
 
-	// Run sub-agent in background (don't await)
-	runSubAgent({
-		agentId,
-		userId,
-		connectionId,
-		task,
-		targetUrl,
-		domainMemory,
-		userMemory,
-		domain,
-		timeout,
-		onEvent,
-		signal,
-	}).catch((err) => {
-		console.error(`[Swarm] Sub-agent ${agentId} failed:`, err);
-		subAgent.status = 'failed';
-		subAgent.result = {
-			success: false,
-			summary: 'Sub-agent failed unexpectedly',
-			actionsPerformed: [],
-			error: err instanceof Error ? err.message : String(err),
+		const subAgent: SubAgent = {
+			id: agentId,
+			task,
+			targetUrl,
+			tabId,
+			status: 'running',
+			startedAt: Date.now(),
 		};
-	});
+		userAgents.set(agentId, subAgent);
 
-	return { agentId };
+		await onEvent({ type: 'sub_agent_start', agentId, task, targetUrl });
+
+		// Run in background
+		runSubAgent({ ...params, agentId, tabId, timeout, onEvent }).catch((err) => {
+			console.error(`[Swarm] Sub-agent ${agentId} failed:`, err);
+			subAgent.status = 'failed';
+			subAgent.result = {
+				success: false,
+				summary: 'Sub-agent failed unexpectedly',
+				actionsPerformed: [],
+				error: err instanceof Error ? err.message : String(err),
+			};
+		});
+
+		return { agentId };
+	} catch (err) {
+		// Clean up tab if we managed to open one
+		if (tabId) {
+			sendActionRequest(connectionId, 'close_tab', { action: 'close_tab', tabId }, 5000).catch(
+				() => {},
+			);
+		}
+		return {
+			agentId: '',
+			error: `Failed to spawn sub-agent: ${err instanceof Error ? err.message : String(err)}`,
+		};
+	}
 }
 
 /**
@@ -185,11 +181,10 @@ export async function waitForAgents(
 			break;
 		}
 
-		// Poll every 500ms
 		await new Promise((resolve) => setTimeout(resolve, 500));
 	}
 
-	// Timeout remaining agents
+	// Timeout remaining
 	for (const id of agentIds) {
 		if (!results[id]) {
 			const agent = userAgents.get(id);
@@ -210,7 +205,7 @@ export async function waitForAgents(
 		}
 	}
 
-	// Cleanup completed agents
+	// Cleanup
 	for (const id of agentIds) {
 		userAgents.delete(id);
 	}
@@ -218,7 +213,7 @@ export async function waitForAgents(
 	return results;
 }
 
-// --- Internal: run a sub-agent orchestrator loop ---
+// --- Internal: run sub-agent orchestrator loop in a dedicated tab ---
 
 async function runSubAgent(params: {
 	agentId: string;
@@ -226,6 +221,7 @@ async function runSubAgent(params: {
 	connectionId: string;
 	task: string;
 	targetUrl: string;
+	tabId: number;
 	domainMemory?: string;
 	userMemory?: string;
 	domain?: string;
@@ -239,6 +235,7 @@ async function runSubAgent(params: {
 		connectionId,
 		task,
 		targetUrl,
+		tabId,
 		domainMemory,
 		userMemory,
 		timeout,
@@ -251,8 +248,8 @@ async function runSubAgent(params: {
 	if (!subAgent) return;
 
 	const provider = getProvider();
-	const model = getFastModel(); // Sub-agents use fast model
-	const tools = getToolDefinitions(); // Browser tools only, no save_memory/recall_memory/spawn_agent
+	const model = getFastModel();
+	const tools = getToolDefinitions();
 	const context = { connectionId, userId };
 	const actionsPerformed: string[] = [];
 
@@ -261,14 +258,13 @@ async function runSubAgent(params: {
 	let currentMessages: Message[] = [
 		{
 			role: 'user',
-			content: `Execute this task: ${task}\n\nStart by navigating to ${targetUrl} and then complete the task.`,
+			content: `Execute this task: ${task}\n\nYou are already on ${targetUrl}. Complete the task using browser tools.`,
 		},
 	];
 
 	let fullResponse = '';
 	let iterations = 0;
 
-	// Set up timeout
 	const timeoutController = new AbortController();
 	const timer = setTimeout(() => timeoutController.abort(), timeout);
 	const combinedSignal = signal
@@ -277,12 +273,10 @@ async function runSubAgent(params: {
 
 	try {
 		while (iterations < MAX_SUBAGENT_ITERATIONS) {
-			if (isKilled(connectionId) || combinedSignal.aborted) {
-				break;
-			}
+			if (isKilled(connectionId) || combinedSignal.aborted) break;
 
 			iterations++;
-			console.log(`[Swarm] Sub-agent ${agentId} iteration ${iterations}`);
+			console.log(`[Swarm] Sub-agent ${agentId} (tab ${tabId}) iteration ${iterations}`);
 
 			const streamIter = provider.chat({
 				model,
@@ -299,10 +293,8 @@ async function runSubAgent(params: {
 
 			for await (const event of streamIter) {
 				if (combinedSignal.aborted) break;
-
 				switch (event.type) {
 					case 'thinking_delta':
-						// Sub-agents don't stream thinking to client
 						if (content.length > 0 && content[content.length - 1].type === 'thinking') {
 							(content[content.length - 1] as { thinking: string }).thinking += event.text;
 						} else {
@@ -310,8 +302,8 @@ async function runSubAgent(params: {
 						}
 						break;
 					case 'thinking_signature': {
-						const lastThinking = [...content].reverse().find((b) => b.type === 'thinking');
-						if (lastThinking) (lastThinking as { signature?: string }).signature = event.signature;
+						const last = [...content].reverse().find((b) => b.type === 'thinking');
+						if (last) (last as { signature?: string }).signature = event.signature;
 						break;
 					}
 					case 'text':
@@ -323,12 +315,7 @@ async function runSubAgent(params: {
 						}
 						break;
 					case 'tool_use_end':
-						content.push({
-							type: 'tool_use',
-							id: event.id,
-							name: event.name,
-							input: event.input,
-						});
+						content.push({ type: 'tool_use', id: event.id, name: event.name, input: event.input });
 						break;
 					case 'message_end':
 						stopReason = event.stopReason;
@@ -338,10 +325,7 @@ async function runSubAgent(params: {
 
 			if (combinedSignal.aborted) break;
 
-			// Process tool calls
-			const toolBlocks = content.filter(
-				(block): block is ToolUseBlock => block.type === 'tool_use',
-			);
+			const toolBlocks = content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
 			const toolResults: ToolResultBlock[] = [];
 			let hasToolUse = false;
 
@@ -352,7 +336,6 @@ async function runSubAgent(params: {
 				const elementLabel =
 					(block.input.description as string) || (block.input.selector as string) || '';
 
-				// Sub-agents still go through safety classification
 				const classification = classifyAction({
 					toolName: block.name,
 					args: block.input,
@@ -363,16 +346,12 @@ async function runSubAgent(params: {
 					toolResults.push({
 						type: 'tool_result',
 						toolUseId: block.id,
-						content: JSON.stringify({
-							success: false,
-							error: `Blocked: ${classification.reason}`,
-						}),
+						content: JSON.stringify({ success: false, error: `Blocked: ${classification.reason}` }),
 						isError: true,
 					});
 					continue;
 				}
 
-				// Review tools in sub-agents still need user approval
 				if (classification.level === 'review') {
 					try {
 						const approval = await sendApprovalRequest(connectionId, {
@@ -385,10 +364,7 @@ async function runSubAgent(params: {
 							toolResults.push({
 								type: 'tool_result',
 								toolUseId: block.id,
-								content: JSON.stringify({
-									success: false,
-									error: 'User rejected this action',
-								}),
+								content: JSON.stringify({ success: false, error: 'User rejected' }),
 								isError: true,
 							});
 							continue;
@@ -397,19 +373,17 @@ async function runSubAgent(params: {
 						toolResults.push({
 							type: 'tool_result',
 							toolUseId: block.id,
-							content: JSON.stringify({
-								success: false,
-								error: 'Could not get user approval',
-							}),
+							content: JSON.stringify({ success: false, error: 'Approval failed' }),
 							isError: true,
 						});
 						continue;
 					}
 				}
 
-				// Execute
+				// Execute tool — inject tabId so the extension targets the sub-agent's tab
 				try {
-					const result = await executeTool(block.name, block.input, context);
+					const argsWithTab = { ...block.input, tabId };
+					const result = await executeTool(block.name, argsWithTab, context);
 					actionsPerformed.push(
 						`${block.name}: ${elementLabel || JSON.stringify(block.input).slice(0, 80)}`,
 					);
@@ -419,10 +393,9 @@ async function runSubAgent(params: {
 						action: block.name,
 						safetyLevel: classification.level,
 						approved: true,
-						metadata: { args: block.input, result, subAgentId: agentId },
+						metadata: { args: block.input, result, subAgentId: agentId, tabId },
 					});
 
-					// Emit sub-agent progress
 					await onEvent({
 						type: 'sub_agent_action',
 						agentId,
@@ -449,9 +422,7 @@ async function runSubAgent(params: {
 				}
 			}
 
-			if (!hasToolUse || stopReason === 'end_turn') {
-				break;
-			}
+			if (!hasToolUse || stopReason === 'end_turn') break;
 
 			currentMessages = [
 				...currentMessages,
@@ -460,7 +431,6 @@ async function runSubAgent(params: {
 			];
 		}
 
-		// Sub-agent completed
 		subAgent.status = 'completed';
 		subAgent.result = {
 			success: true,
@@ -488,9 +458,12 @@ async function runSubAgent(params: {
 		}
 	} finally {
 		clearTimeout(timer);
+		// Close the sub-agent's browser tab
+		sendActionRequest(connectionId, 'close_tab', { action: 'close_tab', tabId }, 5000).catch(
+			() => {},
+		);
 	}
 
-	// Emit completion event
 	await onEvent({
 		type: 'sub_agent_end',
 		agentId,
@@ -506,19 +479,19 @@ function buildSubAgentPrompt(
 	domainMemory?: string,
 	userMemory?: string,
 ): string {
-	let prompt = `You are a sub-agent performing a specific task within a larger workflow. You work quickly and efficiently.
+	let prompt = `You are a sub-agent performing a specific task in your own browser tab. Work quickly and efficiently.
 
 Your task: ${task}
-Target URL: ${targetUrl}
+Your tab is already on: ${targetUrl}
 
 Instructions:
-- Navigate to the target URL first using the navigate tool
+- Use get_page_state first to see the current page
 - Complete the assigned task using browser tools
 - Be concise and efficient — minimize the number of actions
 - Report your findings clearly in your final text response
 - If you encounter an error, describe what went wrong
 - Do NOT ask for clarification — work with what you have
-- Do NOT spawn sub-agents — you cannot delegate further
+- Do NOT try to spawn sub-agents
 
 After completing the task, provide a clear summary of:
 1. What you did (actions taken)

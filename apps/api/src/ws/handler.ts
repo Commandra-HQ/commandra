@@ -272,6 +272,7 @@ export function handleWsConnection(ws: WebSocket) {
 /**
  * Send an action request to an extension connection and wait for the result.
  * Returns a Promise that resolves with the action result or rejects on timeout.
+ * If tabId is provided, the extension targets that specific tab (for sub-agents).
  */
 export function sendActionRequest(
 	connectionId: string,
