@@ -23,6 +23,8 @@ import { handleWsConnection } from './ws/handler.js';
 const app = new Hono();
 
 app.use('*', logger());
+// CORS: allow chrome-extension + localhost always; optional CORS_ORIGINS for dashboard (e.g. https://app.example.com)
+const corsOrigins = process.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? [];
 app.use(
 	'*',
 	cors({
@@ -30,6 +32,7 @@ app.use(
 			if (!origin) return origin;
 			if (origin.startsWith('chrome-extension://')) return origin;
 			if (origin.startsWith('http://localhost:')) return origin;
+			if (corsOrigins.includes(origin)) return origin;
 			return null;
 		},
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
