@@ -6,12 +6,15 @@ const INTERACTIVE_SELECTORS = [
 	'input',
 	'select',
 	'textarea',
+	'[contenteditable="true"]',
+	'[role="textbox"]',
 	'[role="button"]',
 	'[role="link"]',
 	'[role="checkbox"]',
 	'[role="radio"]',
 	'[role="tab"]',
 	'[role="menuitem"]',
+	'[role="combobox"]',
 	'[onclick]',
 	'table',
 	'form',
@@ -30,6 +33,10 @@ function getElementType(el: Element): ElementType {
 	}
 	if (tag === 'select') return 'select';
 	if (tag === 'textarea') return 'textarea';
+	// Rich text editors / contenteditable elements (Gmail compose, Notion, etc.)
+	if (el.getAttribute('contenteditable') === 'true' || role === 'textbox') return 'textarea';
+	// Combobox inputs (Gmail To field, search autocompletes)
+	if (role === 'combobox') return 'input';
 	if (tag === 'table') return 'table';
 	if (tag === 'form') return 'form';
 	return 'other';
