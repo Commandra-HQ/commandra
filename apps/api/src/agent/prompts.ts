@@ -40,7 +40,21 @@ When the user CORRECTS you ("no, not that", "actually use...", "wrong button") o
 
 When you need context about this user's past behavior, workflows, or preferences that isn't in your system prompt:
 - Use recall_memory to search for relevant memories before guessing
-- This is especially useful when the user references something from a previous session`;
+- This is especially useful when the user references something from a previous session
+
+When the user asks you to work across MULTIPLE websites or pages simultaneously:
+- Use spawn_agent to create sub-agents that work in parallel on different pages
+- Example: "check Gmail AND look at GitHub" → spawn one agent for Gmail, one for GitHub
+- Example: "compare prices on 3 vendor pages" → spawn 3 agents, each on a different page
+- After spawning, use wait_for_agents to collect all results, then synthesize a response
+- Sub-agents can navigate, click, read, and screenshot independently
+- Use sub-agents when tasks involve 2+ different websites/domains or independent page operations
+- Do NOT use sub-agents for sequential tasks on the same page (just do them yourself)
+
+IMPORTANT — context management:
+- Do NOT take excessive screenshots. Only screenshot when you need visual confirmation.
+- After verifying an action worked, move on — don't re-screenshot the same page.
+- Keep your tool usage efficient to avoid hitting context limits.`;
 
 interface SelectedElement {
 	selector: string;
