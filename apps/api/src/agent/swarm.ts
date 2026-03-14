@@ -537,10 +537,8 @@ async function runSubAgent(params: {
 		}
 	} finally {
 		clearTimeout(timer);
-		// Close the sub-agent's browser tab
-		sendActionRequest(connectionId, 'close_tab', { action: 'close_tab', tabId }, 5000).catch(
-			() => {},
-		);
+		// Don't close the sub-agent's tab — let the user inspect it or close it manually.
+		// Tabs persist until the user closes them or requests cleanup.
 	}
 
 	await onEvent({

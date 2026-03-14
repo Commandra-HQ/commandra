@@ -312,6 +312,19 @@ async function handleActionRequest(message: {
 		} else if (action === 'get_page_state') {
 			result = await executeInTab(tab.id, getPageStateInPage, []);
 		} else if (action === 'screenshot') {
+			// If this is a sub-agent tab (not the active tab), switch to it briefly to capture
+			const isSubAgentTab = payload.tabId && subAgentTabs.has(payload.tabId as number);
+			let previousTabId: number | undefined;
+			if (isSubAgentTab && tab.id) {
+				// Remember current active tab so we can switch back
+				const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+				previousTabId = activeTabs[0]?.id;
+				// Switch to the sub-agent tab
+				await chrome.tabs.update(tab.id, { active: true });
+				// Wait for the tab to become visible
+				await new Promise((resolve) => setTimeout(resolve, 300));
+			}
+
 			// Capture at moderate quality, then resize via offscreen canvas for smaller context
 			const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 40 });
 			// Resize to max 1280px wide using offscreen document or direct encoding
@@ -344,6 +357,11 @@ async function handleActionRequest(message: {
 				// Fallback: use the original capture (still lower quality than before)
 				console.warn('[AFE WS] Screenshot resize failed, using original:', resizeErr);
 			}
+			// Switch back to user's original tab if we switched away for sub-agent screenshot
+			if (isSubAgentTab && previousTabId) {
+				await chrome.tabs.update(previousTabId, { active: true });
+			}
+
 			result = {
 				success: true,
 				data: { image: finalBase64, format: 'jpeg', url: tab.url, title: tab.title },
