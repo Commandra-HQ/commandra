@@ -13,6 +13,7 @@ import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
+import { searchConversations, searchElements, searchFlows } from '../db/vector-search.js';
 
 /**
  * Detect if a user message references multiple distinct websites/domains,
@@ -251,6 +252,77 @@ chatRoutes.post('/', async (c) => {
 		}
 	}
 
+	// --- Embedding-powered context enrichment ---
+	// Search past conversations, elements, and flows for relevant context
+	let priorContext = '';
+	if (domain) {
+		try {
+			const [site] = pi?.sitePages
+				? [] // Already have site info
+				: await db
+						.select({ id: sites.id })
+						.from(sites)
+						.where(and(eq(sites.domain, domain), getOrgOrUserScope(user, sites)))
+						.limit(1);
+
+			const siteId = site?.id;
+
+			// Run all embedding searches in parallel (non-blocking — skip if embeddings not configured)
+			const [pastConvos, relevantElements, matchingFlows] = await Promise.allSettled([
+				searchConversations(message, user.id, 3),
+				siteId ? searchElements(message, siteId, 8) : Promise.resolve([]),
+				searchFlows(message, user.id, 3),
+			]);
+
+			const contextParts: string[] = [];
+
+			// Past conversations — "have we done this before?"
+			if (pastConvos.status === 'fulfilled' && pastConvos.value.length > 0) {
+				const relevant = pastConvos.value.filter((c) => c.score > 0.3);
+				if (relevant.length > 0) {
+					contextParts.push('### Past Related Conversations');
+					for (const c of relevant) {
+						contextParts.push(
+							`- "${c.messageText}" (similarity: ${(c.score * 100).toFixed(0)}%)`,
+						);
+					}
+				}
+			}
+
+			// Relevant elements across the site — semantic element lookup
+			if (relevantElements.status === 'fulfilled' && relevantElements.value.length > 0) {
+				const relevant = relevantElements.value.filter((e) => e.score > 0.3);
+				if (relevant.length > 0) {
+					contextParts.push('### Relevant Elements on This Site');
+					for (const e of relevant) {
+						contextParts.push(
+							`- ${e.elementType}: "${e.elementLabel}" [${e.selector}] (match: ${(e.score * 100).toFixed(0)}%)`,
+						);
+					}
+				}
+			}
+
+			// Matching flows — saved automations for this task
+			if (matchingFlows.status === 'fulfilled' && matchingFlows.value.length > 0) {
+				const relevant = matchingFlows.value.filter((f) => f.score > 0.3);
+				if (relevant.length > 0) {
+					contextParts.push('### Saved Flows That May Help');
+					for (const f of relevant) {
+						contextParts.push(
+							`- "${f.text}" (match: ${(f.score * 100).toFixed(0)}%)`,
+						);
+					}
+				}
+			}
+
+			if (contextParts.length > 0) {
+				priorContext = contextParts.join('\n');
+			}
+		} catch (err) {
+			console.warn('[Chat] Embedding context enrichment failed:', err);
+		}
+	}
+
 	// Detect multi-site intent and inject swarm hint
 	const multiSiteDetected = detectMultiSiteIntent(message);
 	if (multiSiteDetected) {
@@ -285,6 +357,7 @@ chatRoutes.post('/', async (c) => {
 					selectedElements,
 					domainMemory: domainMem,
 					userMemory: userMem,
+					priorContext: priorContext || undefined,
 					domain,
 					onEvent,
 					signal,
@@ -297,6 +370,7 @@ chatRoutes.post('/', async (c) => {
 					selectedElements,
 					domainMemory: domainMem,
 					userMemory: userMem,
+					priorContext: priorContext || undefined,
 					onEvent,
 					signal,
 				});

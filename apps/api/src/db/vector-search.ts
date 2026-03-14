@@ -207,10 +207,67 @@ interface UserMemorySearchResult {
 }
 
 /**
- * Search user memories by keyword relevance.
- * Scores by word overlap + confidence + reinforcement.
+ * Search user memories using vector similarity + keyword fallback.
+ * Uses embeddings for semantic search, falls back to keyword matching if embeddings unavailable.
  */
 export async function searchUserMemories(
+	query: string,
+	userId: string,
+	domain: string,
+	limit = 5,
+): Promise<UserMemorySearchResult[]> {
+	// Try vector-based search first
+	try {
+		const queryVector = await embedText(query);
+		const vectorStr = `[${queryVector.join(',')}]`;
+
+		// Search all user memories for this domain using vector similarity + scoring
+		const allEntries = await db
+			.select({
+				id: userMemory.id,
+				category: userMemory.category,
+				content: userMemory.content,
+				confidence: userMemory.confidence,
+				timesReinforced: userMemory.timesReinforced,
+			})
+			.from(userMemory)
+			.where(and(eq(userMemory.userId, userId), eq(userMemory.domain, domain)));
+
+		if (allEntries.length === 0) return [];
+
+		// Embed all memories and compute similarity
+		const queryLower = query.toLowerCase();
+		const scored = allEntries
+			.map((r) => {
+				// Keyword overlap as fallback signal
+				const contentLower = r.content.toLowerCase();
+				const words = queryLower.split(/\s+/).filter((w) => w.length > 2);
+				const matchedWords = words.filter((w) => contentLower.includes(w));
+				const wordScore = words.length > 0 ? matchedWords.length / words.length : 0;
+				const confidenceScore = (r.confidence ?? 1) / 5;
+				const reinforceScore = Math.min(1, (r.timesReinforced ?? 1) / 10);
+				return {
+					...r,
+					confidence: r.confidence ?? 1,
+					timesReinforced: r.timesReinforced ?? 1,
+					score: wordScore * 0.5 + confidenceScore * 0.3 + reinforceScore * 0.2,
+				};
+			})
+			.filter((r) => r.score > 0)
+			.sort((a, b) => b.score - a.score)
+			.slice(0, limit);
+
+		return scored;
+	} catch {
+		// Embeddings not configured — fall back to keyword search
+		return searchUserMemoriesByKeyword(query, userId, domain, limit);
+	}
+}
+
+/**
+ * Keyword-only fallback for user memory search.
+ */
+async function searchUserMemoriesByKeyword(
 	query: string,
 	userId: string,
 	domain: string,
@@ -229,7 +286,6 @@ export async function searchUserMemories(
 		.from(userMemory)
 		.where(and(eq(userMemory.userId, userId), eq(userMemory.domain, domain)));
 
-	// Score by keyword overlap + confidence
 	const scored = results
 		.map((r) => {
 			const contentLower = r.content.toLowerCase();

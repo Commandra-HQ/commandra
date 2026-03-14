@@ -107,6 +107,7 @@ export function buildSystemPrompt(
 	selectedElements?: SelectedElement[],
 	domainMemory?: string,
 	userMemory?: string,
+	priorContext?: string,
 ): string {
 	if (!pageIndex) {
 		return `${BASE_PROMPT}\n\nNo page is currently indexed. Ask the user to index a page first.`;

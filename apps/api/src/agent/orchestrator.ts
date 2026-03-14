@@ -45,6 +45,7 @@ export interface OrchestratorParams {
 	}[];
 	domainMemory?: string;
 	userMemory?: string;
+	priorContext?: string;
 	domain?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
@@ -68,6 +69,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		selectedElements,
 		domainMemory,
 		userMemory,
+		priorContext,
 		domain,
 		onEvent,
 		signal,
@@ -76,7 +78,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
 	const provider = getProvider();
 	const model = getStrongModel();
-	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory);
+	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext);
 
 	// Add save_memory internal tool alongside browser tools
 	const browserTools = getToolDefinitions();
@@ -458,6 +460,7 @@ export async function runSimpleChat(params: {
 	selectedElements?: OrchestratorParams['selectedElements'];
 	domainMemory?: string;
 	userMemory?: string;
+	priorContext?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 }): Promise<string> {
@@ -468,6 +471,7 @@ export async function runSimpleChat(params: {
 		params.selectedElements,
 		params.domainMemory,
 		params.userMemory,
+		params.priorContext,
 	);
 
 	await params.onEvent({ type: 'thinking' });
