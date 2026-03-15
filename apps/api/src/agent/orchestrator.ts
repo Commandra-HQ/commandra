@@ -1027,10 +1027,36 @@ async function handleToolCall(
 				: undefined;
 
 		// Merge page state update into the result so LLM sees current elements
-		const enrichedResult =
-			pageStateUpdate && resultData?.success
-				? { ...resultData, pageState: pageStateUpdate }
-				: result;
+		// Format elements clearly so the LLM knows exactly which selectors to use
+		let enrichedResult: unknown = result;
+		if (pageStateUpdate && resultData?.success) {
+			const ps = pageStateUpdate as { elements?: { type: string; label: string; selector: string; inOverlay?: boolean }[]; url?: string; title?: string };
+			if (ps.elements) {
+				// Surface overlay/modal elements first (compose windows, dialogs, etc.)
+				const overlayEls = ps.elements.filter((e) => e.inOverlay);
+				const otherEls = ps.elements.filter((e) => !e.inOverlay);
+
+				const formatEl = (e: { type: string; label: string; selector: string }) =>
+					`[${e.type}] "${e.label}" → selector: ${e.selector}`;
+
+				const elementSummary = [
+					...(overlayEls.length > 0
+						? ['MODAL/DIALOG ELEMENTS (use these first):', ...overlayEls.slice(0, 20).map(formatEl)]
+						: []),
+					'PAGE ELEMENTS:',
+					...otherEls.slice(0, 30).map(formatEl),
+					...(otherEls.length > 30 ? [`...and ${otherEls.length - 30} more`] : []),
+				].join('\n');
+
+				enrichedResult = {
+					...resultData,
+					updatedPageElements: elementSummary,
+					note: 'USE ONLY the selectors listed above. Do NOT invent selectors.',
+				};
+			} else {
+				enrichedResult = { ...resultData, pageState: pageStateUpdate };
+			}
+		}
 
 		await onEvent({
 			type: 'tool_end',
