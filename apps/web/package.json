@@ -5,7 +5,7 @@
 	"scripts": {
 		"dev": "next dev --port 3000",
 		"build": "next build",
-		"start": "next start -H 0.0.0.0",
+		"start": "next start",
 		"clean": "rm -rf .next .turbo"
 	},
 	"dependencies": {
