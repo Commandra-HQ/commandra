@@ -1,15 +1,13 @@
-# Railway config for the Dashboard (Next.js) service.
-# In Railway: create a second service from the same repo and set Config File Path to: apps/web/railway.toml
-# Root Directory: leave empty (repo root) so the monorepo and shared package are available.
+# =============================================================================
+# Web (dashboard) service only. In Railway: set this service's Config File Path
+# to apps/web/railway.toml (path from repo root). Leave Root Directory empty.
+# =============================================================================
+# Web: when generating domain, select port 8080. Set NEXT_PUBLIC_API_URL = API domain.
 
 [build]
 builder = "RAILPACK"
-# From repo root: install, build shared, then build web
 buildCommand = "pnpm install --frozen-lockfile && pnpm --filter @afe/shared build && pnpm --filter @afe/web build"
-# Redeploy when web, shared, root package files, or this config changes
 watchPatterns = ["apps/web/**", "packages/shared/**", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "apps/web/railway.toml"]
 
 [deploy]
-# Bind to 0.0.0.0 and port 8080 so Railway's proxy can reach the app. Select port 8080 when generating domain.
 startCommand = "pnpm --filter @afe/web start -- -H 0.0.0.0 -p 8080"
-# Set variable NEXT_PUBLIC_API_URL to your API's Railway URL (e.g. https://xxx.up.railway.app)

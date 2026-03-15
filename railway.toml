@@ -1,17 +1,15 @@
-# Railway config for the API service.
-# Use this config when this service is the API (set in dashboard or use default from root).
-# For a second service (dashboard), create another service and set Config File Path to: apps/web/railway.toml
-#
-# In API service variables, set PORT=3001. When generating the domain, select port 3001.
+# =============================================================================
+# API service only. Used when no "Config File Path" is set (default for first
+# service from this repo). For the dashboard, add a second service and set
+# Config File Path to: apps/web/railway.toml
+# =============================================================================
+# API: set PORT=3001 in variables; when generating domain, select port 3001.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "apps/api/Dockerfile"
-# Redeploy when API, shared, or root config changes
 watchPatterns = ["apps/api/**", "packages/shared/**", "railway.toml"]
 
 [deploy]
 healthcheckPath = "/health"
 healthcheckTimeout = 30
-# Run migrations before starting (optional; or run once manually)
-# preDeployCommand = ["pnpm", "--filter", "@afe/api", "db:migrate"]
