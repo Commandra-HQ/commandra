@@ -4,6 +4,28 @@ Use this after linking the repo so **api** and **web** both deploy and auto-depl
 
 ---
 
+## Ports and how prod works
+
+| Service | Set this port in Railway (Generate domain) | What runs on it |
+|--------|--------------------------------------------|------------------|
+| **API**  | **3001** | HTTP (REST, `/health`, `/api/*`) and WebSocket on path `/ws`. One public URL for everything. |
+| **Web**  | **8080** | Next.js dashboard. |
+
+**API in production**
+
+- The API listens on **3001** inside the container (we set `PORT=3001`). Logs will show “API server running on http://localhost:3001” and “WebSocket server on path /ws (same port as API)”.
+- Railway forwards your API domain to container port **3001**. Use port **3001** when generating the API domain.
+- Browsers and the extension use:
+  - **API:** `https://api-xxx.up.railway.app` (e.g. `/health`, `/api/auth/login`, etc.)
+  - **WebSocket:** `wss://api-xxx.up.railway.app/ws` (same host, path `/ws`).
+
+**Web in production**
+
+- The dashboard listens on **8080** inside the container (start command uses `-p 8080`). Use port **8080** when generating the web domain.
+- Dashboard URL: `https://web-xxx.up.railway.app`.
+
+---
+
 ## 1. API service
 
 - [ ] **Settings → Source**: Repo is connected; **branch** is the one you push to (e.g. `main`).

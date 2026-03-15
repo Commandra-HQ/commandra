@@ -40,6 +40,7 @@ app.use(
 	}),
 );
 
+app.get('/', (c) => c.json({ name: 'Commandra API', docs: '/health', status: 'ok' }));
 app.route('/health', healthRoutes);
 app.route('/api/auth', authRoutes);
 app.route('/api/token', tokenRoutes);
