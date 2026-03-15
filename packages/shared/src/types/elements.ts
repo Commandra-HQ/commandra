@@ -19,6 +19,8 @@ export interface IndexedElement {
 	attributes: Record<string, string>;
 	position: { x: number; y: number; width: number; height: number };
 	visible: boolean;
+	/** Whether this element is inside a modal, dialog, or overlay */
+	inOverlay?: boolean;
 	pageUrl: string;
 }
 

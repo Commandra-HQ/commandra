@@ -1002,7 +1002,7 @@ async function handleToolCall(
 		if (STATE_CHANGING_TOOLS.includes(name)) {
 			try {
 				// Wait for SPA transitions / DOM updates — longer for click/navigate (modals, page loads)
-				const delay = name === 'click_element' || name === 'navigate' ? 1500 : 500;
+				const delay = name === 'click_element' || name === 'navigate' ? 2000 : 500;
 				await new Promise((resolve) => setTimeout(resolve, delay));
 				const freshState = await executeTool('get_page_state', {}, context);
 				const freshData = freshState as unknown as Record<string, unknown>;

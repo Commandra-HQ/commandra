@@ -142,7 +142,37 @@ function isVisible(el: Element): boolean {
 	if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')
 		return false;
 
+	// Check if element is within viewport (or close to it for scrollable areas)
+	const viewportHeight = window.innerHeight;
+	const viewportWidth = window.innerWidth;
+	if (rect.bottom < -100 || rect.top > viewportHeight + 500 || rect.right < -100 || rect.left > viewportWidth + 100)
+		return false;
+
 	return true;
+}
+
+/**
+ * Check if an element is inside a modal/overlay container.
+ * Used to prioritize modal elements in the index (they're on top).
+ */
+function isInOverlay(el: Element): boolean {
+	let current: Element | null = el;
+	while (current && current !== document.body) {
+		const style = getComputedStyle(current);
+		const role = current.getAttribute('role');
+		// Common modal/overlay indicators
+		if (
+			role === 'dialog' ||
+			role === 'alertdialog' ||
+			current.getAttribute('aria-modal') === 'true' ||
+			style.position === 'fixed' ||
+			(style.position === 'absolute' && Number.parseInt(style.zIndex, 10) > 100)
+		) {
+			return true;
+		}
+		current = current.parentElement;
+	}
+	return false;
 }
 
 /**
@@ -246,6 +276,7 @@ export function indexPage(): PageIndex {
 			if (!isVisible(el)) continue;
 
 			const rect = el.getBoundingClientRect();
+			const inOverlay = isInOverlay(el);
 			elements.push({
 				id: crypto.randomUUID(),
 				type: getElementType(el),
@@ -260,6 +291,7 @@ export function indexPage(): PageIndex {
 					height: rect.height,
 				},
 				visible: true,
+				inOverlay,
 				pageUrl: window.location.href,
 			});
 		}

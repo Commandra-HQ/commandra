@@ -1,9 +1,9 @@
 /**
  * Pre-seeded domain knowledge for popular web applications.
  *
- * When a domain has no memory yet, these seeds give the agent
- * a baseline understanding of how the app works so it can navigate
- * without needing to "learn" through failed attempts first.
+ * These seeds provide BEHAVIORAL understanding — how apps work, what patterns
+ * to expect, and common pitfalls. They do NOT contain hardcoded selectors.
+ * The agent discovers selectors from the live page index.
  */
 
 import type { DomainKnowledge } from './domain.js';
@@ -16,39 +16,34 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 			{ path: '/mail/u/0/#drafts', description: 'Draft emails', howToReach: 'Click "Drafts" in sidebar' },
 			{ path: '/mail/u/0/#search', description: 'Email search results', howToReach: 'Type in the search bar at top' },
 		],
-		elementNotes: [
-			{ selector: '[gh="cm"]', note: 'Compose button — opens a compose modal/window at bottom-right, not a new page. MUST wait 1-2 seconds and refresh_page_state after clicking before interacting with compose fields.' },
-			{ selector: 'input[aria-label="To recipients"]', note: 'To field in compose — it is an input inside a combobox widget. Type the full email address then press Tab to confirm.' },
-			{ selector: 'input[name="subjectbox"]', note: 'Subject field in compose window — standard input element' },
-			{ selector: 'div[aria-label="Message Body"][contenteditable="true"]', note: 'Email body — this is a contenteditable div (rich text editor), NOT an input or textarea. type_text works on it. Use this selector.' },
-			{ selector: 'div[aria-label*="Send"][role="button"]', note: 'Send button in compose window' },
-		],
+		elementNotes: [],
 		workflows: [
 			{
 				name: 'Send an email',
 				steps: [
-					'Click Compose button (selector: [gh="cm"])',
-					'CRITICAL: Wait 2 seconds then use refresh_page_state — compose is a modal that takes time to render, new elements won\'t appear until you refresh',
-					'Type recipient email in To field (selector: input[aria-label="To recipients"]) — type full email then press Tab',
-					'Type subject in Subject field (selector: input[name="subjectbox"])',
-					'Type message body in the contenteditable div (selector: div[aria-label="Message Body"][contenteditable="true"]) — this is NOT an input, it is a contenteditable div',
-					'Click Send button (requires user approval)',
+					'Click the Compose button (look for a button with "Compose" label in the sidebar area)',
+					'IMPORTANT: Compose opens as a floating modal at the bottom-right, not a new page. After clicking Compose, ALWAYS call refresh_page_state to see the new compose modal elements.',
+					'Find the To/recipients field in the compose modal — it is typically a combobox or input. Type the full email address, then press Tab or Enter to confirm the recipient.',
+					'Find and type the Subject in the subject field.',
+					'Find the Message Body area — it is a contenteditable div (rich text editor), NOT a regular input. The type_text tool handles contenteditable elements.',
+					'Click the Send button (requires user approval).',
 				],
 			},
 			{
 				name: 'Search emails',
-				steps: ['Click search bar at top', 'Type search query', 'Press Enter or click search icon'],
+				steps: ['Click the search bar at the top of the page', 'Type search query', 'Press Enter or click the search icon'],
 			},
 			{
 				name: 'Reply to email',
-				steps: ['Open the email by clicking on it', 'Click Reply button', 'Type reply in the text area', 'Click Send'],
+				steps: ['Open the email by clicking on it in the list', 'Click the Reply button', 'Type your reply in the reply text area (contenteditable)', 'Click Send'],
 			},
 		],
 		appNotes: [
-			'Gmail is a SPA — use refresh_page_state after navigation actions',
-			'Compose opens as a floating modal at bottom-right, not a separate page',
-			'Email list items are clickable table rows — click to open email',
-			'User profile/avatar is in top-right corner',
+			'Gmail is a SPA — always use refresh_page_state after navigation or clicking buttons that open modals',
+			'Compose opens as a floating modal at bottom-right, NOT a separate page — you MUST refresh_page_state to see compose fields',
+			'The email body, reply areas, and compose body are contenteditable divs, not regular inputs. The type_text tool handles these.',
+			'The To/recipients field is a combobox — type the email and press Tab to confirm',
+			'Email list items are clickable — click to open an email',
 			'Multiple Google accounts may be signed in — check the URL for /u/0/ or /u/1/',
 		],
 	},
@@ -63,13 +58,7 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 			{ path: '/settings/profile', description: 'User profile settings', howToReach: 'Click avatar → Settings' },
 			{ path: '/notifications', description: 'Notification center', howToReach: 'Click bell icon in top-right' },
 		],
-		elementNotes: [
-			{ selector: '[data-testid="header-search-input"]', note: 'GitHub global search bar' },
-			{ selector: '.AppHeader-user', note: 'User avatar/menu in top-right — shows current logged-in user' },
-			{ selector: '[data-tab-item="i-code-tab"]', note: 'Code tab on repo page' },
-			{ selector: '[data-tab-item="i-issues-tab"]', note: 'Issues tab on repo page' },
-			{ selector: '[data-tab-item="i-pull-requests-tab"]', note: 'Pull requests tab on repo page' },
-		],
+		elementNotes: [],
 		workflows: [
 			{
 				name: 'Navigate to a repository',
@@ -86,7 +75,6 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 		],
 		appNotes: [
 			'GitHub uses Turbo/pjax for navigation — use refresh_page_state after clicking links',
-			'The logged-in user\'s avatar is in the top-right header — check this to know who is authenticated',
 			'Repository tabs (Code, Issues, PRs, Actions, etc.) are the primary navigation within a repo',
 			'File tree can be browsed by clicking — each click updates the URL',
 			'Search supports qualifiers: repo:owner/name, is:issue, is:pr, author:username',
@@ -105,7 +93,7 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 		workflows: [
 			{
 				name: 'Send a message',
-				steps: ['Click Messaging in nav bar', 'Click "New message" or select existing conversation', 'Type message in text area', 'Click Send'],
+				steps: ['Click Messaging in nav bar', 'Click "New message" or select existing conversation', 'Type message in the message input (contenteditable)', 'Click Send or press Enter'],
 			},
 			{
 				name: 'Search for people',
@@ -114,8 +102,8 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 		],
 		appNotes: [
 			'LinkedIn is a SPA — refresh_page_state after navigation',
-			'Profile avatar in top nav shows current logged-in user',
-			'Message compose has a floating panel at bottom-right',
+			'Message compose has a floating panel at bottom-right — refresh_page_state after opening it',
+			'Most text inputs in messaging are contenteditable divs, not regular inputs',
 		],
 	},
 
@@ -123,14 +111,11 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 		knownPages: [
 			{ path: '/client/:workspace', description: 'Slack workspace main view', howToReach: 'Navigate to app.slack.com' },
 		],
-		elementNotes: [
-			{ selector: '[data-qa="message_input"]', note: 'Message input field — rich text editor' },
-			{ selector: '[data-qa="channel_sidebar_name"]', note: 'Channel names in sidebar — click to switch channels' },
-		],
+		elementNotes: [],
 		workflows: [
 			{
 				name: 'Send a message in a channel',
-				steps: ['Click channel name in sidebar', 'Click message input at bottom', 'Type message', 'Press Enter or click Send'],
+				steps: ['Click channel name in sidebar', 'Click message input at bottom (contenteditable rich text editor)', 'Type message', 'Press Enter or click Send'],
 			},
 			{
 				name: 'Search messages',
@@ -140,8 +125,8 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 		appNotes: [
 			'Slack is a SPA — always use refresh_page_state after switching channels',
 			'Sidebar shows channels and DMs — click to navigate',
+			'The message input is a contenteditable rich text editor, not a regular input',
 			'Messages are sent by pressing Enter (Shift+Enter for newline)',
-			'Workspace name and user avatar are in the top-left area',
 		],
 	},
 
@@ -161,7 +146,7 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 		appNotes: [
 			'Linear is keyboard-first — C creates issue, J/K navigates list',
 			'SPA — use refresh_page_state after navigation',
-			'Sidebar has team/project navigation',
+			'Issue creation opens as a modal — refresh_page_state after clicking New Issue',
 		],
 	},
 
@@ -173,7 +158,7 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 		workflows: [
 			{
 				name: 'Create a new page',
-				steps: ['Click "+" in sidebar or press Cmd+N', 'Type page title', 'Start typing content'],
+				steps: ['Click "+" in sidebar or press Cmd+N', 'Type page title', 'Start typing content (contenteditable blocks)'],
 			},
 			{
 				name: 'Search pages',
@@ -181,7 +166,7 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 			},
 		],
 		appNotes: [
-			'Notion is a SPA with block-based editor',
+			'Notion is a SPA with block-based contenteditable editor',
 			'Sidebar shows page hierarchy — click to navigate',
 			'Use / command to insert blocks (table, heading, toggle, etc.)',
 			'Pages are contenteditable — click to start editing',
@@ -197,13 +182,20 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 		workflows: [
 			{
 				name: 'Send an email',
-				steps: ['Click "New mail" button', 'Type recipient in To field', 'Type subject', 'Type message body', 'Click Send'],
+				steps: [
+					'Click "New mail" button',
+					'Compose opens as a panel — refresh_page_state to see compose fields',
+					'Type recipient in To field',
+					'Type subject',
+					'Type message body (contenteditable)',
+					'Click Send',
+				],
 			},
 		],
 		appNotes: [
-			'Outlook is a SPA — use refresh_page_state after navigation',
-			'Compose opens as a panel or new window depending on settings',
-			'User account info is in top-right corner',
+			'Outlook is a SPA — use refresh_page_state after navigation and after opening compose',
+			'Compose opens as a panel — refresh_page_state to see the new fields',
+			'Email body is a contenteditable rich text editor',
 		],
 	},
 
@@ -221,8 +213,7 @@ const DOMAIN_SEEDS: Record<string, DomainKnowledge> = {
 		],
 		appNotes: [
 			'Trello boards show lists in columns with cards',
-			'Cards open as modals when clicked — not a separate page',
-			'Drag and drop is the primary interaction for moving cards between lists',
+			'Cards open as modals when clicked — refresh_page_state after opening a card to see its fields',
 		],
 	},
 };

@@ -14,13 +14,17 @@ import type {
 } from '../types.js';
 
 // Model aliases → actual OpenAI model IDs
+// Any model string not in this map passes through as-is to the OpenAI API
 const MODEL_MAP: Record<string, string> = {
 	'gpt-4o': 'gpt-4o',
 	'gpt-4o-mini': 'gpt-4o-mini',
 	'gpt-4.1': 'gpt-4.1',
 	'gpt-4.1-mini': 'gpt-4.1-mini',
 	'gpt-4.1-nano': 'gpt-4.1-nano',
+	'gpt-5': 'gpt-5',
+	'gpt-5-mini': 'gpt-5-mini',
 	'o3-mini': 'o3-mini',
+	'o3': 'o3',
 };
 
 function resolveModel(model: string): string {

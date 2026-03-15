@@ -22,7 +22,9 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 - Check domain memory and indexed pages for known workflows FIRST
 - Use browser tools to execute actions
 - Page state auto-refreshes after click, navigate, type, and select actions — you'll see updated elements in the tool result
-- Use refresh_page_state only if auto-refresh missed dynamic content (modals, AJAX popups)
+- **CRITICAL: After clicking buttons that open modals/dialogs/compose windows**, ALWAYS call refresh_page_state before interacting with the new elements. Modal elements won't be in the auto-refresh if they take time to render.
+- For contenteditable elements (rich text editors, compose bodies, message inputs): type_text handles these — just use the selector. Most modern apps use contenteditable divs, NOT regular inputs.
+- Elements marked "inOverlay: true" are in modals/dialogs — these take priority over background elements.
 - Use go_back to return to the previous page
 - Confirm what you did after completing the task
 
@@ -226,16 +228,34 @@ function formatIndexAge(lastIndexedAt: string | Date): string {
 	return `${mins}m ago (fresh)`;
 }
 
-function formatElements(elements: { type: string; label: string; selector: string }[]): string {
+function formatElements(elements: { type: string; label: string; selector: string; inOverlay?: boolean }[]): string {
 	if (elements.length === 0) return 'No interactive elements found.';
 
+	// Separate overlay elements (modals/dialogs) from page elements
+	const overlayElements = elements.filter((el) => el.inOverlay);
+	const pageElements = elements.filter((el) => !el.inOverlay);
+
+	const lines: string[] = [];
+
+	// Show overlay/modal elements first — they're on top and most relevant
+	if (overlayElements.length > 0) {
+		lines.push('### 🔲 Modal/Dialog Elements (on top)');
+		for (const el of overlayElements.slice(0, 30)) {
+			lines.push(`  - [${el.type}] "${el.label}" [selector: ${el.selector}]`);
+		}
+		if (overlayElements.length > 30) {
+			lines.push(`  - ...and ${overlayElements.length - 30} more`);
+		}
+		lines.push('');
+	}
+
+	// Then show regular page elements grouped by type
 	const grouped: Record<string, { label: string; selector: string }[]> = {};
-	for (const el of elements) {
+	for (const el of pageElements) {
 		if (!grouped[el.type]) grouped[el.type] = [];
 		grouped[el.type].push({ label: el.label, selector: el.selector });
 	}
 
-	const lines: string[] = [];
 	for (const [type, els] of Object.entries(grouped)) {
 		lines.push(`### ${type}s (${els.length})`);
 		for (const el of els.slice(0, 20)) {
