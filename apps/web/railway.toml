@@ -10,6 +10,6 @@ buildCommand = "pnpm install --frozen-lockfile && pnpm --filter @afe/shared buil
 watchPatterns = ["apps/web/**", "packages/shared/**"]
 
 [deploy]
-startCommand = "pnpm --filter @afe/web start"
-# Next.js serves on PORT by default when set
+# Bind to 0.0.0.0 and port 8080 so Railway's proxy can reach the app. Select port 8080 when generating domain.
+startCommand = "pnpm --filter @afe/web start -- -H 0.0.0.0 -p 8080"
 # Set variable NEXT_PUBLIC_API_URL to your API's Railway URL (e.g. https://xxx.up.railway.app)

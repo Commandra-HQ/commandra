@@ -1,6 +1,8 @@
 # Railway config for the API service.
 # Use this config when this service is the API (set in dashboard or use default from root).
 # For a second service (dashboard), create another service and set Config File Path to: apps/web/railway.toml
+#
+# In API service variables, set PORT=3001. When generating the domain, select port 3001.
 
 [build]
 builder = "DOCKERFILE"
