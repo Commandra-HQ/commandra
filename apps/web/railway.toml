@@ -6,8 +6,8 @@
 builder = "RAILPACK"
 # From repo root: install, build shared, then build web
 buildCommand = "pnpm install --frozen-lockfile && pnpm --filter @afe/shared build && pnpm --filter @afe/web build"
-# Only redeploy when web or shared code changes
-watchPatterns = ["apps/web/**", "packages/shared/**"]
+# Redeploy when web, shared, root package files, or this config changes
+watchPatterns = ["apps/web/**", "packages/shared/**", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "apps/web/railway.toml"]
 
 [deploy]
 # Bind to 0.0.0.0 and port 8080 so Railway's proxy can reach the app. Select port 8080 when generating domain.

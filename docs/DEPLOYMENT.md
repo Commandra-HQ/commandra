@@ -77,7 +77,7 @@ Railway gives each service **one public port**. The API supports **single-port m
 **2. API service (first service from this repo)**
 
 - Your existing **commandra** service that’s linked to GitHub is the API. Ensure it uses the **root** config (don’t set a custom Config File Path so it uses `railway.toml` at repo root).
-- **Variables**: `DATABASE_URL` (from Postgres), `JWT_SECRET`, `LLM_API_KEY`, `LLM_PROVIDER`, `CORS_ORIGINS` (dashboard URL; set after you have the web domain). Do **not** set `PORT` or `WS_PORT`.
+- **Variables**: `DATABASE_URL` (from Postgres), `JWT_SECRET`, `LLM_API_KEY`, `LLM_PROVIDER`, `PORT=3001`, `CORS_ORIGINS` (dashboard URL; set after you have the web domain).
 - **Settings** → **Networking** → **Generate Domain** for the API.
 - Deploy. Then run migrations once (CLI or one-off): `pnpm --filter @afe/api db:migrate`.
 
@@ -92,7 +92,8 @@ Railway gives each service **one public port**. The API supports **single-port m
 
 **4. Auto-deploy**
 
-- Both services use **watch patterns** from their config files. Pushes that only touch `apps/api` or `packages/shared` trigger API deploys; pushes that only touch `apps/web` or `packages/shared` trigger dashboard deploys. Enable **Deploy on push** in each service’s **Settings** → **Source** if you use GitHub.
+- Both services use **watch patterns** from their config files: API redeploys on `apps/api/**`, `packages/shared/**`, `railway.toml`; web redeploys on `apps/web/**`, `packages/shared/**`, root `package.json` / `pnpm-lock.yaml` / `pnpm-workspace.yaml`, `apps/web/railway.toml`.
+- In Railway, for **each** service (api and web): **Settings** → **Source** → ensure the **same repo and branch** are connected and **Deploy on push** (automatic deploys) is **enabled**. If web never redeploys on push, see [docs/RAILWAY.md](RAILWAY.md) for a full checklist.
 
 **5. Extension**
 

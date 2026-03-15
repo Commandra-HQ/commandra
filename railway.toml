@@ -7,8 +7,8 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "apps/api/Dockerfile"
-# Only redeploy when API or shared code changes
-watchPatterns = ["apps/api/**", "packages/shared/**"]
+# Redeploy when API, shared, or root config changes
+watchPatterns = ["apps/api/**", "packages/shared/**", "railway.toml"]
 
 [deploy]
 healthcheckPath = "/health"
