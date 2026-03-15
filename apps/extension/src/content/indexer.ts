@@ -49,8 +49,13 @@ function getLabel(el: Element): string {
 	// Check for associated label element
 	const id = el.getAttribute('id');
 	if (id) {
-		const label = document.querySelector(`label[for="${id}"]`);
-		if (label?.textContent?.trim()) return label.textContent.trim().slice(0, 100);
+		try {
+			const escapedId = id.replace(/"/g, '\\"');
+			const label = document.querySelector(`label[for="${escapedId}"]`);
+			if (label?.textContent?.trim()) return label.textContent.trim().slice(0, 100);
+		} catch {
+			// ID contains characters that can't be used in attribute selectors
+		}
 	}
 
 	const title = el.getAttribute('title');
@@ -68,30 +73,61 @@ function getLabel(el: Element): string {
 	return el.tagName.toLowerCase();
 }
 
+/**
+ * Escape a string for use in a CSS selector.
+ * Handles special characters like : . [ ] that appear in Gmail, Google Docs, etc.
+ */
+function cssEscape(value: string): string {
+	if (typeof CSS !== 'undefined' && CSS.escape) {
+		return CSS.escape(value);
+	}
+	// Manual fallback for environments without CSS.escape
+	return value.replace(/([^\w-])/g, '\\$1');
+}
+
 function buildSelector(el: Element): string {
-	// Priority: data-testid > id > aria-label > classes > nth-child
+	// Priority: data-testid > id > aria-label > name > classes > nth-child
 	const testId = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
 	if (testId) return `[data-testid="${testId}"]`;
 
-	if (el.id) return `#${el.id}`;
+	if (el.id) {
+		const escaped = `#${cssEscape(el.id)}`;
+		// Verify the escaped selector actually works
+		try {
+			if (document.querySelector(escaped) === el) return escaped;
+		} catch {
+			// If even escaped selector fails, fall through to other strategies
+		}
+	}
 
 	const ariaLabel = el.getAttribute('aria-label');
 	if (ariaLabel) {
 		const tag = el.tagName.toLowerCase();
-		return `${tag}[aria-label="${ariaLabel}"]`;
+		// Escape quotes in aria-label values
+		const escaped = ariaLabel.replace(/"/g, '\\"');
+		return `${tag}[aria-label="${escaped}"]`;
 	}
 
 	const tag = el.tagName.toLowerCase();
 	const name = el.getAttribute('name');
-	if (name) return `${tag}[name="${name}"]`;
-
-	const classes = Array.from(el.classList).slice(0, 3).join('.');
-	if (classes) {
-		const selector = `${tag}.${classes}`;
-		if (document.querySelectorAll(selector).length === 1) return selector;
+	if (name) {
+		const escaped = name.replace(/"/g, '\\"');
+		return `${tag}[name="${escaped}"]`;
 	}
 
-	// Fallback: nth-child path
+	// Escape class names too — apps like Gmail use classes with special chars
+	const classes = Array.from(el.classList).slice(0, 3);
+	if (classes.length > 0) {
+		const escapedClasses = classes.map((c) => cssEscape(c)).join('.');
+		const selector = `${tag}.${escapedClasses}`;
+		try {
+			if (document.querySelectorAll(selector).length === 1) return selector;
+		} catch {
+			// Invalid selector even after escaping, fall through
+		}
+	}
+
+	// Fallback: nth-child path (always produces valid selectors)
 	return buildNthChildPath(el);
 }
 
@@ -119,12 +155,25 @@ function buildFallbackSelectors(el: Element): string[] {
 	const fallbacks: string[] = [];
 	const primary = buildSelector(el);
 
-	if (el.id && primary !== `#${el.id}`) fallbacks.push(`#${el.id}`);
+	if (el.id) {
+		const escaped = `#${cssEscape(el.id)}`;
+		if (escaped !== primary) fallbacks.push(escaped);
+	}
+
+	// aria-label is often the most stable selector
+	const ariaLabel = el.getAttribute('aria-label');
+	if (ariaLabel) {
+		const tag = el.tagName.toLowerCase();
+		const escaped = ariaLabel.replace(/"/g, '\\"');
+		const ariaSelector = `${tag}[aria-label="${escaped}"]`;
+		if (ariaSelector !== primary) fallbacks.push(ariaSelector);
+	}
 
 	const tag = el.tagName.toLowerCase();
-	const classes = Array.from(el.classList).slice(0, 2).join('.');
-	if (classes) {
-		const classSelector = `${tag}.${classes}`;
+	const classes = Array.from(el.classList).slice(0, 2);
+	if (classes.length > 0) {
+		const escapedClasses = classes.map((c) => cssEscape(c)).join('.');
+		const classSelector = `${tag}.${escapedClasses}`;
 		if (classSelector !== primary) fallbacks.push(classSelector);
 	}
 

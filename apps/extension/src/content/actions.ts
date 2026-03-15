@@ -38,8 +38,33 @@ export function executeAction(payload: ActionPayload): ActionResponse {
 	}
 }
 
+/**
+ * Safely query a DOM element by selector.
+ * Handles selectors with special characters that might throw DOMException.
+ */
+function safeQuerySelector(selector: string): Element | null {
+	try {
+		return document.querySelector(selector);
+	} catch {
+		// Selector contains invalid characters (e.g., unescaped : in Gmail IDs like #:vd)
+		// Try escaping the ID portion if it looks like an ID selector
+		if (selector.startsWith('#')) {
+			try {
+				const id = selector.slice(1);
+				const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id.replace(/([^\w-])/g, '\\$1');
+				return document.querySelector(`#${escaped}`);
+			} catch {
+				// Still invalid — try getElementById as last resort
+				const id = selector.slice(1);
+				return document.getElementById(id);
+			}
+		}
+		return null;
+	}
+}
+
 function clickElement(selector: string): ActionResponse {
-	const el = document.querySelector(selector);
+	const el = safeQuerySelector(selector);
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLElement))
 		return { success: false, error: `Element is not clickable: ${selector}` };
@@ -70,7 +95,7 @@ function clickElement(selector: string): ActionResponse {
 }
 
 function typeText(selector: string, text: string): ActionResponse {
-	const el = document.querySelector(selector);
+	const el = safeQuerySelector(selector);
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLElement)) {
 		return { success: false, error: `Element is not an HTML element: ${selector}` };
@@ -134,7 +159,7 @@ function typeText(selector: string, text: string): ActionResponse {
 }
 
 function selectOption(selector: string, value: string): ActionResponse {
-	const el = document.querySelector(selector);
+	const el = safeQuerySelector(selector);
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLSelectElement)) {
 		return { success: false, error: `Element is not a select: ${selector}` };
