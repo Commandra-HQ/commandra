@@ -988,6 +988,11 @@ async function handleToolCall(
 
 	try {
 		const result = await executeTool(name, toolArgs, context);
+
+		// Check if the tool itself reported failure (e.g., element not found, invalid selector)
+		const resultData = result as unknown as Record<string, unknown> | undefined;
+		const toolSucceeded = resultData?.success !== false;
+
 		await logAction({
 			userId,
 			action: name,
@@ -997,9 +1002,10 @@ async function handleToolCall(
 		});
 
 		// Auto-refresh page state after state-changing actions so the agent always has current DOM
+		// Only auto-refresh if the action actually succeeded
 		const STATE_CHANGING_TOOLS = ['click_element', 'navigate', 'type_text', 'select_option'];
 		let pageStateUpdate: unknown = undefined;
-		if (STATE_CHANGING_TOOLS.includes(name)) {
+		if (toolSucceeded && STATE_CHANGING_TOOLS.includes(name)) {
 			try {
 				// Wait for SPA transitions / DOM updates — longer for click/navigate (modals, page loads)
 				const delay = name === 'click_element' || name === 'navigate' ? 2000 : 500;
@@ -1015,7 +1021,6 @@ async function handleToolCall(
 		}
 
 		// Extract screenshot for the frontend if this was a screenshot tool
-		const resultData = result as unknown as Record<string, unknown> | undefined;
 		const screenshotImage =
 			name === 'screenshot' && resultData?.success
 				? ((resultData.data as Record<string, unknown>)?.image as string | undefined)
@@ -1030,13 +1035,15 @@ async function handleToolCall(
 		await onEvent({
 			type: 'tool_end',
 			toolName: name,
-			success: true,
+			success: toolSucceeded,
 			result: screenshotImage ? { success: true } : enrichedResult,
 			screenshot: screenshotImage,
+			error: toolSucceeded ? undefined : (resultData?.error as string) || 'Action failed',
 		});
 
-		// Record step if in teach mode (skip read-only tools)
+		// Record step if in teach mode (skip read-only tools and failed tools)
 		if (
+			toolSucceeded &&
 			isRecording(connectionId) &&
 			!['screenshot', 'get_page_state', 'refresh_page_state', 'go_back'].includes(name)
 		) {
@@ -1053,7 +1060,7 @@ async function handleToolCall(
 			}
 		}
 
-		return { data: enrichedResult, isError: false };
+		return { data: enrichedResult, isError: !toolSucceeded };
 	} catch (err) {
 		const errorMsg = err instanceof Error ? err.message : String(err);
 		await logAction({

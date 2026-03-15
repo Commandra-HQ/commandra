@@ -101,7 +101,15 @@ export function buildSystemPrompt(
 	priorContext?: string,
 ): string {
 	if (!pageIndex) {
-		return `${BASE_PROMPT}\n\nNo page is currently indexed. Ask the user to index a page first.`;
+		return `${BASE_PROMPT}
+
+## Current Page
+No page is currently indexed — but you CAN still act. If the user asks you to go somewhere or do something:
+1. Use the **navigate** tool to go to the URL (e.g., navigate to https://mail.google.com)
+2. Use **refresh_page_state** to index the page and see its elements
+3. Then proceed with the task using the discovered elements
+
+Do NOT ask the user to "index the page" — just navigate there yourself and refresh.`;
 	}
 
 	const pi = pageIndex as PageContext;

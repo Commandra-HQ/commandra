@@ -61,14 +61,21 @@ function getLabel(el: Element): string {
 	const title = el.getAttribute('title');
 	if (title) return title;
 
-	const text = el.textContent?.trim().slice(0, 100);
-	if (text) return text;
-
 	const placeholder = el.getAttribute('placeholder');
 	if (placeholder) return placeholder;
 
 	const name = el.getAttribute('name');
 	if (name) return name;
+
+	// Check child elements for labels (wrapper divs in Gmail, etc.)
+	const childInput = el.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]');
+	if (childInput) {
+		const childLabel = childInput.getAttribute('aria-label') || childInput.getAttribute('placeholder') || childInput.getAttribute('name');
+		if (childLabel) return childLabel;
+	}
+
+	const text = el.textContent?.trim().slice(0, 100);
+	if (text) return text;
 
 	return el.tagName.toLowerCase();
 }
@@ -85,46 +92,85 @@ function cssEscape(value: string): string {
 	return value.replace(/([^\w-])/g, '\\$1');
 }
 
+/**
+ * Check if an ID looks auto-generated / unstable.
+ * Apps like Gmail use IDs like ":vd", ":sr", ":qz" — short random strings with
+ * special chars that change between page loads. These are useless as selectors.
+ */
+function isStableId(id: string): boolean {
+	// Reject IDs that start with : (Gmail pattern)
+	if (id.startsWith(':')) return false;
+	// Reject IDs that are purely numeric
+	if (/^\d+$/.test(id)) return false;
+	// Reject very short IDs (likely auto-generated: "a1", "x9", etc.)
+	if (id.length <= 3 && /[^a-zA-Z]/.test(id)) return false;
+	// Reject IDs that look like random hashes (e.g., "r5g2k", "xk3j")
+	if (id.length <= 4 && /^[a-z0-9]+$/i.test(id) && !/[aeiou]{2}/i.test(id)) return false;
+	// Reject IDs with multiple special characters (auto-generated patterns)
+	if ((id.match(/[^a-zA-Z0-9_-]/g) || []).length >= 2) return false;
+	return true;
+}
+
 function buildSelector(el: Element): string {
-	// Priority: data-testid > id > aria-label > name > classes > nth-child
+	const tag = el.tagName.toLowerCase();
+
+	// Priority: data-testid > aria-label > name > stable id > classes > nth-child
+	// aria-label and name are prioritized over id because IDs on apps like Gmail,
+	// Google Docs, Slack are auto-generated garbage that changes every page load.
+
 	const testId = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
 	if (testId) return `[data-testid="${testId}"]`;
 
-	if (el.id) {
-		const escaped = `#${cssEscape(el.id)}`;
-		// Verify the escaped selector actually works
-		try {
-			if (document.querySelector(escaped) === el) return escaped;
-		} catch {
-			// If even escaped selector fails, fall through to other strategies
-		}
-	}
-
+	// aria-label is the most semantically stable selector for interactive elements
 	const ariaLabel = el.getAttribute('aria-label');
 	if (ariaLabel) {
-		const tag = el.tagName.toLowerCase();
-		// Escape quotes in aria-label values
 		const escaped = ariaLabel.replace(/"/g, '\\"');
-		return `${tag}[aria-label="${escaped}"]`;
+		const selector = `${tag}[aria-label="${escaped}"]`;
+		try {
+			if (document.querySelectorAll(selector).length <= 3) return selector;
+		} catch { /* fall through */ }
 	}
 
-	const tag = el.tagName.toLowerCase();
+	// name attribute — stable for form inputs
 	const name = el.getAttribute('name');
 	if (name) {
 		const escaped = name.replace(/"/g, '\\"');
 		return `${tag}[name="${escaped}"]`;
 	}
 
-	// Escape class names too — apps like Gmail use classes with special chars
+	// role attribute combined with other attributes for specificity
+	const role = el.getAttribute('role');
+	if (role && ariaLabel) {
+		const escaped = ariaLabel.replace(/"/g, '\\"');
+		return `${tag}[role="${role}"][aria-label="${escaped}"]`;
+	}
+
+	// ID — only if it looks stable (not auto-generated like Gmail's :vd, :sr)
+	if (el.id && isStableId(el.id)) {
+		const escaped = `#${cssEscape(el.id)}`;
+		try {
+			if (document.querySelector(escaped) === el) return escaped;
+		} catch { /* fall through */ }
+	}
+
+	// Placeholder — useful for inputs without labels
+	const placeholder = el.getAttribute('placeholder');
+	if (placeholder && (tag === 'input' || tag === 'textarea')) {
+		const escaped = placeholder.replace(/"/g, '\\"');
+		const selector = `${tag}[placeholder="${escaped}"]`;
+		try {
+			if (document.querySelectorAll(selector).length === 1) return selector;
+		} catch { /* fall through */ }
+	}
+
+	// Classes — escaped, only if unique
 	const classes = Array.from(el.classList).slice(0, 3);
 	if (classes.length > 0) {
 		const escapedClasses = classes.map((c) => cssEscape(c)).join('.');
 		const selector = `${tag}.${escapedClasses}`;
 		try {
 			if (document.querySelectorAll(selector).length === 1) return selector;
-		} catch {
-			// Invalid selector even after escaping, fall through
-		}
+		} catch { /* fall through */ }
 	}
 
 	// Fallback: nth-child path (always produces valid selectors)
@@ -154,29 +200,31 @@ function buildNthChildPath(el: Element): string {
 function buildFallbackSelectors(el: Element): string[] {
 	const fallbacks: string[] = [];
 	const primary = buildSelector(el);
+	const tag = el.tagName.toLowerCase();
 
-	if (el.id) {
-		const escaped = `#${cssEscape(el.id)}`;
-		if (escaped !== primary) fallbacks.push(escaped);
-	}
-
-	// aria-label is often the most stable selector
+	// aria-label fallback
 	const ariaLabel = el.getAttribute('aria-label');
 	if (ariaLabel) {
-		const tag = el.tagName.toLowerCase();
 		const escaped = ariaLabel.replace(/"/g, '\\"');
 		const ariaSelector = `${tag}[aria-label="${escaped}"]`;
 		if (ariaSelector !== primary) fallbacks.push(ariaSelector);
 	}
 
-	const tag = el.tagName.toLowerCase();
-	const classes = Array.from(el.classList).slice(0, 2);
-	if (classes.length > 0) {
-		const escapedClasses = classes.map((c) => cssEscape(c)).join('.');
-		const classSelector = `${tag}.${escapedClasses}`;
-		if (classSelector !== primary) fallbacks.push(classSelector);
+	// name fallback
+	const name = el.getAttribute('name');
+	if (name) {
+		const escaped = name.replace(/"/g, '\\"');
+		const nameSelector = `${tag}[name="${escaped}"]`;
+		if (nameSelector !== primary) fallbacks.push(nameSelector);
 	}
 
+	// Stable ID fallback
+	if (el.id && isStableId(el.id)) {
+		const escaped = `#${cssEscape(el.id)}`;
+		if (escaped !== primary) fallbacks.push(escaped);
+	}
+
+	// nth-child fallback (always valid)
 	const nthChild = buildNthChildPath(el);
 	if (nthChild !== primary) fallbacks.push(nthChild);
 
