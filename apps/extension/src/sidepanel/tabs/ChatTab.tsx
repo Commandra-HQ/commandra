@@ -1,4 +1,4 @@
-import type { CrawlProgress, FlowStep, SSEEvent, SelectedElement } from '@afe/shared';
+import type { CrawlProgress, SSEEvent, SelectedElement } from '@afe/shared';
 import {
 	AlertCircle,
 	ArrowRight,
@@ -23,7 +23,6 @@ import {
 	Pilcrow,
 	Play,
 	Settings2,
-	Square,
 	Table2,
 	X,
 } from 'lucide-react';
@@ -266,13 +265,6 @@ export function ChatTab() {
 	// Re-index state
 	const [isReindexing, setIsReindexing] = useState(false);
 
-	// Recording state
-	const [isRecording, setIsRecording] = useState(false);
-	const [recordedSteps, setRecordedSteps] = useState<FlowStep[]>([]);
-	const [showSaveFlow, setShowSaveFlow] = useState(false);
-	const [flowName, setFlowName] = useState('');
-	const [flowDescription, setFlowDescription] = useState('');
-
 	// Streaming refs
 	const abortRef = useRef<AbortController | null>(null);
 	const assistantMsgIdRef = useRef<string>('');
@@ -356,12 +348,6 @@ export function ChatTab() {
 				setSelectorActive(false);
 			} else if (message.type === 'SELECTOR_CANCELLED') {
 				setSelectorActive(false);
-			} else if (message.type === 'FLOW_STEP_RECORDED') {
-				// Manual recording step arrived via WS — update the recording UI
-				const { step } = message as unknown as { step: FlowStep };
-				if (step) {
-					setRecordedSteps((prev) => [...prev, step]);
-				}
 			}
 		}
 		chrome.runtime.onMessage.addListener(handleMessage);
@@ -652,14 +638,6 @@ export function ChatTab() {
 								break;
 							}
 
-							case 'flow_step_recorded':
-								setRecordedSteps((prev) => [...prev, event.step]);
-								break;
-
-							case 'recording_stopped':
-								setIsRecording(false);
-								break;
-
 							case 'done':
 								setConversationId(event.conversationId);
 								break;
@@ -709,77 +687,6 @@ export function ChatTab() {
 			setIsActive(false);
 			abortRef.current = null;
 			assistantMsgIdRef.current = '';
-		}
-	}
-
-	async function startRecordingMode() {
-		const stored = await chrome.storage.local.get(['authToken']);
-		const token = stored.authToken;
-		try {
-			const res = await fetch(`${API_URL}/api/chat/record/start`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${token}`,
-				},
-				body: JSON.stringify({ domain }),
-			});
-			if (res.ok) {
-				setIsRecording(true);
-				setRecordedSteps([]);
-				// Inject manual recorder into the page
-				if (tabId) {
-					chrome.runtime.sendMessage({ type: 'RECORDER_START', payload: { tabId } });
-				}
-			}
-		} catch (err) {
-			console.error('Failed to start recording:', err);
-		}
-	}
-
-	async function stopRecordingMode() {
-		// Stop the manual recorder in the page
-		if (tabId) {
-			chrome.runtime.sendMessage({ type: 'RECORDER_STOP', payload: { tabId } });
-		}
-
-		if (recordedSteps.length === 0) {
-			// Cancel — no steps recorded
-			const stored = await chrome.storage.local.get(['authToken']);
-			const token = stored.authToken;
-			await fetch(`${API_URL}/api/chat/record/cancel`, {
-				method: 'POST',
-				headers: { Authorization: `Bearer ${token}` },
-			}).catch(() => {});
-			setIsRecording(false);
-			setRecordedSteps([]);
-			return;
-		}
-		setShowSaveFlow(true);
-	}
-
-	async function saveFlow() {
-		if (!flowName.trim()) return;
-		const stored = await chrome.storage.local.get(['authToken']);
-		const token = stored.authToken;
-		try {
-			const res = await fetch(`${API_URL}/api/chat/record/stop`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${token}`,
-				},
-				body: JSON.stringify({ name: flowName, description: flowDescription }),
-			});
-			if (res.ok) {
-				setIsRecording(false);
-				setRecordedSteps([]);
-				setShowSaveFlow(false);
-				setFlowName('');
-				setFlowDescription('');
-			}
-		} catch (err) {
-			console.error('Failed to save flow:', err);
 		}
 	}
 
@@ -1064,68 +971,6 @@ export function ChatTab() {
 				</div>
 			)}
 
-			{/* Recording Banner */}
-			{isRecording && (
-				<div className="px-4 py-2 border-b border-red-500/30 bg-red-500/5 flex items-center justify-between">
-					<div className="flex items-center gap-2">
-						<Circle size={8} className="text-red-500 fill-red-500 animate-pulse" />
-						<span className="text-xs font-medium text-foreground">
-							Recording · {recordedSteps.length} step{recordedSteps.length !== 1 ? 's' : ''}
-						</span>
-					</div>
-					<button
-						onClick={stopRecordingMode}
-						className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-400 border border-red-500/50 rounded hover:bg-red-500/10"
-					>
-						<Square size={10} />
-						{recordedSteps.length > 0 ? 'Save' : 'Cancel'}
-					</button>
-				</div>
-			)}
-
-			{/* Save Flow Dialog */}
-			{showSaveFlow && (
-				<div className="px-4 py-3 border-b border-border bg-secondary/30 space-y-2">
-					<p className="text-xs font-medium text-foreground">
-						Save Flow ({recordedSteps.length} steps)
-					</p>
-					<input
-						type="text"
-						value={flowName}
-						onChange={(e) => setFlowName(e.target.value)}
-						placeholder="Flow name..."
-						className="w-full text-xs px-2 py-1.5 border border-input rounded bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-						autoFocus
-					/>
-					<input
-						type="text"
-						value={flowDescription}
-						onChange={(e) => setFlowDescription(e.target.value)}
-						placeholder="Description (optional)"
-						className="w-full text-xs px-2 py-1.5 border border-input rounded bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-					/>
-					<div className="flex gap-2">
-						<button
-							onClick={saveFlow}
-							disabled={!flowName.trim()}
-							className="px-3 py-1 text-xs font-medium text-primary-foreground bg-primary rounded hover:opacity-90 disabled:opacity-50"
-						>
-							Save
-						</button>
-						<button
-							onClick={() => {
-								setShowSaveFlow(false);
-								setFlowName('');
-								setFlowDescription('');
-							}}
-							className="px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
-						>
-							Cancel
-						</button>
-					</div>
-				</div>
-			)}
-
 			{/* Approval Requests */}
 			{pendingApprovals.map((req) => (
 				<div
@@ -1281,20 +1126,6 @@ export function ChatTab() {
 					>
 						<MousePointer size={14} />
 					</button>
-					{!isRecording && (
-						<div className="relative group">
-							<button
-								type="button"
-								disabled
-								className="px-2 py-2 text-sm rounded-md border border-input text-muted-foreground opacity-50 cursor-not-allowed shrink-0"
-							>
-								<Circle size={14} />
-							</button>
-							<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
-								Record flow — coming soon
-							</span>
-						</div>
-					)}
 					<input
 						type="text"
 						value={input}

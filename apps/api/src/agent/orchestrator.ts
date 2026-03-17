@@ -7,7 +7,6 @@
  */
 
 import type { SSEEvent } from '@afe/shared';
-import { searchUserMemories } from '../db/vector-search.js';
 import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import type {
 	ContentBlock,
@@ -19,17 +18,13 @@ import type {
 	ToolUseBlock,
 } from '../llm/types.js';
 import { compressHistory } from '../memory/conversation.js';
-import { type MemoryCategory, saveUserMemory } from '../memory/user.js';
-import { logAction } from '../safety/audit.js';
-import { classifyAction } from '../safety/classifier.js';
-import { executeTool, getToolDefinitions } from '../tools/registry.js';
-import { isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { getToolDefinitions } from '../tools/registry.js';
+import { isKilled } from '../ws/handler.js';
+import { executeInternalTool, getInternalToolDefinitions } from './internal-tools.js';
 import { parsePlan } from './planner.js';
 import { buildSystemPrompt } from './prompts.js';
-import { isRecording, recordStep } from './recorder.js';
-import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
-import { saveLocalFile } from '../storage/local.js';
-import { spawnSubAgent, waitForAgents } from './swarm.js';
+import { trimMessagesForTokenBudget } from './token-budget.js';
+import { executeToolBlock, partitionToolsBySafety } from './tool-executor.js';
 
 export interface OrchestratorParams {
 	userId: string;
@@ -51,6 +46,10 @@ export interface OrchestratorParams {
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 	maxIterations?: number;
+	/** Optional agent instructions to prepend to system prompt */
+	agentInstructions?: string;
+	/** Optional tool filter — if set, only these tools are available */
+	allowedTools?: string[];
 }
 
 export interface ToolCallRecord {
@@ -83,122 +82,29 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		onEvent,
 		signal,
 		maxIterations = 15,
+		agentInstructions,
+		allowedTools,
 	} = params;
 
 	const provider = getProvider();
 	const model = getStrongModel();
-	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext);
 
-	// Add save_memory internal tool alongside browser tools
+	// Build system prompt — agent instructions prepended if provided
+	const basePrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext);
+	const systemPrompt = agentInstructions
+		? `${agentInstructions}\n\n---\n\n${basePrompt}`
+		: basePrompt;
+
+	// Merge browser tools with internal tools, optionally filtered by agent config
 	const browserTools = getToolDefinitions();
-	const saveMemoryTool = {
-		name: 'save_memory',
-		description:
-			'Save something to remember about this user for future sessions. Use when the user explicitly asks you to remember something, or when you notice a strong preference or correction worth preserving.',
-		parameters: {
-			type: 'object' as const,
-			properties: {
-				category: {
-					type: 'string',
-					enum: ['preference', 'correction', 'terminology', 'workflow'],
-					description:
-						'Category: preference (how they like things), correction (something they corrected you on), terminology (their shorthand/jargon), workflow (repeated patterns)',
-				},
-				content: {
-					type: 'string',
-					description: 'What to remember — be specific and concise',
-				},
-			},
-			required: ['category', 'content'],
-		},
-	};
-	const recallMemoryTool = {
-		name: 'recall_memory',
-		description:
-			'Search your memories about this user and domain for specific information. Use when you need context not in the system prompt — e.g., past workflows, preferences, or domain knowledge.',
-		parameters: {
-			type: 'object' as const,
-			properties: {
-				query: {
-					type: 'string',
-					description:
-						'What to search for — natural language description of the information you need',
-				},
-			},
-			required: ['query'],
-		},
-	};
-	const spawnAgentTool = {
-		name: 'spawn_agent',
-		description:
-			'Spawn a sub-agent to perform a task in a separate browser context. Use for parallel operations like reading data from multiple pages simultaneously. Sub-agents use the fast model and have max 5 iterations.',
-		parameters: {
-			type: 'object' as const,
-			properties: {
-				task: {
-					type: 'string',
-					description: 'Natural language description of the task for the sub-agent',
-				},
-				targetUrl: {
-					type: 'string',
-					description: 'URL the sub-agent should navigate to first',
-				},
-				timeout: {
-					type: 'number',
-					description: 'Max execution time in milliseconds (default: 60000)',
-				},
-			},
-			required: ['task', 'targetUrl'],
-		},
-	};
-	const waitForAgentsTool = {
-		name: 'wait_for_agents',
-		description:
-			'Wait for one or more spawned sub-agents to complete and get their results. Call this after spawning agents to collect their findings.',
-		parameters: {
-			type: 'object' as const,
-			properties: {
-				agentIds: {
-					type: 'array',
-					items: { type: 'string' },
-					description: 'Array of agent IDs returned by spawn_agent',
-				},
-			},
-			required: ['agentIds'],
-		},
-	};
-	const saveToLocalTool = {
-		name: 'save_to_local',
-		description:
-			'Save a file to persistent local storage on the user\'s computer (~/.commandra/). Use for exports, extracted data, or context files the user wants to keep.',
-		parameters: {
-			type: 'object' as const,
-			properties: {
-				filename: {
-					type: 'string',
-					description: 'Filename to save as (e.g. "report.json", "data.csv")',
-				},
-				content: {
-					type: 'string',
-					description: 'File content to save',
-				},
-				category: {
-					type: 'string',
-					enum: ['exports', 'context'],
-					description: 'Category: exports (user-requested data) or context (reference material)',
-				},
-			},
-			required: ['filename', 'content', 'category'],
-		},
-	};
-	const tools = [
-		...browserTools,
-		saveMemoryTool,
-		recallMemoryTool,
-		spawnAgentTool,
-		waitForAgentsTool,
-		saveToLocalTool,
-	];
+	const internalTools = getInternalToolDefinitions();
+	let tools = [...browserTools, ...internalTools];
+	if (allowedTools && !allowedTools.includes('*')) {
+		const allowed = new Set(allowedTools);
+		// Always allow internal tools
+		tools = tools.filter((t) => allowed.has(t.name) || internalTools.some((it) => it.name === t.name));
+	}
+
 	const context = { connectionId, userId };
 
 	// Compress long conversation histories before sending to LLM
@@ -217,6 +123,17 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	let fullResponse = '';
 	let iterations = 0;
 	const allToolCalls: ToolCallRecord[] = [];
+
+	// Create bound internal tool executor with current context
+	const boundExecuteInternal = (block: ToolUseBlock) =>
+		executeInternalTool(block, {
+			userId,
+			connectionId,
+			domain,
+			domainMemory,
+			userMemory,
+			onEvent,
+		});
 
 	while (iterations < maxIterations) {
 		// Token budget guard — strip old screenshots and truncate if messages are too large
@@ -261,7 +178,6 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 								`[Orchestrator] iter=${iterations} thinking_delta (chunk ${thinkingChunks}): "${event.text.slice(0, 50)}..."`,
 							);
 						await onEvent({ type: 'thinking_delta', text: event.text });
-						// Accumulate thinking content for multi-turn history
 						if (content.length > 0 && content[content.length - 1].type === 'thinking') {
 							(content[content.length - 1] as ThinkingContentBlock).thinking += event.text;
 						} else {
@@ -272,7 +188,6 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 						console.log(
 							`[Orchestrator] iter=${iterations} thinking_signature received (${event.signature.slice(0, 20)}...)`,
 						);
-						// Attach signature to the last thinking block (required for Anthropic multi-turn)
 						const lastThinking = [...content].reverse().find((b) => b.type === 'thinking');
 						if (lastThinking) (lastThinking as ThinkingContentBlock).signature = event.signature;
 						break;
@@ -285,7 +200,6 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 							);
 						fullResponse += event.text;
 						await onEvent({ type: 'text_delta', text: event.text });
-						// Merge consecutive text blocks
 						if (content.length > 0 && content[content.length - 1].type === 'text') {
 							(content[content.length - 1] as { text: string }).text += event.text;
 						} else {
@@ -306,7 +220,6 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				}
 			}
 		} catch (err) {
-			// AbortError is expected when client disconnects
 			if (signal?.aborted) break;
 
 			// Context length exceeded — aggressively trim and retry once
@@ -315,7 +228,6 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				console.warn(
 					`[Orchestrator] Context length exceeded on iteration ${iterations}, trimming aggressively`,
 				);
-				// Keep only last 2 messages + strip all images
 				currentMessages = currentMessages.slice(-2).map((m) => {
 					if (!Array.isArray(m.content)) return m;
 					return {
@@ -338,10 +250,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 										} as ToolResultBlock;
 									}
 									if (typeof tr.content === 'string' && tr.content.length > 500) {
-										return {
-											...tr,
-											content: tr.content.slice(0, 500) + '...',
-										};
+										return { ...tr, content: tr.content.slice(0, 500) + '...' };
 									}
 								}
 								return b;
@@ -352,7 +261,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 					type: 'text_delta',
 					text: '\n\n*Context was too large — trimmed history and continuing...*\n\n',
 				});
-				continue; // Retry this iteration with trimmed messages
+				continue;
 			}
 
 			throw err;
@@ -391,10 +300,9 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		if (toolBlocks.length > 0) {
 			hasToolUse = true;
 
-			// Partition tools by safety level for parallel execution
 			const partitioned = partitionToolsBySafety(toolBlocks, domain);
 
-			// Phase 1: Execute all safe tools in parallel (including save_memory)
+			// Phase 1: Execute all safe tools in parallel
 			if (partitioned.safe.length > 0) {
 				console.log(`[Orchestrator] Executing ${partitioned.safe.length} safe tools in parallel`);
 				const safeResults = await Promise.allSettled(
@@ -407,8 +315,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 							domain,
 							onEvent,
 							provider,
-							domainMemory,
-							userMemory,
+							boundExecuteInternal,
 						),
 					),
 				);
@@ -443,8 +350,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 					domain,
 					onEvent,
 					provider,
-					domainMemory,
-					userMemory,
+					boundExecuteInternal,
 				);
 				toolResults.push(result);
 			}
@@ -550,633 +456,4 @@ export async function runSimpleChat(params: {
 	}
 
 	return fullResponse;
-}
-
-// --- Internal helpers ---
-
-/**
- * Partition tool blocks into safe/review/blocked buckets for parallel execution.
- * save_memory is always safe (internal, no WS routing).
- */
-function partitionToolsBySafety(
-	toolBlocks: ToolUseBlock[],
-	domain?: string,
-): { safe: ToolUseBlock[]; review: ToolUseBlock[]; blocked: ToolUseBlock[] } {
-	const safe: ToolUseBlock[] = [];
-	const review: ToolUseBlock[] = [];
-	const blocked: ToolUseBlock[] = [];
-
-	for (const block of toolBlocks) {
-		// Internal tools are always safe (no WS routing)
-		if (['save_memory', 'recall_memory', 'spawn_agent', 'wait_for_agents', 'save_to_local'].includes(block.name)) {
-			safe.push(block);
-			continue;
-		}
-
-		const elementLabel =
-			(block.input.description as string) || (block.input.selector as string) || '';
-		const classification = classifyAction({
-			toolName: block.name,
-			args: block.input,
-			elementLabel,
-		});
-
-		if (classification.level === 'blocked') {
-			blocked.push(block);
-		} else if (classification.level === 'review') {
-			review.push(block);
-		} else {
-			safe.push(block);
-		}
-	}
-
-	return { safe, review, blocked };
-}
-
-/**
- * Execute a single tool block and return a ToolResultBlock.
- * Handles save_memory internally; routes browser tools through handleToolCall.
- */
-async function executeToolBlock(
-	block: ToolUseBlock,
-	context: { connectionId: string; userId: string },
-	userId: string,
-	connectionId: string,
-	domain: string | undefined,
-	onEvent: (event: SSEEvent) => Promise<void>,
-	provider: { supportsVision: boolean },
-	domainMemoryStr?: string,
-	userMemoryStr?: string,
-): Promise<ToolResultBlock> {
-	// Handle internal tools (no WS routing)
-
-	// recall_memory — search past memories on-demand
-	if (block.name === 'recall_memory' && domain) {
-		const args = block.input as { query: string };
-		try {
-			const results = await searchUserMemories(args.query, userId, domain, 5);
-			const formatted =
-				results.length > 0
-					? results
-							.map((r) => `[${r.category}] ${r.content} (confidence: ${r.confidence})`)
-							.join('\n')
-					: 'No matching memories found.';
-			return {
-				type: 'tool_result',
-				toolUseId: block.id,
-				content: JSON.stringify({ success: true, memories: formatted, count: results.length }),
-				isError: false,
-			};
-		} catch (err) {
-			const errorMsg = err instanceof Error ? err.message : String(err);
-			return {
-				type: 'tool_result',
-				toolUseId: block.id,
-				content: JSON.stringify({ success: false, error: errorMsg }),
-				isError: true,
-			};
-		}
-	}
-
-	// spawn_agent — launch a sub-agent for parallel work
-	if (block.name === 'spawn_agent') {
-		const args = block.input as { task: string; targetUrl: string; timeout?: number };
-		try {
-			const result = await spawnSubAgent({
-				userId,
-				connectionId,
-				task: args.task,
-				targetUrl: args.targetUrl,
-				domainMemory: domainMemoryStr,
-				userMemory: userMemoryStr,
-				domain,
-				timeout: args.timeout,
-				onEvent,
-				signal: undefined,
-			});
-			return {
-				type: 'tool_result',
-				toolUseId: block.id,
-				content: JSON.stringify(
-					result.error
-						? { success: false, error: result.error }
-						: {
-								success: true,
-								agentId: result.agentId,
-								message: 'Sub-agent spawned. Use wait_for_agents to get results.',
-							},
-				),
-				isError: !!result.error,
-			};
-		} catch (err) {
-			const errorMsg = err instanceof Error ? err.message : String(err);
-			return {
-				type: 'tool_result',
-				toolUseId: block.id,
-				content: JSON.stringify({ success: false, error: errorMsg }),
-				isError: true,
-			};
-		}
-	}
-
-	// wait_for_agents — collect results from spawned sub-agents
-	if (block.name === 'wait_for_agents') {
-		const args = block.input as { agentIds: string[] };
-		try {
-			const results = await waitForAgents(userId, args.agentIds);
-			return {
-				type: 'tool_result',
-				toolUseId: block.id,
-				content: JSON.stringify({ success: true, results }),
-				isError: false,
-			};
-		} catch (err) {
-			const errorMsg = err instanceof Error ? err.message : String(err);
-			return {
-				type: 'tool_result',
-				toolUseId: block.id,
-				content: JSON.stringify({ success: false, error: errorMsg }),
-				isError: true,
-			};
-		}
-	}
-
-	// save_memory — persist user preferences/corrections
-	if (block.name === 'save_memory' && domain) {
-		const args = block.input as { category: string; content: string };
-		try {
-			await saveUserMemory(
-				userId,
-				domain,
-				args.category as MemoryCategory,
-				args.content,
-				'explicit',
-			);
-			await onEvent({
-				type: 'tool_start',
-				toolName: 'save_memory',
-				label: args.content.slice(0, 60),
-				args: block.input,
-			});
-			await onEvent({
-				type: 'tool_end',
-				toolName: 'save_memory',
-				success: true,
-				result: { success: true, saved: args.content },
-			});
-			return {
-				type: 'tool_result',
-				toolUseId: block.id,
-				content: JSON.stringify({ success: true, message: 'Memory saved' }),
-				isError: false,
-			};
-		} catch (err) {
-			const errorMsg = err instanceof Error ? err.message : String(err);
-			return {
-				type: 'tool_result',
-				toolUseId: block.id,
-				content: JSON.stringify({ success: false, error: errorMsg }),
-				isError: true,
-			};
-		}
-	}
-
-	// save_to_local — persist files to ~/.commandra/
-	if (block.name === 'save_to_local' && domain) {
-		const args = block.input as { filename: string; content: string; category: 'exports' | 'context' };
-		try {
-			const saved = saveLocalFile(args.category, domain, args.filename, args.content);
-			await onEvent({
-				type: 'tool_start',
-				toolName: 'save_to_local',
-				label: args.filename,
-				args: block.input,
-			});
-			await onEvent({
-				type: 'tool_end',
-				toolName: 'save_to_local',
-				success: true,
-				result: { success: true, path: saved.path, sizeBytes: saved.sizeBytes },
-			});
-			return {
-				type: 'tool_result',
-				toolUseId: block.id,
-				content: JSON.stringify({
-					success: true,
-					message: `File saved to ~/.commandra/${saved.path}`,
-					sizeBytes: saved.sizeBytes,
-				}),
-				isError: false,
-			};
-		} catch (err) {
-			const errorMsg = err instanceof Error ? err.message : String(err);
-			return {
-				type: 'tool_result',
-				toolUseId: block.id,
-				content: JSON.stringify({ success: false, error: errorMsg }),
-				isError: true,
-			};
-		}
-	}
-
-	// Browser tool — classify, approve, execute
-	const result = await handleToolCall(block, context, userId, connectionId, onEvent);
-
-	// Build tool result content — save screenshots to disk, keep compressed version for LLM
-	let toolContent: string | (TextBlock | ImageBlock)[];
-	const resultData = result.data as Record<string, unknown> | undefined;
-	const imageData = resultData?.data as Record<string, unknown> | undefined;
-
-	if (
-		block.name === 'screenshot' &&
-		!result.isError &&
-		imageData?.image &&
-		provider.supportsVision
-	) {
-		const { image, ...rest } = imageData;
-		// Save full screenshot to disk for potential later use
-		const saved = saveScreenshot(image as string);
-		console.log(
-			`[Orchestrator] Screenshot saved: ${saved.id} (${Math.round(saved.sizeBytes / 1024)}KB)`,
-		);
-		// Also persist to ~/.commandra/screenshots/ for long-term storage
-		if (domain) {
-			try {
-				persistScreenshot(image as string, domain, `${userId.slice(0, 8)}-${Date.now()}`);
-			} catch {
-				// Non-critical — tmp copy still exists
-			}
-		}
-		toolContent = [
-			{
-				type: 'text' as const,
-				text: JSON.stringify({ success: true, data: { ...rest, screenshotId: saved.id } }),
-			},
-			{
-				type: 'image' as const,
-				data: saved.base64,
-				mediaType: 'image/jpeg' as const,
-			},
-		];
-	} else {
-		toolContent = JSON.stringify(result.data);
-	}
-
-	return {
-		type: 'tool_result',
-		toolUseId: block.id,
-		content: toolContent,
-		isError: result.isError,
-	};
-}
-
-// Rough token estimate: ~4 chars per token for English text, base64 images are ~3 chars per token
-const MAX_INPUT_TOKENS = 200_000;
-const CHARS_PER_TOKEN = 4;
-
-/**
- * Estimate total character count across all messages (including content blocks).
- */
-function estimateMessageChars(messages: Message[]): number {
-	let total = 0;
-	for (const m of messages) {
-		if (typeof m.content === 'string') {
-			total += m.content.length;
-		} else if (Array.isArray(m.content)) {
-			for (const block of m.content) {
-				if (block.type === 'text') total += (block as TextBlock).text.length;
-				else if (block.type === 'image') total += (block as ImageBlock).data.length;
-				else if (block.type === 'tool_result') {
-					const tr = block as ToolResultBlock;
-					if (typeof tr.content === 'string') total += tr.content.length;
-					else if (Array.isArray(tr.content)) {
-						for (const sub of tr.content) {
-							if (sub.type === 'text') total += sub.text.length;
-							else if (sub.type === 'image') total += sub.data.length;
-						}
-					}
-				} else if (block.type === 'tool_use') {
-					total += JSON.stringify((block as ToolUseBlock).input).length;
-				} else if (block.type === 'thinking') {
-					total += ((block as ThinkingContentBlock).thinking || '').length;
-				}
-			}
-		}
-	}
-	return total;
-}
-
-/**
- * Trim messages to stay within token budget.
- * Strategy:
- * 1. Strip base64 image data from all but the most recent screenshot
- * 2. If still over budget, summarize old tool results to just success/error
- * 3. If still over budget, drop the oldest message pairs
- */
-function trimMessagesForTokenBudget(messages: Message[]): Message[] {
-	const maxChars = MAX_INPUT_TOKENS * CHARS_PER_TOKEN;
-	let result = [...messages];
-
-	// Phase 1: Strip old screenshots — keep only the last image block
-	let lastImageIdx = -1;
-	for (let i = result.length - 1; i >= 0; i--) {
-		const content = result[i].content;
-		if (Array.isArray(content)) {
-			for (const block of content) {
-				if (block.type === 'image') {
-					lastImageIdx = i;
-					break;
-				}
-				if (block.type === 'tool_result') {
-					const tr = block as ToolResultBlock;
-					if (Array.isArray(tr.content)) {
-						for (const sub of tr.content) {
-							if (sub.type === 'image') {
-								lastImageIdx = i;
-								break;
-							}
-						}
-					}
-				}
-			}
-			if (lastImageIdx >= 0) break;
-		}
-	}
-
-	// Replace older image blocks with a placeholder
-	result = result.map((m, idx) => {
-		if (idx >= lastImageIdx || !Array.isArray(m.content)) return m;
-		const cleaned = (m.content as ContentBlock[]).map((block) => {
-			if (block.type === 'image') {
-				return { type: 'text' as const, text: '[screenshot removed to save context]' };
-			}
-			if (block.type === 'tool_result') {
-				const tr = block as ToolResultBlock;
-				if (Array.isArray(tr.content)) {
-					const hasImage = tr.content.some((sub) => sub.type === 'image');
-					if (hasImage) {
-						return {
-							...tr,
-							content: tr.content.map((sub) =>
-								sub.type === 'image'
-									? { type: 'text' as const, text: '[screenshot removed]' }
-									: sub,
-							),
-						} as ToolResultBlock;
-					}
-				}
-			}
-			return block;
-		});
-		return { ...m, content: cleaned };
-	});
-
-	// Phase 2: If still over budget, truncate long tool result strings
-	if (estimateMessageChars(result) > maxChars) {
-		result = result.map((m) => {
-			if (!Array.isArray(m.content)) return m;
-			const cleaned = (m.content as ContentBlock[]).map((block) => {
-				if (block.type === 'tool_result') {
-					const tr = block as ToolResultBlock;
-					if (typeof tr.content === 'string' && tr.content.length > 2000) {
-						return { ...tr, content: tr.content.slice(0, 2000) + '...[truncated]' };
-					}
-				}
-				return block;
-			});
-			return { ...m, content: cleaned };
-		});
-	}
-
-	// Phase 3: If still over budget, drop oldest assistant+user pairs (keep first + last 4)
-	if (estimateMessageChars(result) > maxChars && result.length > 6) {
-		const keep = 4; // Keep last N messages
-		const trimmed = [result[0], ...result.slice(-keep)];
-		console.log(
-			`[Orchestrator] Token budget exceeded, dropped ${result.length - trimmed.length} messages`,
-		);
-		result = trimmed;
-	}
-
-	return result;
-}
-
-interface ToolCallResult {
-	data: unknown;
-	isError: boolean;
-}
-
-async function handleToolCall(
-	block: ToolUseBlock,
-	context: { connectionId: string; userId: string },
-	userId: string,
-	connectionId: string,
-	onEvent: (event: SSEEvent) => Promise<void>,
-): Promise<ToolCallResult> {
-	const { name, input: toolArgs } = block;
-	const elementLabel = (toolArgs.description as string) || (toolArgs.selector as string) || '';
-
-	// Kill switch check before each action
-	if (isKilled(connectionId)) {
-		return {
-			data: { success: false, error: 'Agent stopped by user' },
-			isError: true,
-		};
-	}
-
-	// Safety classification
-	const classification = classifyAction({ toolName: name, args: toolArgs, elementLabel });
-	console.log(
-		`[Safety] ${name} "${elementLabel}" → ${classification.level} (${classification.reason})`,
-	);
-
-	// Blocked
-	if (classification.level === 'blocked') {
-		await onEvent({ type: 'blocked', toolName: name, reason: classification.reason });
-		await logAction({
-			userId,
-			action: name,
-			safetyLevel: 'blocked',
-			approved: false,
-			metadata: { args: toolArgs, reason: classification.reason },
-		});
-		return {
-			data: {
-				success: false,
-				error: `Blocked: ${classification.reason}. Ask the user to confirm this action explicitly.`,
-			},
-			isError: true,
-		};
-	}
-
-	// Review — request approval via WS (existing flow, just emit events)
-	if (classification.level === 'review') {
-		try {
-			const approval = await sendApprovalRequest(connectionId, {
-				action: name,
-				selector: toolArgs.selector as string,
-				label: elementLabel,
-				reason: classification.reason,
-			});
-
-			if (!approval.approved) {
-				await logAction({
-					userId,
-					action: name,
-					safetyLevel: 'review',
-					approved: false,
-					metadata: { args: toolArgs, reason: approval.reason },
-				});
-				return {
-					data: {
-						success: false,
-						error: `User rejected this action. ${approval.reason || ''}`,
-					},
-					isError: true,
-				};
-			}
-		} catch {
-			await logAction({
-				userId,
-				action: name,
-				safetyLevel: 'review',
-				approved: false,
-				metadata: { args: toolArgs, error: 'Approval failed' },
-			});
-			return {
-				data: { success: false, error: 'Could not get user approval' },
-				isError: true,
-			};
-		}
-	}
-
-	// Execute tool — emit start/end events with args and results
-	await onEvent({
-		type: 'tool_start',
-		toolName: name,
-		label: elementLabel || undefined,
-		args: toolArgs,
-	});
-
-	try {
-		const result = await executeTool(name, toolArgs, context);
-
-		// Check if the tool itself reported failure (e.g., element not found, invalid selector)
-		const resultData = result as unknown as Record<string, unknown> | undefined;
-		const toolSucceeded = resultData?.success !== false;
-
-		await logAction({
-			userId,
-			action: name,
-			safetyLevel: classification.level,
-			approved: true,
-			metadata: { args: toolArgs, result },
-		});
-
-		// Auto-refresh page state after state-changing actions so the agent always has current DOM
-		// Only auto-refresh if the action actually succeeded
-		const STATE_CHANGING_TOOLS = ['click_element', 'navigate', 'type_text', 'select_option'];
-		let pageStateUpdate: unknown = undefined;
-		if (toolSucceeded && STATE_CHANGING_TOOLS.includes(name)) {
-			try {
-				// Wait for SPA transitions / DOM updates — longer for click/navigate (modals, page loads)
-				const delay = name === 'click_element' || name === 'navigate' ? 2000 : 500;
-				await new Promise((resolve) => setTimeout(resolve, delay));
-				const freshState = await executeTool('get_page_state', {}, context);
-				const freshData = freshState as unknown as Record<string, unknown>;
-				if (freshData?.success) {
-					pageStateUpdate = freshData.data;
-				}
-			} catch {
-				// Non-critical — agent can still call refresh_page_state manually
-			}
-		}
-
-		// Extract screenshot for the frontend if this was a screenshot tool
-		const screenshotImage =
-			name === 'screenshot' && resultData?.success
-				? ((resultData.data as Record<string, unknown>)?.image as string | undefined)
-				: undefined;
-
-		// Merge page state update into the result so LLM sees current elements
-		// Format elements clearly so the LLM knows exactly which selectors to use
-		let enrichedResult: unknown = result;
-		if (pageStateUpdate && resultData?.success) {
-			const ps = pageStateUpdate as { elements?: { type: string; label: string; selector: string; inOverlay?: boolean }[]; url?: string; title?: string };
-			if (ps.elements) {
-				// Surface overlay/modal elements first (compose windows, dialogs, etc.)
-				const overlayEls = ps.elements.filter((e) => e.inOverlay);
-				const otherEls = ps.elements.filter((e) => !e.inOverlay);
-
-				const formatEl = (e: { type: string; label: string; selector: string }) =>
-					`[${e.type}] "${e.label}" → selector: ${e.selector}`;
-
-				const elementSummary = [
-					...(overlayEls.length > 0
-						? ['MODAL/DIALOG ELEMENTS (use these first):', ...overlayEls.slice(0, 20).map(formatEl)]
-						: []),
-					'PAGE ELEMENTS:',
-					...otherEls.slice(0, 30).map(formatEl),
-					...(otherEls.length > 30 ? [`...and ${otherEls.length - 30} more`] : []),
-				].join('\n');
-
-				enrichedResult = {
-					...resultData,
-					updatedPageElements: elementSummary,
-					note: 'USE ONLY the selectors listed above. Do NOT invent selectors.',
-				};
-			} else {
-				enrichedResult = { ...resultData, pageState: pageStateUpdate };
-			}
-		}
-
-		await onEvent({
-			type: 'tool_end',
-			toolName: name,
-			success: toolSucceeded,
-			result: screenshotImage ? { success: true } : enrichedResult,
-			screenshot: screenshotImage,
-			error: toolSucceeded ? undefined : (resultData?.error as string) || 'Action failed',
-		});
-
-		// Record step if in teach mode (skip read-only tools and failed tools)
-		if (
-			toolSucceeded &&
-			isRecording(connectionId) &&
-			!['screenshot', 'get_page_state', 'refresh_page_state', 'go_back'].includes(name)
-		) {
-			const step = await recordStep(
-				connectionId,
-				name,
-				toolArgs,
-				{ success: true, data: result },
-				'', // URL pattern will be filled by page context
-				'',
-			);
-			if (step) {
-				await onEvent({ type: 'flow_step_recorded', step, stepCount: step.index + 1 });
-			}
-		}
-
-		return { data: enrichedResult, isError: !toolSucceeded };
-	} catch (err) {
-		const errorMsg = err instanceof Error ? err.message : String(err);
-		await logAction({
-			userId,
-			action: name,
-			safetyLevel: classification.level,
-			approved: true,
-			metadata: { args: toolArgs, error: errorMsg },
-		});
-		await onEvent({
-			type: 'tool_end',
-			toolName: name,
-			success: false,
-			error: errorMsg,
-		});
-		return {
-			data: { success: false, error: errorMsg },
-			isError: true,
-		};
-	}
 }

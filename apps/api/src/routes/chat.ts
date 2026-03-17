@@ -3,7 +3,6 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
-import { cancelRecording, isRecording, startRecording, stopRecording } from '../agent/recorder.js';
 import { db } from '../db/index.js';
 import { conversationEmbeddings, conversations, messages, pages, sites } from '../db/schema.js';
 import { embedText, getEmbeddingProvider } from '../llm/embeddings.js';
@@ -13,7 +12,8 @@ import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
-import { searchConversations, searchElements, searchFlows } from '../db/vector-search.js';
+import { searchConversations, searchElements } from '../db/vector-search.js';
+import { agents } from '../db/schema.js';
 
 /**
  * Detect if a user message clearly requires PARALLEL work across multiple distinct websites.
@@ -85,69 +85,10 @@ export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
 chatRoutes.use('*', requireAuth);
 
-// Start recording mode
-chatRoutes.post('/record/start', async (c) => {
-	const user = c.get('user');
-	const body = await c.req.json();
-	const { domain } = body as { domain: string };
-
-	if (!domain?.trim()) return c.json({ error: 'Domain required' }, 400);
-
-	const connectionId = getConnectionByUser(user.id);
-	if (!connectionId) return c.json({ error: 'Extension not connected' }, 400);
-
-	if (isRecording(connectionId)) {
-		return c.json({ error: 'Already recording' }, 400);
-	}
-
-	startRecording(connectionId, user.id, domain);
-
-	return c.json({ ok: true, recording: true });
-});
-
-// Stop recording and save flow
-chatRoutes.post('/record/stop', async (c) => {
-	const user = c.get('user');
-	const body = await c.req.json();
-	const { name, description } = body as { name: string; description?: string };
-
-	if (!name?.trim()) return c.json({ error: 'Flow name required' }, 400);
-
-	const connectionId = getConnectionByUser(user.id);
-	if (!connectionId) return c.json({ error: 'Extension not connected' }, 400);
-
-	if (!isRecording(connectionId)) {
-		return c.json({ error: 'Not recording' }, 400);
-	}
-
-	const flowId = await stopRecording(connectionId, name, description);
-	if (!flowId) {
-		return c.json({ error: 'No steps recorded' }, 400);
-	}
-
-	return c.json({ ok: true, flowId });
-});
-
-// Cancel recording without saving
-chatRoutes.post('/record/cancel', async (c) => {
-	const user = c.get('user');
-	const connectionId = getConnectionByUser(user.id);
-	if (connectionId) cancelRecording(connectionId);
-	return c.json({ ok: true });
-});
-
-// Check recording status
-chatRoutes.get('/record/status', async (c) => {
-	const user = c.get('user');
-	const connectionId = getConnectionByUser(user.id);
-	const recording = connectionId ? isRecording(connectionId) : false;
-	return c.json({ recording });
-});
-
 chatRoutes.post('/', async (c) => {
 	const user = c.get('user');
 	const body = await c.req.json();
-	const { message, pageIndex, conversationId, selectedElements } = body as {
+	const { message, pageIndex, conversationId, selectedElements, agentId } = body as {
 		message: string;
 		pageIndex?: unknown;
 		conversationId?: string;
@@ -159,16 +100,43 @@ chatRoutes.post('/', async (c) => {
 			type?: string;
 			attributes: Record<string, string>;
 		}[];
+		agentId?: string;
 	};
 
 	if (!message?.trim()) return c.json({ error: 'Message required' }, 400);
 
 	// Get or create conversation
 	let convId = conversationId;
+	// Load agent if specified
+	let agentInstructions: string | undefined;
+	let allowedTools: string[] | undefined;
+	if (agentId) {
+		const [agent] = await db
+			.select({
+				instructions: agents.instructions,
+				tools: agents.tools,
+				safetyRules: agents.safetyRules,
+			})
+			.from(agents)
+			.where(eq(agents.id, agentId))
+			.limit(1);
+		if (agent) {
+			agentInstructions = agent.instructions;
+			const agentTools = agent.tools as string[];
+			if (agentTools && !agentTools.includes('*')) {
+				allowedTools = agentTools;
+			}
+		}
+	}
+
 	if (!convId) {
 		const [conv] = await db
 			.insert(conversations)
-			.values({ userId: user.id, title: message.slice(0, 100) })
+			.values({
+				userId: user.id,
+				title: message.slice(0, 100),
+				...(agentId && { agentId }),
+			})
 			.returning();
 		convId = conv.id;
 	}
@@ -310,10 +278,9 @@ chatRoutes.post('/', async (c) => {
 			const siteId = site?.id;
 
 			// Run all embedding searches in parallel (non-blocking — skip if embeddings not configured)
-			const [pastConvos, relevantElements, matchingFlows] = await Promise.allSettled([
+			const [pastConvos, relevantElements] = await Promise.allSettled([
 				searchConversations(message, user.id, 3),
 				siteId ? searchElements(message, siteId, 8) : Promise.resolve([]),
-				searchFlows(message, user.id, 3),
 			]);
 
 			const contextParts: string[] = [];
@@ -339,19 +306,6 @@ chatRoutes.post('/', async (c) => {
 					for (const e of relevant) {
 						contextParts.push(
 							`- ${e.elementType}: "${e.elementLabel}" [${e.selector}] (match: ${(e.score * 100).toFixed(0)}%)`,
-						);
-					}
-				}
-			}
-
-			// Matching flows — saved automations for this task
-			if (matchingFlows.status === 'fulfilled' && matchingFlows.value.length > 0) {
-				const relevant = matchingFlows.value.filter((f) => f.score > 0.3);
-				if (relevant.length > 0) {
-					contextParts.push('### Saved Flows That May Help');
-					for (const f of relevant) {
-						contextParts.push(
-							`- "${f.text}" (match: ${(f.score * 100).toFixed(0)}%)`,
 						);
 					}
 				}
@@ -398,6 +352,8 @@ chatRoutes.post('/', async (c) => {
 					domain,
 					onEvent,
 					signal,
+					agentInstructions,
+					allowedTools,
 				});
 				fullResponse = result.response;
 				if (result.toolCalls.length > 0) {

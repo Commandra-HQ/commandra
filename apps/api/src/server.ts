@@ -5,12 +5,12 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { serve as inngestServe } from 'inngest/hono';
 import { WebSocketServer } from 'ws';
-import { embedFlow, embedPageElements, inngest } from './inngest/index.js';
+import { embedPageElements, inngest } from './inngest/index.js';
+import { agentRoutes } from './routes/agents.js';
 import { auditRoutes } from './routes/audit.js';
 import { authRoutes } from './routes/auth.js';
 import { chatRoutes } from './routes/chat.js';
 import { conversationRoutes } from './routes/conversations.js';
-import { flowRoutes } from './routes/flows.js';
 import { healthRoutes } from './routes/health.js';
 import { memoryRoutes } from './routes/memory.js';
 import { orgRoutes } from './routes/orgs.js';
@@ -52,13 +52,13 @@ app.route('/api/audit', auditRoutes);
 app.route('/api/sites', siteRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/stats', statsRoutes);
-app.route('/api/flows', flowRoutes);
+app.route('/api/agents', agentRoutes);
 app.route('/api/memory', memoryRoutes);
 app.route('/api/orgs', orgRoutes);
 app.route('/api/storage', storageRoutes);
 
 // Inngest handler — serve as middleware
-const inngestHandler = inngestServe({ client: inngest, functions: [embedPageElements, embedFlow] });
+const inngestHandler = inngestServe({ client: inngest, functions: [embedPageElements] });
 app.all('/api/inngest', (c) => inngestHandler(c));
 app.all('/api/inngest/*', (c) => inngestHandler(c));
 
