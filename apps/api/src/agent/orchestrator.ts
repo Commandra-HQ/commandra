@@ -27,7 +27,8 @@ import { isKilled, sendApprovalRequest } from '../ws/handler.js';
 import { parsePlan } from './planner.js';
 import { buildSystemPrompt } from './prompts.js';
 import { isRecording, recordStep } from './recorder.js';
-import { saveScreenshot } from '../screenshots/manager.js';
+import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
+import { saveLocalFile } from '../storage/local.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
 
 export interface OrchestratorParams {
@@ -166,12 +167,37 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			required: ['agentIds'],
 		},
 	};
+	const saveToLocalTool = {
+		name: 'save_to_local',
+		description:
+			'Save a file to persistent local storage on the user\'s computer (~/.commandra/). Use for exports, extracted data, or context files the user wants to keep.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				filename: {
+					type: 'string',
+					description: 'Filename to save as (e.g. "report.json", "data.csv")',
+				},
+				content: {
+					type: 'string',
+					description: 'File content to save',
+				},
+				category: {
+					type: 'string',
+					enum: ['exports', 'context'],
+					description: 'Category: exports (user-requested data) or context (reference material)',
+				},
+			},
+			required: ['filename', 'content', 'category'],
+		},
+	};
 	const tools = [
 		...browserTools,
 		saveMemoryTool,
 		recallMemoryTool,
 		spawnAgentTool,
 		waitForAgentsTool,
+		saveToLocalTool,
 	];
 	const context = { connectionId, userId };
 
@@ -542,7 +568,7 @@ function partitionToolsBySafety(
 
 	for (const block of toolBlocks) {
 		// Internal tools are always safe (no WS routing)
-		if (['save_memory', 'recall_memory', 'spawn_agent', 'wait_for_agents'].includes(block.name)) {
+		if (['save_memory', 'recall_memory', 'spawn_agent', 'wait_for_agents', 'save_to_local'].includes(block.name)) {
 			safe.push(block);
 			continue;
 		}
@@ -715,6 +741,44 @@ async function executeToolBlock(
 		}
 	}
 
+	// save_to_local — persist files to ~/.commandra/
+	if (block.name === 'save_to_local' && domain) {
+		const args = block.input as { filename: string; content: string; category: 'exports' | 'context' };
+		try {
+			const saved = saveLocalFile(args.category, domain, args.filename, args.content);
+			await onEvent({
+				type: 'tool_start',
+				toolName: 'save_to_local',
+				label: args.filename,
+				args: block.input,
+			});
+			await onEvent({
+				type: 'tool_end',
+				toolName: 'save_to_local',
+				success: true,
+				result: { success: true, path: saved.path, sizeBytes: saved.sizeBytes },
+			});
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({
+					success: true,
+					message: `File saved to ~/.commandra/${saved.path}`,
+					sizeBytes: saved.sizeBytes,
+				}),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
 	// Browser tool — classify, approve, execute
 	const result = await handleToolCall(block, context, userId, connectionId, onEvent);
 
@@ -735,6 +799,14 @@ async function executeToolBlock(
 		console.log(
 			`[Orchestrator] Screenshot saved: ${saved.id} (${Math.round(saved.sizeBytes / 1024)}KB)`,
 		);
+		// Also persist to ~/.commandra/screenshots/ for long-term storage
+		if (domain) {
+			try {
+				persistScreenshot(image as string, domain, `${userId.slice(0, 8)}-${Date.now()}`);
+			} catch {
+				// Non-critical — tmp copy still exists
+			}
+		}
 		toolContent = [
 			{
 				type: 'text' as const,

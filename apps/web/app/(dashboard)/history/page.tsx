@@ -3,8 +3,10 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { apiFetch } from '@/lib/api';
-import { MessageSquare } from 'lucide-react';
+import { CheckCircle2, MessageSquare, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Conversation {
 	id: string;
@@ -14,10 +16,18 @@ interface Conversation {
 	updatedAt: string;
 }
 
+interface ToolCall {
+	name: string;
+	args: unknown;
+	result: unknown;
+	success: boolean;
+}
+
 interface Message {
 	id: string;
 	role: 'user' | 'assistant';
 	content: string;
+	toolData?: { tools: ToolCall[] } | null;
 	createdAt: string;
 }
 
@@ -127,12 +137,54 @@ export default function HistoryPage() {
 										key={msg.id}
 										className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
 									>
-										<div
-											className={`max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
-												msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
-											}`}
-										>
-											{msg.content}
+										<div className={`max-w-[80%] ${msg.role === 'user' ? '' : 'space-y-2'}`}>
+											<div
+												className={`rounded-lg px-3 py-2 text-sm ${
+													msg.role === 'user'
+														? 'bg-primary text-primary-foreground whitespace-pre-wrap'
+														: 'bg-muted prose prose-sm dark:prose-invert max-w-none'
+												}`}
+											>
+												{msg.role === 'user' ? (
+													msg.content
+												) : (
+													<ReactMarkdown remarkPlugins={[remarkGfm]}>
+														{msg.content}
+													</ReactMarkdown>
+												)}
+											</div>
+											{msg.role === 'assistant' &&
+												msg.toolData?.tools &&
+												msg.toolData.tools.length > 0 && (
+													<div className="space-y-1">
+														{msg.toolData.tools.map((tool, i) => (
+															<details
+																key={i}
+																className="rounded border border-border text-xs"
+															>
+																<summary className="px-2 py-1 cursor-pointer flex items-center gap-1.5 hover:bg-muted/50">
+																	{tool.success ? (
+																		<CheckCircle2
+																			size={12}
+																			className="text-green-500 shrink-0"
+																		/>
+																	) : (
+																		<XCircle
+																			size={12}
+																			className="text-red-500 shrink-0"
+																		/>
+																	)}
+																	<span className="font-medium">{tool.name}</span>
+																</summary>
+																<div className="px-2 py-1 border-t border-border bg-muted/30">
+																	<pre className="whitespace-pre-wrap text-[10px] text-muted-foreground overflow-x-auto">
+																		{JSON.stringify(tool.args, null, 2)}
+																	</pre>
+																</div>
+															</details>
+														))}
+													</div>
+												)}
 										</div>
 									</div>
 								))

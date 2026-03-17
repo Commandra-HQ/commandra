@@ -8,6 +8,7 @@ import {
 	Brain,
 	Building2,
 	Globe,
+	HardDrive,
 	History,
 	Home,
 	LogOut,
@@ -26,6 +27,7 @@ const baseNavItems = [
 	{ href: '/audit', label: 'Audit Log', icon: Shield },
 	{ href: '/sites', label: 'Sites', icon: Globe },
 	{ href: '/memory', label: 'Memory', icon: Brain },
+	{ href: '/storage', label: 'Storage', icon: HardDrive },
 	{ href: '/settings', label: 'Settings', icon: Settings },
 ];
 

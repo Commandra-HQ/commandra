@@ -56,6 +56,7 @@ conversationRoutes.get('/:id', async (c) => {
 			id: messages.id,
 			role: messages.role,
 			content: messages.content,
+			toolData: messages.toolData,
 			createdAt: messages.createdAt,
 		})
 		.from(messages)
