@@ -1,0 +1,13 @@
+# =============================================================================
+# Web (dashboard) service only. In Railway: set this service's Config File Path
+# to apps/web/railway.toml (path from repo root). Leave Root Directory empty.
+# =============================================================================
+# Web: set PORT=8080 (or leave unset; start script defaults to 8080). When generating domain, select port 8080. Set NEXT_PUBLIC_API_URL = API domain.
+
+[build]
+builder = "RAILPACK"
+buildCommand = "pnpm install --frozen-lockfile && pnpm --filter @afe/shared build && pnpm --filter @afe/web build"
+watchPatterns = ["apps/web/**", "packages/shared/**", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "apps/web/railway.toml"]
+
+[deploy]
+startCommand = "pnpm --filter @afe/web start"

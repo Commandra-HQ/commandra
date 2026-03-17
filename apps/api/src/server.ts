@@ -23,6 +23,8 @@ import { handleWsConnection } from './ws/handler.js';
 const app = new Hono();
 
 app.use('*', logger());
+// CORS: allow chrome-extension + localhost always; optional CORS_ORIGINS for dashboard (e.g. https://app.example.com)
+const corsOrigins = process.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? [];
 app.use(
 	'*',
 	cors({
@@ -30,6 +32,7 @@ app.use(
 			if (!origin) return origin;
 			if (origin.startsWith('chrome-extension://')) return origin;
 			if (origin.startsWith('http://localhost:')) return origin;
+			if (corsOrigins.includes(origin)) return origin;
 			return null;
 		},
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -37,6 +40,7 @@ app.use(
 	}),
 );
 
+app.get('/', (c) => c.json({ name: 'Commandra API', docs: '/health', status: 'ok' }));
 app.route('/health', healthRoutes);
 app.route('/api/auth', authRoutes);
 app.route('/api/token', tokenRoutes);
@@ -62,6 +66,25 @@ const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
 	console.log(`API server running on http://localhost:${info.port}`);
 });
 
-const wss = new WebSocketServer({ port: WS_PORT });
+// WebSocket: attach to HTTP server on path /ws (single-port mode, e.g. Railway).
+// Also listen on WS_PORT if different from PORT (local dev: 3001 vs 3002).
+const wss = new WebSocketServer({ noServer: true });
 wss.on('connection', handleWsConnection);
-console.log(`WebSocket server running on ws://localhost:${WS_PORT}`);
+
+server.on('upgrade', (request, socket, head) => {
+	const path = request.url?.split('?')[0];
+	if (path === '/ws') {
+		wss.handleUpgrade(request, socket, head, (ws) => {
+			wss.emit('connection', ws, request);
+		});
+	} else {
+		socket.destroy();
+	}
+});
+
+if (WS_PORT !== PORT) {
+	const standaloneWs = new WebSocketServer({ port: WS_PORT });
+	standaloneWs.on('connection', handleWsConnection);
+	console.log(`WebSocket server also running on ws://localhost:${WS_PORT}`);
+}
+console.log(`WebSocket server on path /ws (same port as API)`);

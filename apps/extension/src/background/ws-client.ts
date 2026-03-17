@@ -7,7 +7,8 @@
  * depend on the content script being loaded.
  */
 
-const WS_URL = 'ws://localhost:3002';
+// Injected at build time by Vite define (see vite.config.ts)
+const WS_URL = process.env.WS_URL ?? 'ws://localhost:3002';
 const KEEPALIVE_ALARM = 'ws-keepalive';
 
 let ws: WebSocket | null = null;

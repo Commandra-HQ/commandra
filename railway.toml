@@ -1,0 +1,15 @@
+# =============================================================================
+# API service only. Used when no "Config File Path" is set (default for first
+# service from this repo). For the dashboard, add a second service and set
+# Config File Path to: apps/web/railway.toml
+# =============================================================================
+# API: set PORT=3001 in variables; when generating domain, select port 3001.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/api/Dockerfile"
+watchPatterns = ["apps/api/**", "packages/shared/**", "railway.toml"]
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30

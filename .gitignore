@@ -6,5 +6,6 @@ dist
 tsconfig.tsbuildinfo
 .env
 .env.local
+.railway
 .DS_Store
 drizzle/meta

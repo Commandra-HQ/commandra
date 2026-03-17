@@ -10,7 +10,8 @@ import {
 	sendPageIndexed,
 } from './ws-client.js';
 
-const API_URL = 'http://localhost:3001';
+// Injected at build time by Vite define (see vite.config.ts)
+const API_URL = process.env.API_URL ?? 'http://localhost:3001';
 
 // Open side panel when extension icon is clicked
 chrome.sidePanel

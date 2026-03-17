@@ -1,225 +1,292 @@
 /**
- * OpenAI provider adapter.
- * Translates our generic types ↔ OpenAI SDK types.
+ * OpenAI provider adapter — uses the Responses API.
+ * Translates our generic types ↔ OpenAI Responses API types.
+ * Supports reasoning summaries (streamed as thinking_delta events).
  */
 
 import OpenAI from 'openai';
+import type { Responses } from 'openai/resources/responses/responses';
 import type {
-	ChatParams,
-	ContentBlock,
-	LLMProvider,
-	Message,
-	StreamEvent,
-	Tool,
+  ChatParams,
+  ContentBlock,
+  LLMProvider,
+  Message,
+  StreamEvent,
+  Tool,
 } from '../types.js';
 
 // Model aliases → actual OpenAI model IDs
 // Any model string not in this map passes through as-is to the OpenAI API
 const MODEL_MAP: Record<string, string> = {
-	'gpt-4o': 'gpt-4o',
-	'gpt-4o-mini': 'gpt-4o-mini',
-	'gpt-4.1': 'gpt-4.1',
-	'gpt-4.1-mini': 'gpt-4.1-mini',
-	'gpt-4.1-nano': 'gpt-4.1-nano',
-	'gpt-5': 'gpt-5',
-	'gpt-5-mini': 'gpt-5-mini',
-	'o3-mini': 'o3-mini',
-	'o3': 'o3',
+  'gpt-4o': 'gpt-4o',
+  'gpt-4o-mini': 'gpt-4o-mini',
+  'gpt-4.1': 'gpt-4.1',
+  'gpt-4.1-mini': 'gpt-4.1-mini',
+  'gpt-4.1-nano': 'gpt-4.1-nano',
+  'gpt-5': 'gpt-5',
+  'gpt-5-mini': 'gpt-5-mini',
+  'gpt-5-nano': 'gpt-5-nano',
+  'gpt-5.2': 'gpt-5.2',
+  'o3-mini': 'o3-mini',
+  o3: 'o3',
+  'o4-mini': 'o4-mini',
 };
 
 function resolveModel(model: string): string {
-	return MODEL_MAP[model] || model;
+  return MODEL_MAP[model] || model;
 }
 
 export class OpenAIProvider implements LLMProvider {
-	id = 'openai';
-	supportsVision = true;
-	supportsToolUse = true;
+  id = 'openai';
+  supportsVision = true;
+  supportsToolUse = true;
 
-	private client: OpenAI;
+  private client: OpenAI;
 
-	constructor(apiKey: string) {
-		this.client = new OpenAI({ apiKey });
-	}
+  constructor(apiKey: string) {
+    this.client = new OpenAI({ apiKey });
+  }
 
-	async *chat(params: ChatParams): AsyncIterable<StreamEvent> {
-		const messages = toOpenAIMessages(params.system, params.messages);
+  async *chat(params: ChatParams): AsyncIterable<StreamEvent> {
+    const input = toResponsesInput(params.system, params.messages);
+    const tools = params.tools ? toResponsesTools(params.tools) : undefined;
 
-		const response = await this.client.chat.completions.create(
-			{
-				model: resolveModel(params.model),
-				max_completion_tokens: params.maxTokens ?? 4096,
-				messages,
-				tools: params.tools ? toOpenAITools(params.tools) : undefined,
-				stream: true,
-			},
-			params.signal ? { signal: params.signal } : undefined,
-		);
+    const createParams: Record<string, unknown> = {
+      model: resolveModel(params.model),
+      input,
+      instructions: params.system,
+      max_output_tokens: params.maxTokens ?? 4096,
+      tools,
+      stream: true,
+      store: false,
+    };
 
-		// Track tool calls being built from deltas
-		const toolCalls = new Map<number, { id: string; name: string; json: string }>();
+    // Enable reasoning with summaries for models that support it (gpt-5+, o-series)
+    const resolved = resolveModel(params.model);
+    const supportsReasoning = /^(gpt-5|o[34])/.test(resolved);
+    if (params.thinking && supportsReasoning) {
+      createParams.reasoning = {
+        effort: 'medium',
+        summary: 'auto',
+      };
+    }
 
-		for await (const chunk of response) {
-			const delta = chunk.choices[0]?.delta;
-			if (!delta) continue;
+    const response = await this.client.responses.create(
+      createParams as unknown as Responses.ResponseCreateParamsStreaming,
+      params.signal ? { signal: params.signal } : undefined,
+    );
 
-			// Text content
-			if (delta.content) {
-				yield { type: 'text', text: delta.content };
-			}
+    // Track function calls by item_id (the item's `id` field, used in delta events)
+    // Maps item_id → { callId (for our tool result matching), name, json }
+    const functionCalls = new Map<
+      string,
+      { callId: string; name: string; json: string }
+    >();
 
-			// Reasoning tokens (o-series models)
-			const reasoning = (delta as Record<string, unknown>).reasoning_content;
-			if (typeof reasoning === 'string' && reasoning) {
-				yield { type: 'thinking_delta', text: reasoning };
-			}
+    for await (const event of response as AsyncIterable<Responses.ResponseStreamEvent>) {
+      switch (event.type) {
+        // Text content deltas
+        case 'response.output_text.delta':
+          yield { type: 'text', text: event.delta };
+          break;
 
-			// Tool call deltas
-			if (delta.tool_calls) {
-				for (const tc of delta.tool_calls) {
-					const idx = tc.index;
+        // Reasoning summary deltas → map to thinking_delta
+        case 'response.reasoning_summary_text.delta':
+          yield { type: 'thinking_delta', text: event.delta };
+          break;
 
-					if (tc.id) {
-						// Start of a new tool call
-						toolCalls.set(idx, { id: tc.id, name: tc.function?.name || '', json: '' });
-						yield { type: 'tool_use_start', id: tc.id, name: tc.function?.name || '' };
-					}
+        // Function call: item added with name + empty args
+        case 'response.output_item.added': {
+          const item = event.item;
+          if (item.type === 'function_call') {
+            const fc = item as Responses.ResponseFunctionToolCall & {
+              id?: string;
+            };
+            // item_id in delta events = the item's `id`, NOT `call_id`
+            const itemId = fc.id || fc.call_id;
+            console.log(
+              `[OpenAI] function_call added: itemId=${itemId} callId=${fc.call_id} name=${fc.name}`,
+            );
+            functionCalls.set(itemId, {
+              callId: fc.call_id,
+              name: fc.name,
+              json: '',
+            });
+            yield { type: 'tool_use_start', id: fc.call_id, name: fc.name };
+          }
+          break;
+        }
 
-					if (tc.function?.arguments) {
-						const existing = toolCalls.get(idx);
-						if (existing) {
-							existing.json += tc.function.arguments;
-							yield {
-								type: 'tool_use_delta',
-								id: existing.id,
-								partialJson: tc.function.arguments,
-							};
-						}
-					}
-				}
-			}
+        // Function call arguments streaming
+        case 'response.function_call_arguments.delta': {
+          const existing = functionCalls.get(event.item_id);
+          if (existing) {
+            existing.json += event.delta;
+            yield {
+              type: 'tool_use_delta',
+              id: existing.callId,
+              partialJson: event.delta,
+            };
+          }
+          break;
+        }
 
-			// Finish reason
-			const finish = chunk.choices[0]?.finish_reason;
-			if (finish) {
-				// Emit tool_use_end for any accumulated tool calls
-				for (const [, tc] of toolCalls) {
-					let input: Record<string, unknown> = {};
-					try {
-						input = JSON.parse(tc.json || '{}');
-					} catch {
-						/* empty */
-					}
-					yield { type: 'tool_use_end', id: tc.id, name: tc.name, input };
-				}
-				toolCalls.clear();
+        // Function call arguments done
+        case 'response.function_call_arguments.done': {
+          const fc = functionCalls.get(event.item_id);
+          if (fc) {
+            let input: Record<string, unknown> = {};
+            try {
+              input = JSON.parse(event.arguments || '{}');
+            } catch {
+              /* empty */
+            }
+            yield { type: 'tool_use_end', id: fc.callId, name: fc.name, input };
+            functionCalls.delete(event.item_id);
+          }
+          break;
+        }
 
-				yield {
-					type: 'message_end',
-					stopReason:
-						finish === 'tool_calls' ? 'tool_use' : finish === 'length' ? 'max_tokens' : 'end_turn',
-				};
-			}
-		}
-	}
+        // Response completed — determine stop reason
+        case 'response.completed': {
+          const resp = event.response;
+          const hasToolCalls = resp.output.some(
+            (o: Responses.ResponseOutputItem) => o.type === 'function_call',
+          );
+          const isIncomplete = resp.status === 'incomplete';
+          yield {
+            type: 'message_end',
+            stopReason: hasToolCalls
+              ? 'tool_use'
+              : isIncomplete
+                ? 'max_tokens'
+                : 'end_turn',
+          };
+          break;
+        }
+
+        // Response failed or incomplete
+        case 'response.failed':
+        case 'response.incomplete':
+          yield { type: 'message_end', stopReason: 'end_turn' };
+          break;
+      }
+    }
+  }
 }
 
 // --- Translators ---
 
-function toOpenAIMessages(
-	system: string,
-	messages: Message[],
-): OpenAI.ChatCompletionMessageParam[] {
-	const result: OpenAI.ChatCompletionMessageParam[] = [{ role: 'system', content: system }];
+/**
+ * Convert our generic Message[] to Responses API input items.
+ * The system message goes into the `instructions` param, not the input array.
+ */
+function toResponsesInput(
+  _system: string,
+  messages: Message[],
+): Responses.ResponseInput {
+  const result: Responses.ResponseInputItem[] = [];
 
-	for (const m of messages) {
-		if (typeof m.content === 'string') {
-			result.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
-		} else {
-			// Content blocks — need to handle tool_use, tool_result, images
-			const blocks = m.content as ContentBlock[];
+  for (const m of messages) {
+    if (typeof m.content === 'string') {
+      result.push({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content,
+        type: 'message',
+      });
+    } else {
+      const blocks = m.content as ContentBlock[];
 
-			if (m.role === 'assistant') {
-				// Assistant message with potential tool calls (strip thinking blocks — OpenAI doesn't use them)
-				const textParts = blocks.filter((b) => b.type === 'text');
-				const toolParts = blocks.filter((b) => b.type === 'tool_use');
+      if (m.role === 'assistant') {
+        // Text parts → assistant message
+        const textParts = blocks.filter(b => b.type === 'text');
+        if (textParts.length > 0) {
+          result.push({
+            role: 'assistant',
+            content: textParts.map(b => (b as { text: string }).text).join(''),
+            type: 'message',
+          });
+        }
 
-				const msg: OpenAI.ChatCompletionAssistantMessageParam = {
-					role: 'assistant',
-					content:
-						textParts.length > 0
-							? textParts.map((b) => (b as { text: string }).text).join('')
-							: null,
-				};
+        // Tool use blocks → function_call items
+        const toolParts = blocks.filter(b => b.type === 'tool_use');
+        for (const b of toolParts) {
+          const tu = b as {
+            id: string;
+            name: string;
+            input: Record<string, unknown>;
+          };
+          result.push({
+            type: 'function_call',
+            call_id: tu.id,
+            name: tu.name,
+            arguments: JSON.stringify(tu.input),
+          } as Responses.ResponseFunctionToolCall);
+        }
+      } else {
+        // User message — could contain tool results, text, images
+        const toolResults = blocks.filter(b => b.type === 'tool_result');
+        const otherBlocks = blocks.filter(
+          b => b.type !== 'tool_result' && b.type !== 'thinking',
+        );
 
-				if (toolParts.length > 0) {
-					msg.tool_calls = toolParts.map((b) => {
-						const tu = b as { id: string; name: string; input: Record<string, unknown> };
-						return {
-							id: tu.id,
-							type: 'function' as const,
-							function: { name: tu.name, arguments: JSON.stringify(tu.input) },
-						};
-					});
-				}
+        // Tool results → function_call_output items
+        for (const tr of toolResults) {
+          const toolResult = tr as {
+            toolUseId: string;
+            content: string | unknown[];
+          };
+          const output =
+            typeof toolResult.content === 'string'
+              ? toolResult.content
+              : JSON.stringify(toolResult.content);
+          result.push({
+            type: 'function_call_output',
+            call_id: toolResult.toolUseId,
+            output,
+          } as Responses.ResponseInputItem.FunctionCallOutput);
+        }
 
-				result.push(msg);
-			} else {
-				// User message — could be tool results or content with images
-				const toolResults = blocks.filter((b) => b.type === 'tool_result');
-				const otherBlocks = blocks.filter((b) => b.type !== 'tool_result');
+        // Text + image blocks → user message
+        const contentParts: Array<
+          | { type: 'input_text'; text: string }
+          | { type: 'input_image'; image_url: string; detail: 'auto' }
+        > = [];
+        for (const block of otherBlocks) {
+          if (block.type === 'text') {
+            contentParts.push({ type: 'input_text', text: block.text });
+          } else if (block.type === 'image') {
+            contentParts.push({
+              type: 'input_image',
+              image_url: `data:${block.mediaType};base64,${block.data}`,
+              detail: 'auto',
+            });
+          }
+        }
+        if (contentParts.length > 0) {
+          result.push({
+            role: 'user',
+            content: contentParts as Responses.ResponseInputMessageContentList,
+            type: 'message',
+          });
+        }
+      }
+    }
+  }
 
-				// Tool results become separate tool messages
-				for (const tr of toolResults) {
-					const toolResult = tr as { toolUseId: string; content: string | unknown[] };
-					const content =
-						typeof toolResult.content === 'string'
-							? toolResult.content
-							: JSON.stringify(toolResult.content);
-					result.push({
-						role: 'tool',
-						tool_call_id: toolResult.toolUseId,
-						content,
-					});
-				}
-
-				// Other blocks (text, images) become a user message
-				if (otherBlocks.length > 0) {
-					const parts: OpenAI.ChatCompletionContentPart[] = [];
-					for (const block of otherBlocks) {
-						if (block.type === 'text') {
-							parts.push({ type: 'text', text: block.text });
-						} else if (block.type === 'image') {
-							parts.push({
-								type: 'image_url',
-								image_url: {
-									url: `data:${block.mediaType};base64,${block.data}`,
-								},
-							});
-						}
-					}
-					if (parts.length > 0) {
-						result.push({ role: 'user', content: parts });
-					}
-				}
-			}
-		}
-	}
-
-	return result;
+  return result;
 }
 
-function toOpenAITools(tools: Tool[]): OpenAI.ChatCompletionTool[] {
-	return tools.map((t) => ({
-		type: 'function' as const,
-		function: {
-			name: t.name,
-			description: t.description,
-			parameters: {
-				type: 'object',
-				properties: t.parameters.properties,
-				required: t.parameters.required || [],
-			},
-		},
-	}));
+function toResponsesTools(tools: Tool[]): Responses.FunctionTool[] {
+  return tools.map(t => ({
+    type: 'function' as const,
+    name: t.name,
+    description: t.description,
+    parameters: {
+      type: 'object',
+      properties: t.parameters.properties,
+      required: t.parameters.required || [],
+    },
+    strict: false,
+  }));
 }

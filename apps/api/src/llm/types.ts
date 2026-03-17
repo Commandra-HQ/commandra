@@ -17,7 +17,7 @@ export interface ChatParams {
 	tools?: Tool[];
 	maxTokens?: number;
 	signal?: AbortSignal;
-	/** Enable extended thinking / reasoning (Anthropic only for now). */
+	/** Enable extended thinking / reasoning (Anthropic: extended thinking, OpenAI: reasoning summaries). */
 	thinking?: { budgetTokens: number };
 }
 
