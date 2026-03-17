@@ -14,14 +14,14 @@ import {
 	Globe,
 	Keyboard,
 	List,
-	MessageSquare,
-	RefreshCw,
 	ListChecks,
 	Loader2,
+	MessageSquare,
 	MousePointer,
 	MoveVertical,
 	Pilcrow,
 	Play,
+	RefreshCw,
 	Settings2,
 	Table2,
 	X,
@@ -909,7 +909,10 @@ export function ChatTab() {
 					className="flex-1 text-left hover:opacity-80"
 				>
 					<span className="text-xs text-muted-foreground">
-						{domain} · {siteData.site?.totalElements || siteData.pages.reduce((s, p) => s + p.elements.length, 0)} elements · {siteData.pages.length || siteData.site?.totalPages || 0} pages
+						{domain} ·{' '}
+						{siteData.site?.totalElements ||
+							siteData.pages.reduce((s, p) => s + p.elements.length, 0)}{' '}
+						elements · {siteData.pages.length || siteData.site?.totalPages || 0} pages
 						{siteData.site?.lastIndexedAt
 							? ` · Last: ${formatRelativeTime(siteData.site.lastIndexedAt)}`
 							: ''}
@@ -1024,9 +1027,7 @@ export function ChatTab() {
 										onClick={() => loadConversation(conv.id)}
 										className="w-full text-left px-3 py-2 rounded-md hover:bg-secondary/50 transition-colors"
 									>
-										<p className="text-xs text-foreground truncate">
-											{conv.title || 'Untitled'}
-										</p>
+										<p className="text-xs text-foreground truncate">{conv.title || 'Untitled'}</p>
 										<div className="flex items-center gap-2 mt-0.5">
 											<span className="text-[10px] text-muted-foreground flex items-center gap-1">
 												<MessageSquare size={10} />

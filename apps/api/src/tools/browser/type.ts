@@ -3,7 +3,8 @@ import type { ExecutableTool } from '../types.js';
 
 export const typeText: ExecutableTool = {
 	name: 'type_text',
-	description: 'Type text into an input, textarea, or contenteditable element (rich text editors, compose fields, etc.). Clears existing content first. Works with Gmail compose, Slack messages, Notion blocks, and other modern editors.',
+	description:
+		'Type text into an input, textarea, or contenteditable element (rich text editors, compose fields, etc.). Clears existing content first. Works with Gmail compose, Slack messages, Notion blocks, and other modern editors.',
 	parameters: {
 		type: 'object',
 		properties: {

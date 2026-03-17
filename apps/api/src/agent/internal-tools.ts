@@ -101,7 +101,7 @@ export function getInternalToolDefinitions() {
 		{
 			name: 'save_to_local',
 			description:
-				'Save a file to persistent local storage on the user\'s computer (~/.commandra/). Use for exports, extracted data, or context files the user wants to keep.',
+				"Save a file to persistent local storage on the user's computer (~/.commandra/). Use for exports, extracted data, or context files the user wants to keep.",
 			parameters: {
 				type: 'object' as const,
 				properties: {
@@ -282,7 +282,11 @@ export async function executeInternalTool(
 
 	// save_to_local — persist files to ~/.commandra/
 	if (block.name === 'save_to_local' && domain) {
-		const args = block.input as { filename: string; content: string; category: 'exports' | 'context' };
+		const args = block.input as {
+			filename: string;
+			content: string;
+			category: 'exports' | 'context';
+		};
 		try {
 			const saved = saveLocalFile(args.category, domain, args.filename, args.content);
 			await onEvent({

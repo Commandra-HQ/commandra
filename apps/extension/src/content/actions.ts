@@ -51,7 +51,10 @@ function safeQuerySelector(selector: string): Element | null {
 		if (selector.startsWith('#')) {
 			try {
 				const id = selector.slice(1);
-				const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id.replace(/([^\w-])/g, '\\$1');
+				const escaped =
+					typeof CSS !== 'undefined' && CSS.escape
+						? CSS.escape(id)
+						: id.replace(/([^\w-])/g, '\\$1');
 				return document.querySelector(`#${escaped}`);
 			} catch {
 				// Still invalid — try getElementById as last resort
@@ -107,7 +110,8 @@ function typeText(selector: string, text: string): ActionResponse {
 	const isContentEditable =
 		el.getAttribute('contenteditable') === 'true' ||
 		el.getAttribute('role') === 'textbox' ||
-		(el.isContentEditable && !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement));
+		(el.isContentEditable &&
+			!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement));
 
 	if (isContentEditable) {
 		// Contenteditable elements (Gmail compose body, Slack message input, Notion blocks, etc.)
@@ -125,17 +129,24 @@ function typeText(selector: string, text: string): ActionResponse {
 		}
 
 		// Dispatch events to ensure frameworks pick up the change
-		el.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
+		el.dispatchEvent(
+			new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }),
+		);
 		el.dispatchEvent(new Event('change', { bubbles: true }));
 
-		return { success: true, data: { typed: text, selector, tag: el.tagName.toLowerCase(), mode: 'contenteditable' } };
+		return {
+			success: true,
+			data: { typed: text, selector, tag: el.tagName.toLowerCase(), mode: 'contenteditable' },
+		};
 	}
 
 	if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
 		// Standard input/textarea elements
 		// Use native setter to bypass React's synthetic event system
 		const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-			el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
+			el instanceof HTMLTextAreaElement
+				? HTMLTextAreaElement.prototype
+				: HTMLInputElement.prototype,
 			'value',
 		)?.set;
 
@@ -152,7 +163,10 @@ function typeText(selector: string, text: string): ActionResponse {
 		el.dispatchEvent(new Event('input', { bubbles: true }));
 		el.dispatchEvent(new Event('change', { bubbles: true }));
 
-		return { success: true, data: { typed: text, selector, tag: el.tagName.toLowerCase(), mode: 'input' } };
+		return {
+			success: true,
+			data: { typed: text, selector, tag: el.tagName.toLowerCase(), mode: 'input' },
+		};
 	}
 
 	return { success: false, error: `Element is not a text input or contenteditable: ${selector}` };

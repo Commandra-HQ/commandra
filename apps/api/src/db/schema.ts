@@ -105,7 +105,9 @@ export const agents = pgTable('agents', {
 	instructions: text('instructions').notNull(),
 	domains: jsonb('domains').$type<string[]>().default([]),
 	tools: jsonb('tools').$type<string[]>().default(['*']),
-	safetyRules: jsonb('safety_rules').$type<{ allowWrite?: boolean; allowDelete?: boolean }>().default({}),
+	safetyRules: jsonb('safety_rules')
+		.$type<{ allowWrite?: boolean; allowDelete?: boolean }>()
+		.default({}),
 	icon: text('icon').default(''),
 	category: text('category').default('other'),
 	tags: jsonb('tags').$type<string[]>().default([]),
@@ -176,7 +178,9 @@ export const messages = pgTable('messages', {
 	role: text('role').notNull(), // 'user' | 'assistant' | 'system'
 	content: text('content').notNull(),
 	/** Structured tool call data (tool names, args, results) for multi-turn context */
-	toolData: jsonb('tool_data').$type<{ tools: { name: string; args: unknown; result: unknown; success: boolean }[] }>(),
+	toolData: jsonb('tool_data').$type<{
+		tools: { name: string; args: unknown; result: unknown; success: boolean }[];
+	}>(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

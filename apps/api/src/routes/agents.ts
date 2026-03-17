@@ -25,11 +25,7 @@ agentRoutes.get('/', async (c) => {
 	const user = c.get('user');
 
 	const [created, installed] = await Promise.all([
-		db
-			.select()
-			.from(agents)
-			.where(eq(agents.userId, user.id))
-			.orderBy(desc(agents.updatedAt)),
+		db.select().from(agents).where(eq(agents.userId, user.id)).orderBy(desc(agents.updatedAt)),
 		db
 			.select({
 				id: agentInstalls.id,
@@ -112,9 +108,7 @@ agentRoutes.get('/:id', async (c) => {
 		.limit(20);
 
 	const avgRating =
-		ratings.length > 0
-			? ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length
-			: null;
+		ratings.length > 0 ? ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length : null;
 
 	return c.json({
 		...agent,
@@ -212,11 +206,7 @@ agentRoutes.put('/:id', async (c) => {
 		}
 	}
 
-	const [updated] = await db
-		.update(agents)
-		.set(updates)
-		.where(eq(agents.id, agentId))
-		.returning();
+	const [updated] = await db.update(agents).set(updates).where(eq(agents.id, agentId)).returning();
 
 	return c.json(updated);
 });
@@ -314,12 +304,7 @@ agentRoutes.get('/marketplace', async (c) => {
 		conditions.push(eq(agents.category, category));
 	}
 	if (query) {
-		conditions.push(
-			or(
-				ilike(agents.name, `%${query}%`),
-				ilike(agents.description, `%${query}%`),
-			)!,
-		);
+		conditions.push(or(ilike(agents.name, `%${query}%`), ilike(agents.description, `%${query}%`))!);
 	}
 
 	const orderBy =
@@ -382,10 +367,7 @@ agentRoutes.post('/:id/install', async (c) => {
 
 	if (existing) return c.json({ error: 'Already installed' }, 400);
 
-	const [install] = await db
-		.insert(agentInstalls)
-		.values({ agentId, userId: user.id })
-		.returning();
+	const [install] = await db.insert(agentInstalls).values({ agentId, userId: user.id }).returning();
 
 	// Increment install count
 	await db

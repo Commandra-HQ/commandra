@@ -77,7 +77,7 @@ export function connectWebSocket() {
 						if (cb) cb(message.result);
 						break;
 					}
-					}
+				}
 			} catch (err) {
 				console.error('[AFE WS] Message handler error:', err);
 			}

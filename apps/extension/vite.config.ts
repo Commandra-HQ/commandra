@@ -9,7 +9,10 @@ function deriveWsUrl(apiUrl: string): string {
 		const u = new URL(apiUrl);
 		const protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
 		// HTTPS (production): same host/port, path /ws. HTTP localhost: use port 3002.
-		if (u.protocol === 'https:' || (u.protocol === 'http:' && (u.port === '443' || u.port === ''))) {
+		if (
+			u.protocol === 'https:' ||
+			(u.protocol === 'http:' && (u.port === '443' || u.port === ''))
+		) {
 			const port = u.port ? `:${u.port}` : '';
 			return `${protocol}//${u.hostname}${port}/ws`;
 		}

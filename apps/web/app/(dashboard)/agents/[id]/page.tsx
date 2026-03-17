@@ -4,8 +4,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/lib/auth-context';
 import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import {
 	ArrowLeft,
 	Copy,
@@ -195,11 +195,7 @@ export default function AgentDetailPage() {
 				<div className="flex items-center gap-2">
 					{isOwner ? (
 						<>
-							<Button
-								size="sm"
-								variant="outline"
-								onClick={() => setEditing(!editing)}
-							>
+							<Button size="sm" variant="outline" onClick={() => setEditing(!editing)}>
 								{editing ? (
 									<>
 										<ArrowLeft size={14} className="mr-1.5" />
@@ -235,9 +231,7 @@ export default function AgentDetailPage() {
 
 			{/* Stats row */}
 			<div className="flex items-center gap-4">
-				<Badge variant={agent.status === 'active' ? 'default' : 'secondary'}>
-					{agent.status}
-				</Badge>
+				<Badge variant={agent.status === 'active' ? 'default' : 'secondary'}>{agent.status}</Badge>
 				<Badge variant="outline">{agent.category || 'Other'}</Badge>
 				<span className="text-sm text-muted-foreground flex items-center gap-1">
 					<Download size={14} />
@@ -257,9 +251,7 @@ export default function AgentDetailPage() {
 					<CardContent className="pt-5 space-y-4">
 						<div className="grid grid-cols-4 gap-3">
 							<div>
-								<label className="text-xs font-medium text-muted-foreground mb-1 block">
-									Icon
-								</label>
+								<label className="text-xs font-medium text-muted-foreground mb-1 block">Icon</label>
 								<Input
 									value={form.icon}
 									onChange={(e) => setForm({ ...form, icon: e.target.value })}
@@ -268,9 +260,7 @@ export default function AgentDetailPage() {
 								/>
 							</div>
 							<div className="col-span-3">
-								<label className="text-xs font-medium text-muted-foreground mb-1 block">
-									Name
-								</label>
+								<label className="text-xs font-medium text-muted-foreground mb-1 block">Name</label>
 								<Input
 									value={form.name}
 									onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -329,9 +319,7 @@ export default function AgentDetailPage() {
 								</label>
 								<select
 									value={form.status}
-									onChange={(e) =>
-										setForm({ ...form, status: e.target.value as Agent['status'] })
-									}
+									onChange={(e) => setForm({ ...form, status: e.target.value as Agent['status'] })}
 									className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
 								>
 									<option value="draft">Draft</option>

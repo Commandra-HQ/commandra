@@ -148,9 +148,7 @@ export default function HistoryPage() {
 												{msg.role === 'user' ? (
 													msg.content
 												) : (
-													<ReactMarkdown remarkPlugins={[remarkGfm]}>
-														{msg.content}
-													</ReactMarkdown>
+													<ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
 												)}
 											</div>
 											{msg.role === 'assistant' &&
@@ -158,21 +156,12 @@ export default function HistoryPage() {
 												msg.toolData.tools.length > 0 && (
 													<div className="space-y-1">
 														{msg.toolData.tools.map((tool, i) => (
-															<details
-																key={i}
-																className="rounded border border-border text-xs"
-															>
+															<details key={i} className="rounded border border-border text-xs">
 																<summary className="px-2 py-1 cursor-pointer flex items-center gap-1.5 hover:bg-muted/50">
 																	{tool.success ? (
-																		<CheckCircle2
-																			size={12}
-																			className="text-green-500 shrink-0"
-																		/>
+																		<CheckCircle2 size={12} className="text-green-500 shrink-0" />
 																	) : (
-																		<XCircle
-																			size={12}
-																			className="text-red-500 shrink-0"
-																		/>
+																		<XCircle size={12} className="text-red-500 shrink-0" />
 																	)}
 																	<span className="font-medium">{tool.name}</span>
 																</summary>

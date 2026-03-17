@@ -26,7 +26,10 @@ const app = new Hono();
 
 app.use('*', logger());
 // CORS: allow chrome-extension + localhost always; optional CORS_ORIGINS for dashboard (e.g. https://app.example.com)
-const corsOrigins = process.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? [];
+const corsOrigins =
+	process.env.CORS_ORIGINS?.split(',')
+		.map((o) => o.trim())
+		.filter(Boolean) ?? [];
 app.use(
 	'*',
 	cors({

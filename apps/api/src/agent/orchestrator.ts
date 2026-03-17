@@ -90,7 +90,13 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	const model = getStrongModel();
 
 	// Build system prompt — agent instructions prepended if provided
-	const basePrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext);
+	const basePrompt = buildSystemPrompt(
+		pageIndex,
+		selectedElements,
+		domainMemory,
+		userMemory,
+		priorContext,
+	);
 	const systemPrompt = agentInstructions
 		? `${agentInstructions}\n\n---\n\n${basePrompt}`
 		: basePrompt;
@@ -102,7 +108,9 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	if (allowedTools && !allowedTools.includes('*')) {
 		const allowed = new Set(allowedTools);
 		// Always allow internal tools
-		tools = tools.filter((t) => allowed.has(t.name) || internalTools.some((it) => it.name === t.name));
+		tools = tools.filter(
+			(t) => allowed.has(t.name) || internalTools.some((it) => it.name === t.name),
+		);
 	}
 
 	const context = { connectionId, userId };
@@ -375,7 +383,17 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				allToolCalls.push({
 					name: block.name,
 					args: block.input,
-					result: result ? (typeof result.content === 'string' ? (() => { try { return JSON.parse(result.content); } catch { return result.content; } })() : '[structured]') : null,
+					result: result
+						? typeof result.content === 'string'
+							? (() => {
+									try {
+										return JSON.parse(result.content);
+									} catch {
+										return result.content;
+									}
+								})()
+							: '[structured]'
+						: null,
 					success: result ? !result.isError : false,
 				});
 			}

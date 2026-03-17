@@ -4,9 +4,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/lib/auth-context';
 import { apiFetch } from '@/lib/api';
-import { Bot, Download, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
+import { Bot, Download, Pencil, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
@@ -204,16 +204,9 @@ export default function AgentsPage() {
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-2xl font-bold tracking-tight">Agents</h1>
-					<p className="text-muted-foreground mt-1">
-						Create and manage your automation agents.
-					</p>
+					<p className="text-muted-foreground mt-1">Create and manage your automation agents.</p>
 				</div>
 				<Button size="sm" onClick={() => setShowCreate(!showCreate)}>
-					{showCreate ? (
-						<X size={14} className="mr-1.5" />
-					) : (
-						<Plus size={14} className="mr-1.5" />
-					)}
 					{showCreate ? 'Cancel' : 'Create Agent'}
 				</Button>
 			</div>
@@ -223,9 +216,7 @@ export default function AgentsPage() {
 					<CardContent className="pt-5 space-y-3">
 						<div className="grid grid-cols-3 gap-3">
 							<div>
-								<label className="text-xs font-medium text-muted-foreground mb-1 block">
-									Icon
-								</label>
+								<label className="text-xs font-medium text-muted-foreground mb-1 block">Icon</label>
 								<Input
 									placeholder="🤖"
 									value={form.icon}
@@ -235,9 +226,7 @@ export default function AgentsPage() {
 								/>
 							</div>
 							<div className="col-span-2">
-								<label className="text-xs font-medium text-muted-foreground mb-1 block">
-									Name
-								</label>
+								<label className="text-xs font-medium text-muted-foreground mb-1 block">Name</label>
 								<Input
 									placeholder="My Agent"
 									value={form.name}

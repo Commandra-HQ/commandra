@@ -16,60 +16,55 @@ import { collectStream } from '../llm/index.js';
 import type { LLMProvider } from '../llm/types.js';
 
 // In-memory cache: domain → { result, expiresAt }
-const domainMemoryCache = new Map<
-  string,
-  { result: string | null; expiresAt: number }
->();
+const domainMemoryCache = new Map<string, { result: string | null; expiresAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export function invalidateDomainMemoryCache(domain: string): void {
-  domainMemoryCache.delete(domain);
+	domainMemoryCache.delete(domain);
 }
 
 export interface DomainKnowledge {
-  knownPages: { path: string; description: string; howToReach: string }[];
-  elementNotes: { selector: string; note: string }[];
-  workflows: { name: string; steps: string[] }[];
-  appNotes: string[];
+	knownPages: { path: string; description: string; howToReach: string }[];
+	elementNotes: { selector: string; note: string }[];
+	workflows: { name: string; steps: string[] }[];
+	appNotes: string[];
 }
 
 /**
  * Format domain knowledge into a readable markdown string for prompt injection.
  */
 function formatDomainKnowledge(knowledge: DomainKnowledge): string | null {
-  const sections: string[] = [];
+	const sections: string[] = [];
 
-  if (knowledge.knownPages?.length) {
-    sections.push('### Known Pages');
-    for (const p of knowledge.knownPages) {
-      sections.push(
-        `- **${p.path}**: ${p.description} (reach via: ${p.howToReach})`,
-      );
-    }
-  }
+	if (knowledge.knownPages?.length) {
+		sections.push('### Known Pages');
+		for (const p of knowledge.knownPages) {
+			sections.push(`- **${p.path}**: ${p.description} (reach via: ${p.howToReach})`);
+		}
+	}
 
-  if (knowledge.workflows?.length) {
-    sections.push('### Known Workflows');
-    for (const w of knowledge.workflows) {
-      sections.push(`- **${w.name}**: ${w.steps.join(' → ')}`);
-    }
-  }
+	if (knowledge.workflows?.length) {
+		sections.push('### Known Workflows');
+		for (const w of knowledge.workflows) {
+			sections.push(`- **${w.name}**: ${w.steps.join(' → ')}`);
+		}
+	}
 
-  if (knowledge.elementNotes?.length) {
-    sections.push('### Element Notes');
-    for (const n of knowledge.elementNotes) {
-      sections.push(`- \`${n.selector}\`: ${n.note}`);
-    }
-  }
+	if (knowledge.elementNotes?.length) {
+		sections.push('### Element Notes');
+		for (const n of knowledge.elementNotes) {
+			sections.push(`- \`${n.selector}\`: ${n.note}`);
+		}
+	}
 
-  if (knowledge.appNotes?.length) {
-    sections.push('### App Behavior');
-    for (const note of knowledge.appNotes) {
-      sections.push(`- ${note}`);
-    }
-  }
+	if (knowledge.appNotes?.length) {
+		sections.push('### App Behavior');
+		for (const note of knowledge.appNotes) {
+			sections.push(`- ${note}`);
+		}
+	}
 
-  return sections.length > 0 ? sections.join('\n') : null;
+	return sections.length > 0 ? sections.join('\n') : null;
 }
 
 /**
@@ -78,37 +73,37 @@ function formatDomainKnowledge(knowledge: DomainKnowledge): string | null {
  * Falls back to pre-seeded knowledge for popular apps.
  */
 export async function loadDomainMemory(domain: string): Promise<string | null> {
-  // Check cache first
-  const cached = domainMemoryCache.get(domain);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.result;
-  }
+	// Check cache first
+	const cached = domainMemoryCache.get(domain);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.result;
+	}
 
-  const [record] = await db
-    .select()
-    .from(domainMemory)
-    .where(eq(domainMemory.domain, domain))
-    .limit(1);
+	const [record] = await db
+		.select()
+		.from(domainMemory)
+		.where(eq(domainMemory.domain, domain))
+		.limit(1);
 
-  if (!record) {
-    domainMemoryCache.set(domain, {
-      result: null,
-      expiresAt: Date.now() + CACHE_TTL_MS,
-    });
-    return null;
-  }
+	if (!record) {
+		domainMemoryCache.set(domain, {
+			result: null,
+			expiresAt: Date.now() + CACHE_TTL_MS,
+		});
+		return null;
+	}
 
-  const result = formatDomainKnowledge({
-    knownPages: record.knownPages || [],
-    elementNotes: record.elementNotes || [],
-    workflows: record.workflows || [],
-    appNotes: record.appNotes || [],
-  });
-  domainMemoryCache.set(domain, {
-    result,
-    expiresAt: Date.now() + CACHE_TTL_MS,
-  });
-  return result;
+	const result = formatDomainKnowledge({
+		knownPages: record.knownPages || [],
+		elementNotes: record.elementNotes || [],
+		workflows: record.workflows || [],
+		appNotes: record.appNotes || [],
+	});
+	domainMemoryCache.set(domain, {
+		result,
+		expiresAt: Date.now() + CACHE_TTL_MS,
+	});
+	return result;
 }
 
 const LEARN_PROMPT = `You are analyzing a completed browser automation session. Based on the conversation, extract knowledge about the web application that would help future sessions on the same site.
@@ -127,113 +122,102 @@ Only include concrete, specific observations. Do not guess or assume. Return val
  * Extract learnings from a completed conversation and merge into domain memory.
  */
 export async function updateDomainMemory(
-  domain: string,
-  conversationTranscript: string,
-  provider: LLMProvider,
-  fastModel: string,
+	domain: string,
+	conversationTranscript: string,
+	provider: LLMProvider,
+	fastModel: string,
 ): Promise<void> {
-  // Ask the fast model what it learned
-  const stream = provider.chat({
-    model: fastModel,
-    system: LEARN_PROMPT,
-    messages: [
-      {
-        role: 'user',
-        content: `Here is the conversation transcript from a session on ${domain}:\n\n${conversationTranscript}`,
-      },
-    ],
-    maxTokens: 1000,
-  });
+	// Ask the fast model what it learned
+	const stream = provider.chat({
+		model: fastModel,
+		system: LEARN_PROMPT,
+		messages: [
+			{
+				role: 'user',
+				content: `Here is the conversation transcript from a session on ${domain}:\n\n${conversationTranscript}`,
+			},
+		],
+		maxTokens: 1000,
+	});
 
-  const response = await collectStream(stream);
-  const text = response.content
-    .filter(b => b.type === 'text')
-    .map(b => (b as { text: string }).text)
-    .join('');
+	const response = await collectStream(stream);
+	const text = response.content
+		.filter((b) => b.type === 'text')
+		.map((b) => (b as { text: string }).text)
+		.join('');
 
-  let learned: DomainKnowledge;
-  try {
-    learned = JSON.parse(text);
-  } catch {
-    console.warn(
-      '[DomainMemory] Failed to parse learnings:',
-      text.slice(0, 200),
-    );
-    return;
-  }
+	let learned: DomainKnowledge;
+	try {
+		learned = JSON.parse(text);
+	} catch {
+		console.warn('[DomainMemory] Failed to parse learnings:', text.slice(0, 200));
+		return;
+	}
 
-  // Check if anything was learned
-  const hasContent =
-    learned.knownPages?.length ||
-    learned.elementNotes?.length ||
-    learned.workflows?.length ||
-    learned.appNotes?.length;
+	// Check if anything was learned
+	const hasContent =
+		learned.knownPages?.length ||
+		learned.elementNotes?.length ||
+		learned.workflows?.length ||
+		learned.appNotes?.length;
 
-  if (!hasContent) return;
+	if (!hasContent) return;
 
-  // Load existing memory
-  const [existing] = await db
-    .select()
-    .from(domainMemory)
-    .where(eq(domainMemory.domain, domain))
-    .limit(1);
+	// Load existing memory
+	const [existing] = await db
+		.select()
+		.from(domainMemory)
+		.where(eq(domainMemory.domain, domain))
+		.limit(1);
 
-  if (existing) {
-    // Merge — deduplicate by path/selector/name
-    const mergedPages = mergeByKey(
-      existing.knownPages || [],
-      learned.knownPages || [],
-      'path',
-    );
-    const mergedNotes = mergeByKey(
-      existing.elementNotes || [],
-      learned.elementNotes || [],
-      'selector',
-    );
-    const mergedWorkflows = mergeByKey(
-      existing.workflows || [],
-      learned.workflows || [],
-      'name',
-    );
-    const mergedAppNotes = [
-      ...new Set([...(existing.appNotes || []), ...(learned.appNotes || [])]),
-    ];
+	if (existing) {
+		// Merge — deduplicate by path/selector/name
+		const mergedPages = mergeByKey(existing.knownPages || [], learned.knownPages || [], 'path');
+		const mergedNotes = mergeByKey(
+			existing.elementNotes || [],
+			learned.elementNotes || [],
+			'selector',
+		);
+		const mergedWorkflows = mergeByKey(existing.workflows || [], learned.workflows || [], 'name');
+		const mergedAppNotes = [
+			...new Set([...(existing.appNotes || []), ...(learned.appNotes || [])]),
+		];
 
-    await db
-      .update(domainMemory)
-      .set({
-        knownPages: mergedPages,
-        elementNotes: mergedNotes,
-        workflows: mergedWorkflows,
-        appNotes: mergedAppNotes.slice(0, 50), // Cap at 50 notes
-        updatedAt: new Date(),
-      })
-      .where(eq(domainMemory.domain, domain));
-  } else {
-    await db.insert(domainMemory).values({
-      domain,
-      knownPages: learned.knownPages || [],
-      elementNotes: learned.elementNotes || [],
-      workflows: learned.workflows || [],
-      appNotes: learned.appNotes || [],
-    });
-  }
+		await db
+			.update(domainMemory)
+			.set({
+				knownPages: mergedPages,
+				elementNotes: mergedNotes,
+				workflows: mergedWorkflows,
+				appNotes: mergedAppNotes.slice(0, 50), // Cap at 50 notes
+				updatedAt: new Date(),
+			})
+			.where(eq(domainMemory.domain, domain));
+	} else {
+		await db.insert(domainMemory).values({
+			domain,
+			knownPages: learned.knownPages || [],
+			elementNotes: learned.elementNotes || [],
+			workflows: learned.workflows || [],
+			appNotes: learned.appNotes || [],
+		});
+	}
 
-  // Invalidate cache so next load picks up fresh data
-  invalidateDomainMemoryCache(domain);
-  console.log(`[DomainMemory] Updated memory for ${domain}`);
+	// Invalidate cache so next load picks up fresh data
+	invalidateDomainMemoryCache(domain);
+	console.log(`[DomainMemory] Updated memory for ${domain}`);
 }
 
 /**
  * Merge two arrays by a key field. New items with matching keys replace old ones.
  */
 function mergeByKey<T extends Record<string, unknown>>(
-  existing: T[],
-  incoming: T[],
-  key: string,
+	existing: T[],
+	incoming: T[],
+	key: string,
 ): T[] {
-  const map = new Map<unknown, T>();
-  for (const item of existing) map.set(item[key], item);
-  for (const item of incoming) map.set(item[key], item); // new replaces old
-  return [...map.values()].slice(0, 100); // cap at 100 entries
+	const map = new Map<unknown, T>();
+	for (const item of existing) map.set(item[key], item);
+	for (const item of incoming) map.set(item[key], item); // new replaces old
+	return [...map.values()].slice(0, 100); // cap at 100 entries
 }

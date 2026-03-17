@@ -20,7 +20,7 @@ export interface Agent {
 	version: string;
 	forkedFrom?: string;
 	installs: number;
-	status: AgentStatus;
+	status: AgentPublishStatus;
 	author?: { id: string; email: string };
 	createdAt: string;
 	updatedAt: string;
@@ -53,7 +53,7 @@ export type AgentCategory =
 	| 'finance'
 	| 'other';
 
-export type AgentStatus = 'draft' | 'published' | 'archived';
+export type AgentPublishStatus = 'draft' | 'published' | 'archived';
 
 export const AGENT_CATEGORIES: { value: AgentCategory; label: string }[] = [
 	{ value: 'productivity', label: 'Productivity' },

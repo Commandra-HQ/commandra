@@ -143,9 +143,7 @@ export default function MarketplacePage() {
 			if (res.ok) {
 				setAgents((prev) =>
 					prev.map((a) =>
-						a.id === id
-							? { ...a, isInstalled: true, installCount: a.installCount + 1 }
-							: a,
+						a.id === id ? { ...a, isInstalled: true, installCount: a.installCount + 1 } : a,
 					),
 				);
 			}
@@ -211,7 +209,10 @@ export default function MarketplacePage() {
 			{/* Search and sort */}
 			<div className="flex items-center gap-3">
 				<div className="relative flex-1 max-w-md">
-					<Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+					<Search
+						size={14}
+						className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+					/>
 					<Input
 						placeholder="Search agents..."
 						value={search}

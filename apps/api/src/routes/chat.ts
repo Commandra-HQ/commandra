@@ -5,15 +5,15 @@ import { streamSSE } from 'hono/streaming';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import { db } from '../db/index.js';
 import { conversationEmbeddings, conversations, messages, pages, sites } from '../db/schema.js';
-import { embedText, getEmbeddingProvider } from '../llm/embeddings.js';
+import { agents } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
+import { searchConversations, searchElements } from '../db/vector-search.js';
+import { embedText, getEmbeddingProvider } from '../llm/embeddings.js';
 import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
-import { searchConversations, searchElements } from '../db/vector-search.js';
-import { agents } from '../db/schema.js';
 
 /**
  * Detect if a user message clearly requires PARALLEL work across multiple distinct websites.
@@ -24,13 +24,15 @@ function detectMultiSiteIntent(message: string): boolean {
 	// Look for explicit URLs pointing to different domains
 	const urlMatches = message.match(/https?:\/\/[^\s]+/gi) || [];
 	const urlDomains = new Set(
-		urlMatches.map((u) => {
-			try {
-				return new URL(u).hostname.replace(/^www\./, '');
-			} catch {
-				return '';
-			}
-		}).filter(Boolean),
+		urlMatches
+			.map((u) => {
+				try {
+					return new URL(u).hostname.replace(/^www\./, '');
+				} catch {
+					return '';
+				}
+			})
+			.filter(Boolean),
 	);
 	if (urlDomains.size >= 2) return true;
 
@@ -45,7 +47,8 @@ function detectMultiSiteIntent(message: string): boolean {
 	for (const pattern of parallelPatterns) {
 		if (pattern.test(message)) {
 			// Verify 2+ different site names
-			const sitePattern = /\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana|salesforce|hubspot|figma)\b/gi;
+			const sitePattern =
+				/\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana|salesforce|hubspot|figma)\b/gi;
 			const matches = message.match(sitePattern);
 			if (matches) {
 				const unique = new Set(matches.map((m) => m.toLowerCase()));
@@ -162,7 +165,9 @@ chatRoutes.post('/', async (c) => {
 
 	const chatMessages = history.map((m) => {
 		// Include tool call summary in assistant messages for multi-turn context
-		const td = m.toolData as { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } | null;
+		const td = m.toolData as {
+			tools: { name: string; args: unknown; result: unknown; success: boolean }[];
+		} | null;
 		if (m.role === 'assistant' && td?.tools?.length) {
 			const toolSummary = td.tools
 				.map((t) => `[Tool: ${t.name}${t.success ? ' ✓' : ' ✗'}]`)
@@ -291,9 +296,7 @@ chatRoutes.post('/', async (c) => {
 				if (relevant.length > 0) {
 					contextParts.push('### Past Related Conversations');
 					for (const c of relevant) {
-						contextParts.push(
-							`- "${c.messageText}" (similarity: ${(c.score * 100).toFixed(0)}%)`,
-						);
+						contextParts.push(`- "${c.messageText}" (similarity: ${(c.score * 100).toFixed(0)}%)`);
 					}
 				}
 			}
@@ -338,7 +341,9 @@ chatRoutes.post('/', async (c) => {
 		};
 
 		try {
-			let toolData: { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } | undefined;
+			let toolData:
+				| { tools: { name: string; args: unknown; result: unknown; success: boolean }[] }
+				| undefined;
 			if (canAct) {
 				const result = await runOrchestrator({
 					userId: user.id,

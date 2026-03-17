@@ -64,10 +64,9 @@ export default function StoragePage() {
 
 	async function handleDelete(file: FileInfo) {
 		try {
-			const res = await apiFetch(
-				`/api/storage/${file.category}/${file.domain}/${file.name}`,
-				{ method: 'DELETE' },
-			);
+			const res = await apiFetch(`/api/storage/${file.category}/${file.domain}/${file.name}`, {
+				method: 'DELETE',
+			});
 			if (res.ok) {
 				setFiles((prev) => prev.filter((f) => f.path !== file.path));
 				fetchStats();
@@ -79,9 +78,7 @@ export default function StoragePage() {
 
 	async function handleDownload(file: FileInfo) {
 		try {
-			const res = await apiFetch(
-				`/api/storage/${file.category}/${file.domain}/${file.name}`,
-			);
+			const res = await apiFetch(`/api/storage/${file.category}/${file.domain}/${file.name}`);
 			if (res.ok) {
 				const blob = await res.blob();
 				const url = URL.createObjectURL(blob);
@@ -158,9 +155,7 @@ export default function StoragePage() {
 				<Card>
 					<CardContent className="py-12 text-center">
 						<HardDrive size={32} className="mx-auto text-muted-foreground mb-3" />
-						<p className="text-sm text-muted-foreground">
-							No {activeCategory} files yet.
-						</p>
+						<p className="text-sm text-muted-foreground">No {activeCategory} files yet.</p>
 					</CardContent>
 				</Card>
 			) : (

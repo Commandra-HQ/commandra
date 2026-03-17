@@ -242,7 +242,9 @@ function formatIndexAge(lastIndexedAt: string | Date): string {
 	return `${mins}m ago (fresh)`;
 }
 
-function formatElements(elements: { type: string; label: string; selector: string; inOverlay?: boolean }[]): string {
+function formatElements(
+	elements: { type: string; label: string; selector: string; inOverlay?: boolean }[],
+): string {
 	if (elements.length === 0) return 'No interactive elements found.';
 
 	// Separate overlay elements (modals/dialogs) from page elements

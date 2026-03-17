@@ -7,9 +7,9 @@ import type { SSEEvent } from '@afe/shared';
 import type { ImageBlock, TextBlock, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
+import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { executeTool } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
-import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { isInternalTool } from './internal-tools.js';
 
 /**
@@ -192,7 +192,11 @@ export async function handleToolCall(
 		// Merge page state update into the result so LLM sees current elements
 		let enrichedResult: unknown = result;
 		if (pageStateUpdate && resultData?.success) {
-			const ps = pageStateUpdate as { elements?: { type: string; label: string; selector: string; inOverlay?: boolean }[]; url?: string; title?: string };
+			const ps = pageStateUpdate as {
+				elements?: { type: string; label: string; selector: string; inOverlay?: boolean }[];
+				url?: string;
+				title?: string;
+			};
 			if (ps.elements) {
 				const overlayEls = ps.elements.filter((e) => e.inOverlay);
 				const otherEls = ps.elements.filter((e) => !e.inOverlay);
@@ -263,7 +267,9 @@ export async function executeToolBlock(
 	domain: string | undefined,
 	onEvent: (event: SSEEvent) => Promise<void>,
 	provider: { supportsVision: boolean },
-	executeInternalToolFn: (block: ToolUseBlock) => Promise<import('../llm/types.js').ToolResultBlock | null>,
+	executeInternalToolFn: (
+		block: ToolUseBlock,
+	) => Promise<import('../llm/types.js').ToolResultBlock | null>,
 ): Promise<ToolResultBlock> {
 	// Try internal tool first
 	const internalResult = await executeInternalToolFn(block);
