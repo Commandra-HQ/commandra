@@ -3,13 +3,17 @@ import {
 	Globe,
 	Laptop,
 	LogOut,
+	Monitor,
+	Moon,
 	RefreshCw,
 	Server,
+	Sun,
 	Trash2,
 	Wifi,
 	WifiOff,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { THEME_OPTIONS, Theme, useTheme } from '../theme.js';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 
@@ -17,7 +21,14 @@ interface SettingsTabProps {
 	user: { id: string; email: string };
 }
 
+const THEME_ICONS: Record<Theme, typeof Monitor> = {
+	system: Monitor,
+	light: Sun,
+	dark: Moon,
+};
+
 export function SettingsTab({ user }: SettingsTabProps) {
+	const { theme, setTheme } = useTheme();
 	const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'disconnected'>(
 		'checking',
 	);
@@ -134,6 +145,41 @@ export function SettingsTab({ user }: SettingsTabProps) {
 
 	return (
 		<div className="p-4 space-y-5">
+			{/* Theme */}
+			<section className="space-y-2">
+				<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+					Theme
+				</h3>
+				<div className="flex gap-1.5 p-1 rounded-lg bg-secondary border border-border">
+					{THEME_OPTIONS.map((opt) => {
+						const Icon = THEME_ICONS[opt.value];
+						const isActive = theme === opt.value;
+						return (
+							<button
+								key={opt.value}
+								type="button"
+								onClick={() => setTheme(opt.value)}
+								className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md text-xs font-medium transition-colors ${
+									isActive
+										? 'bg-background text-foreground shadow-sm border border-border'
+										: 'text-muted-foreground hover:text-foreground'
+								}`}
+							>
+								<Icon size={14} />
+								<span className="hidden sm:inline">{opt.label}</span>
+							</button>
+						);
+					})}
+				</div>
+				<p className="text-[10px] text-muted-foreground">
+					{theme === 'system'
+						? 'Uses your system light/dark preference'
+						: theme === 'light'
+							? 'Always use light mode'
+							: 'Always use dark mode'}
+				</p>
+			</section>
+
 			{/* Account */}
 			<section className="space-y-1.5">
 				<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">

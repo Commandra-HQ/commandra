@@ -14,18 +14,19 @@ import {
 	Globe,
 	Keyboard,
 	List,
-	MessageSquare,
-	RefreshCw,
 	ListChecks,
 	Loader2,
+	MessageSquare,
 	MousePointer,
 	MoveVertical,
 	Pilcrow,
 	Play,
+	Send,
 	Settings2,
 	Square,
 	Table2,
 	X,
+	RefreshCw,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -280,6 +281,20 @@ export function ChatTab() {
 	const textAccumRef = useRef('');
 	const thinkingAccumRef = useRef('');
 	const rafRef = useRef<number>(0);
+	const chatInputRef = useRef<HTMLTextAreaElement>(null);
+
+	// Max height for chat textarea ~5 lines (line-height ~1.5rem)
+	const CHAT_INPUT_MAX_HEIGHT_PX = 120;
+
+	// Auto-resize textarea up to max height (~5 lines), then scroll
+	const CHAT_INPUT_MIN_HEIGHT_PX = 40;
+	useEffect(() => {
+		const ta = chatInputRef.current;
+		if (!ta) return;
+		ta.style.height = 'auto';
+		const h = Math.min(Math.max(ta.scrollHeight, CHAT_INPUT_MIN_HEIGHT_PX), CHAT_INPUT_MAX_HEIGHT_PX);
+		ta.style.height = `${h}px`;
+	}, [input]);
 
 	const loadSiteData = useCallback((d: string) => {
 		chrome.runtime.sendMessage({ type: 'GET_SITE_DATA', payload: { domain: d } }, (response) => {
@@ -1267,13 +1282,13 @@ export function ChatTab() {
 						e.preventDefault();
 						handleSend();
 					}}
-					className="flex gap-2"
+					className="flex gap-2 items-center"
 				>
 					<button
 						type="button"
 						onClick={handleToggleSelector}
 						title={selectorActive ? 'Cancel selector' : 'Select an element'}
-						className={`px-2 py-2 text-sm rounded-md border shrink-0 ${
+						className={`flex items-center justify-center h-[40px] w-10 text-sm rounded-md border shrink-0 ${
 							selectorActive
 								? 'border-blue-500 bg-blue-500/10 text-blue-400'
 								: 'border-input text-muted-foreground hover:text-foreground hover:bg-secondary'
@@ -1281,49 +1296,47 @@ export function ChatTab() {
 					>
 						<MousePointer size={14} />
 					</button>
-					{!isRecording && (
-						<div className="relative group">
+					<div className="relative flex-1 flex min-h-[40px] max-h-[120px] border border-input rounded-md bg-background focus-within:ring-2 focus-within:ring-ring">
+						<textarea
+							ref={chatInputRef}
+							value={input}
+							onChange={(e) => setInput(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === 'Enter' && !e.shiftKey) {
+									e.preventDefault();
+									if (input.trim()) handleSend();
+								}
+							}}
+							placeholder={
+								selectedElements.length > 0
+									? selectedElements.length === 1
+										? `Instruct about this ${selectedElements[0].tag}...`
+										: `Instruct about ${selectedElements.length} elements...`
+									: 'Ask about this page...'
+							}
+							disabled={isActive}
+							rows={1}
+							className="w-full min-h-[40px] max-h-[120px] py-2 pl-3 pr-10 text-sm resize-none border-0 bg-transparent focus:outline-none focus:ring-0 disabled:opacity-50 overflow-y-auto"
+						/>
+						{!isActive && (
 							<button
-								type="button"
-								disabled
-								className="px-2 py-2 text-sm rounded-md border border-input text-muted-foreground opacity-50 cursor-not-allowed shrink-0"
+								type="submit"
+								disabled={!input.trim()}
+								title="Send"
+								className="absolute right-1.5 bottom-1.5 p-1.5 rounded-md text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 disabled:pointer-events-none"
 							>
-								<Circle size={14} />
+								<Send size={16} />
 							</button>
-							<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
-								Record flow — coming soon
-							</span>
-						</div>
-					)}
-					<input
-						type="text"
-						value={input}
-						onChange={(e) => setInput(e.target.value)}
-						placeholder={
-							selectedElements.length > 0
-								? selectedElements.length === 1
-									? `Instruct about this ${selectedElements[0].tag}...`
-									: `Instruct about ${selectedElements.length} elements...`
-								: 'Ask about this page...'
-						}
-						disabled={isActive}
-						className="flex-1 text-sm px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-					/>
-					{isActive ? (
+						)}
+					</div>
+					{isActive && (
 						<button
 							type="button"
 							onClick={handleStop}
-							className="px-3 py-2 text-sm font-medium text-red-400 border border-red-500/50 rounded-md hover:bg-red-500/10"
+							title="Stop"
+							className="flex items-center justify-center h-[40px] w-10 text-sm font-medium text-red-400 border border-red-500/50 rounded-md hover:bg-red-500/10 shrink-0"
 						>
-							Stop
-						</button>
-					) : (
-						<button
-							type="submit"
-							disabled={!input.trim()}
-							className="px-3 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:opacity-90 disabled:opacity-50"
-						>
-							Send
+							<Square size={16} />
 						</button>
 					)}
 				</form>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTheme } from './theme.js';
 import { LoginScreen } from './screens/LoginScreen.js';
 import { ChatTab } from './tabs/ChatTab.js';
 import { FlowsTab } from './tabs/FlowsTab.js';
@@ -54,6 +55,9 @@ function AuthenticatedApp({ user }: { user: StoredUser }) {
 export function App() {
 	const [user, setUser] = useState<StoredUser | null>(null);
 	const [loading, setLoading] = useState(true);
+
+	// Apply theme (system/light/dark) to <html> for Tailwind dark: classes
+	useTheme();
 
 	useEffect(() => {
 		loadUser();
