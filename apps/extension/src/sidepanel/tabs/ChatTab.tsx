@@ -1286,13 +1286,12 @@ export function ChatTab() {
 							<button
 								type="button"
 								disabled
-								title="Coming soon"
 								className="px-2 py-2 text-sm rounded-md border border-input text-muted-foreground opacity-50 cursor-not-allowed shrink-0"
 							>
 								<Circle size={14} />
 							</button>
-							<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity">
-								Coming soon
+							<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+								Record flow — coming soon
 							</span>
 						</div>
 					)}
