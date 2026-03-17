@@ -1279,17 +1279,22 @@ export function ChatTab() {
 								: 'border-input text-muted-foreground hover:text-foreground hover:bg-secondary'
 						}`}
 					>
-						⊕
+						<MousePointer size={14} />
 					</button>
 					{!isRecording && (
-						<button
-							type="button"
-							onClick={startRecordingMode}
-							title="Record a flow"
-							className="px-2 py-2 text-sm rounded-md border border-input text-muted-foreground hover:text-red-400 hover:border-red-500/50 hover:bg-red-500/5 shrink-0"
-						>
-							<Circle size={14} />
-						</button>
+						<div className="relative group">
+							<button
+								type="button"
+								disabled
+								title="Coming soon"
+								className="px-2 py-2 text-sm rounded-md border border-input text-muted-foreground opacity-50 cursor-not-allowed shrink-0"
+							>
+								<Circle size={14} />
+							</button>
+							<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity">
+								Coming soon
+							</span>
+						</div>
 					)}
 					<input
 						type="text"
