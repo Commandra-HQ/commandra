@@ -1017,7 +1017,7 @@ export function ChatTab() {
 						>
 							<RefreshCw size={12} className={isReindexing ? 'animate-spin' : ''} />
 						</button>
-						<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity">
+						<span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
 							Re-index page
 						</span>
 					</div>
@@ -1028,7 +1028,7 @@ export function ChatTab() {
 						>
 							<Globe size={12} />
 						</button>
-						<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity">
+						<span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
 							Deep index site
 						</span>
 					</div>
@@ -1039,7 +1039,7 @@ export function ChatTab() {
 						>
 							<span className="text-xs">{showContext ? '▲' : '▼'}</span>
 						</button>
-						<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity">
+						<span className="absolute top-full right-0 mt-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
 							{showContext ? 'Hide pages' : 'Show pages'}
 						</span>
 					</div>
