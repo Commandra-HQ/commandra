@@ -31,7 +31,7 @@ Chrome Extension (thin client)
     ↕ WebSocket
 Backend API (Hono + custom orchestrator)
     ↕
-Postgres + pgvector
+Supabase (Postgres + pgvector)
 ```
 
 The extension handles UI, DOM indexing, and action execution. The backend handles all LLM reasoning and orchestration. Browser actions flow: Orchestrator → tool call → WebSocket → extension → DOM.
@@ -48,7 +48,7 @@ The extension handles UI, DOM indexing, and action execution. The backend handle
 
 - [Node.js](https://nodejs.org/) v20+
 - [pnpm](https://pnpm.io/) v9+
-- [Docker](https://www.docker.com/) (for Postgres)
+- [Docker](https://www.docker.com/) (for self-hosted Supabase)
 - An LLM API key (Anthropic or OpenAI)
 - A Chrome-based browser
 
@@ -58,10 +58,10 @@ The extension handles UI, DOM indexing, and action execution. The backend handle
 git clone https://github.com/Commandra-HQ/commandra.git
 cd commandra
 cp .env.example .env
-# Edit .env: set LLM_API_KEY and JWT_SECRET (openssl rand -base64 32)
+# Edit .env: set LLM_API_KEY, JWT_SECRET (openssl rand -base64 32), and DATABASE_URL (see below)
 pnpm install
-pnpm docker:up           # Start Postgres
-pnpm db:migrate          # Run migrations
+# Database: configure and start Supabase (see docs/supabase-local.md), then:
+pnpm supabase:local       # Start Supabase + run migrations (or: cd docker/supabase && docker compose up -d && pnpm db:migrate)
 pnpm dev                 # Start API (:3001) + Dashboard (:3000)
 ```
 
@@ -155,7 +155,7 @@ Kill switch: press Escape to halt all agent activity immediately.
 
 - **TypeScript** everywhere
 - **Hono** for HTTP, **ws** for WebSocket
-- **Drizzle ORM** + Postgres + pgvector
+- **Drizzle ORM** + Supabase (Postgres + pgvector)
 - **React 19** + Tailwind + shadcn/ui (extension + dashboard)
 - **Vite + CRXJS** for extension dev
 - **pnpm** + **Turborepo** monorepo
@@ -167,8 +167,8 @@ Kill switch: press Escape to halt all agent activity immediately.
 | Command | Description |
 |---------|-------------|
 | `pnpm install` | Install all dependencies |
-| `pnpm docker:up` | Start Postgres via Docker |
-| `pnpm db:migrate` | Run database migrations |
+| `pnpm supabase:local` | Start Supabase and run migrations (see [docs/supabase-local.md](docs/supabase-local.md)) |
+| `pnpm db:migrate` | Run database migrations (requires Supabase up and DATABASE_URL set) |
 | `pnpm dev` | Start all apps (API + dashboard) |
 | `pnpm build` | Production build |
 | `pnpm lint` | Run Biome linter |

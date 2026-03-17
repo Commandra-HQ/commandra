@@ -1,7 +1,8 @@
 # Dev overlay: API and Web run in dev mode with hot reload. Use:
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 #
-# DB and Inngest are from the base compose. API and Web use volume mounts and dev commands.
+# Requires Supabase running separately (see docs/supabase-local.md). API uses DATABASE_URL
+# from .env; when running API in Docker, set DATABASE_URL to use host.docker.internal below.
 
 services:
   api:
@@ -15,15 +16,14 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://afe:afe_dev@db:5432/afe
+      # When API runs in Docker and Supabase runs on host, use host.docker.internal.
+      # Override with your Supabase POSTGRES_PASSWORD and POOLER_TENANT_ID from docker/supabase/.env.
+      # DATABASE_URL: postgresql://postgres.POOLER_TENANT_ID:POSTGRES_PASSWORD@host.docker.internal:5432/postgres
       # So the API (in container) can reach the Inngest dev server (inngest container)
       INNGEST_BASE_URL: http://inngest:8288
     volumes:
       - ./apps/api:/app/apps/api
       - ./packages/shared:/app/packages/shared
-    depends_on:
-      db:
-        condition: service_healthy
     restart: "no"
 
   web:
