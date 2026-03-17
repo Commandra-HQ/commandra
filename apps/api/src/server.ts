@@ -17,7 +17,9 @@ import { orgRoutes } from './routes/orgs.js';
 import { settingsRoutes } from './routes/settings.js';
 import { siteRoutes } from './routes/sites.js';
 import { statsRoutes } from './routes/stats.js';
+import { storageRoutes } from './routes/storage.js';
 import { tokenRoutes } from './routes/token.js';
+import { initLocalStorage } from './storage/local.js';
 import { handleWsConnection } from './ws/handler.js';
 
 const app = new Hono();
@@ -53,11 +55,15 @@ app.route('/api/stats', statsRoutes);
 app.route('/api/flows', flowRoutes);
 app.route('/api/memory', memoryRoutes);
 app.route('/api/orgs', orgRoutes);
+app.route('/api/storage', storageRoutes);
 
 // Inngest handler — serve as middleware
 const inngestHandler = inngestServe({ client: inngest, functions: [embedPageElements, embedFlow] });
 app.all('/api/inngest', (c) => inngestHandler(c));
 app.all('/api/inngest/*', (c) => inngestHandler(c));
+
+// Initialize local storage directories
+initLocalStorage();
 
 const PORT = Number(process.env.PORT) || 3001;
 const WS_PORT = Number(process.env.WS_PORT) || 3002;

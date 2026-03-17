@@ -19,6 +19,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { saveLocalFile } from '../storage/local.js';
 
 const SCREENSHOTS_DIR = join(tmpdir(), 'commandra-screenshots');
 const MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
@@ -59,6 +60,20 @@ export function saveScreenshot(base64Data: string): SavedScreenshot {
 		base64: compressedBase64,
 		sizeBytes: buffer.length,
 	};
+}
+
+/**
+ * Persist a screenshot to ~/.commandra/screenshots/ for long-term storage.
+ */
+export function persistScreenshot(
+	base64Data: string,
+	domain: string,
+	conversationId: string,
+): { path: string; sizeBytes: number } {
+	const buffer = Buffer.from(base64Data, 'base64');
+	const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+	const filename = `${conversationId.slice(0, 8)}_${timestamp}.jpg`;
+	return saveLocalFile('screenshots', domain, filename, buffer);
 }
 
 /**

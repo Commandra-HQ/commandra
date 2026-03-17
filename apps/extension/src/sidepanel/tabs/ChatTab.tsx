@@ -14,6 +14,8 @@ import {
 	Globe,
 	Keyboard,
 	List,
+	MessageSquare,
+	RefreshCw,
 	ListChecks,
 	Loader2,
 	MousePointer,
@@ -255,6 +257,15 @@ export function ChatTab() {
 	const [selectorActive, setSelectorActive] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
+	// Conversation history state
+	const [pastConversations, setPastConversations] = useState<
+		{ id: string; title: string; messageCount: number; updatedAt: string }[]
+	>([]);
+	const [loadingHistory, setLoadingHistory] = useState(false);
+
+	// Re-index state
+	const [isReindexing, setIsReindexing] = useState(false);
+
 	// Recording state
 	const [isRecording, setIsRecording] = useState(false);
 	const [recordedSteps, setRecordedSteps] = useState<FlowStep[]>([]);
@@ -311,6 +322,7 @@ export function ChatTab() {
 
 	useEffect(() => {
 		updateCurrentTab();
+		loadConversationHistory();
 		const onActivated = () => updateCurrentTab();
 		chrome.tabs.onActivated.addListener(onActivated);
 		chrome.tabs.onUpdated.addListener(onActivated);
@@ -887,6 +899,66 @@ export function ChatTab() {
 		setChatMessages([]);
 		setConversationId(null);
 		setPendingApprovals([]);
+		loadConversationHistory();
+	}
+
+	async function loadConversationHistory() {
+		try {
+			setLoadingHistory(true);
+			const token = await new Promise<string>((resolve) =>
+				chrome.storage.local.get('token', (r) => resolve(r.token || '')),
+			);
+			if (!token) return;
+			const res = await fetch(`${API_URL}/api/conversations`, {
+				headers: { Authorization: `Bearer ${token}` },
+			});
+			if (res.ok) {
+				const data = await res.json();
+				setPastConversations(data.conversations || []);
+			}
+		} catch (err) {
+			console.error('Failed to load conversation history:', err);
+		} finally {
+			setLoadingHistory(false);
+		}
+	}
+
+	async function loadConversation(convId: string) {
+		try {
+			const token = await new Promise<string>((resolve) =>
+				chrome.storage.local.get('token', (r) => resolve(r.token || '')),
+			);
+			if (!token) return;
+			const res = await fetch(`${API_URL}/api/conversations/${convId}`, {
+				headers: { Authorization: `Bearer ${token}` },
+			});
+			if (res.ok) {
+				const data = await res.json();
+				setConversationId(convId);
+				const loaded: ChatMessage[] = (data.messages || []).map(
+					(m: { id: string; role: string; content: string }) => ({
+						id: m.id,
+						role: m.role as 'user' | 'assistant',
+						content: m.content,
+						blocks: [{ type: 'text' as const, content: m.content }],
+					}),
+				);
+				setChatMessages(loaded);
+			}
+		} catch (err) {
+			console.error('Failed to load conversation:', err);
+		}
+	}
+
+	function handleReindexPage() {
+		if (!tabId || isReindexing) return;
+		setIsReindexing(true);
+		chrome.runtime.sendMessage({ type: 'INDEX_PAGE_SINGLE', payload: { tabId } }, (response) => {
+			if (response?.ok && domain) {
+				loadSiteData(domain);
+			}
+			setIsReindexing(false);
+		});
 	}
 
 	if (!domain) {
@@ -924,23 +996,69 @@ export function ChatTab() {
 	return (
 		<div className="flex flex-col h-full">
 			{/* Context bar */}
-			<button
-				onClick={() => setShowContext(!showContext)}
-				className="px-4 py-2 border-b border-border flex items-center justify-between hover:bg-secondary/30"
-			>
-				<span className="text-xs text-muted-foreground">
-					{domain} · {siteData.pages.length || siteData.site?.totalPages || 0} pages ·{' '}
-					{wsConnected ? 'connected' : 'chat only'}
-				</span>
-				<span className="text-xs text-muted-foreground">{showContext ? '▲' : '▼'}</span>
-			</button>
+			<div className="px-4 py-2 border-b border-border flex items-center justify-between">
+				<button
+					onClick={() => setShowContext(!showContext)}
+					className="flex-1 text-left hover:opacity-80"
+				>
+					<span className="text-xs text-muted-foreground">
+						{domain} · {siteData.site?.totalElements || siteData.pages.reduce((s, p) => s + p.elements.length, 0)} elements · {siteData.pages.length || siteData.site?.totalPages || 0} pages
+						{siteData.site?.lastIndexedAt
+							? ` · Last: ${formatRelativeTime(siteData.site.lastIndexedAt)}`
+							: ''}
+					</span>
+				</button>
+				<div className="flex items-center gap-1.5 ml-2">
+					<div className="relative group">
+						<button
+							onClick={handleReindexPage}
+							disabled={isReindexing}
+							className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50 disabled:opacity-50"
+						>
+							<RefreshCw size={12} className={isReindexing ? 'animate-spin' : ''} />
+						</button>
+						<span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+							Re-index page
+						</span>
+					</div>
+					<div className="relative group">
+						<button
+							onClick={handleIndexSite}
+							className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
+						>
+							<Globe size={12} />
+						</button>
+						<span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+							Deep index site
+						</span>
+					</div>
+					<div className="relative group">
+						<button
+							onClick={() => setShowContext(!showContext)}
+							className="p-1 text-muted-foreground hover:text-foreground"
+						>
+							<span className="text-xs">{showContext ? '▲' : '▼'}</span>
+						</button>
+						<span className="absolute top-full right-0 mt-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+							{showContext ? 'Hide pages' : 'Show pages'}
+						</span>
+					</div>
+				</div>
+			</div>
 
 			{showContext && (
 				<div className="border-b border-border max-h-48 overflow-y-auto">
 					{siteData.pages.map((page) => (
 						<div key={page.url} className="px-4 py-1.5 border-b border-border/30">
 							<p className="text-xs text-foreground truncate">{page.title || page.urlPattern}</p>
-							<p className="text-xs text-muted-foreground">{page.elements.length} elements</p>
+							<div className="flex items-center gap-2">
+								<p className="text-xs text-muted-foreground">{page.elements.length} elements</p>
+								{page.indexedAt && (
+									<p className="text-xs text-muted-foreground">
+										· {formatRelativeTime(page.indexedAt)}
+									</p>
+								)}
+							</div>
 						</div>
 					))}
 				</div>
@@ -1040,11 +1158,43 @@ export function ChatTab() {
 			{/* Messages */}
 			<div className="flex-1 overflow-y-auto p-4 space-y-4">
 				{chatMessages.length === 0 && (
-					<div className="text-center py-8">
-						<p className="text-sm text-muted-foreground">Ask anything about this page or site.</p>
-						<p className="text-xs text-muted-foreground mt-1">
-							"What can I do here?" · "Click the login button" · "Type hello in the search box"
-						</p>
+					<div className="py-4">
+						<div className="text-center mb-4">
+							<p className="text-sm text-muted-foreground">Ask anything about this page or site.</p>
+							<p className="text-xs text-muted-foreground mt-1">
+								"What can I do here?" · "Click the login button" · "Type hello in the search box"
+							</p>
+						</div>
+						{loadingHistory && (
+							<p className="text-xs text-muted-foreground text-center">Loading history...</p>
+						)}
+						{pastConversations.length > 0 && (
+							<div className="mt-4 space-y-1">
+								<p className="text-xs font-medium text-muted-foreground px-1 mb-2">
+									Recent conversations
+								</p>
+								{pastConversations.slice(0, 10).map((conv) => (
+									<button
+										key={conv.id}
+										onClick={() => loadConversation(conv.id)}
+										className="w-full text-left px-3 py-2 rounded-md hover:bg-secondary/50 transition-colors"
+									>
+										<p className="text-xs text-foreground truncate">
+											{conv.title || 'Untitled'}
+										</p>
+										<div className="flex items-center gap-2 mt-0.5">
+											<span className="text-[10px] text-muted-foreground flex items-center gap-1">
+												<MessageSquare size={10} />
+												{conv.messageCount}
+											</span>
+											<span className="text-[10px] text-muted-foreground">
+												{formatRelativeTime(new Date(conv.updatedAt).getTime())}
+											</span>
+										</div>
+									</button>
+								))}
+							</div>
+						)}
 					</div>
 				)}
 				{chatMessages.map((msg) => (
@@ -1129,17 +1279,21 @@ export function ChatTab() {
 								: 'border-input text-muted-foreground hover:text-foreground hover:bg-secondary'
 						}`}
 					>
-						⊕
+						<MousePointer size={14} />
 					</button>
 					{!isRecording && (
-						<button
-							type="button"
-							onClick={startRecordingMode}
-							title="Record a flow"
-							className="px-2 py-2 text-sm rounded-md border border-input text-muted-foreground hover:text-red-400 hover:border-red-500/50 hover:bg-red-500/5 shrink-0"
-						>
-							<Circle size={14} />
-						</button>
+						<div className="relative group">
+							<button
+								type="button"
+								disabled
+								className="px-2 py-2 text-sm rounded-md border border-input text-muted-foreground opacity-50 cursor-not-allowed shrink-0"
+							>
+								<Circle size={14} />
+							</button>
+							<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+								Record flow — coming soon
+							</span>
+						</div>
 					)}
 					<input
 						type="text"
@@ -1748,4 +1902,16 @@ function CrawlingView({
 			</button>
 		</div>
 	);
+}
+
+function formatRelativeTime(timestamp: number): string {
+	const diffMs = Date.now() - timestamp;
+	const diffMins = Math.floor(diffMs / 60000);
+	if (diffMins < 1) return 'just now';
+	if (diffMins < 60) return `${diffMins}m ago`;
+	const diffHours = Math.floor(diffMins / 60);
+	if (diffHours < 24) return `${diffHours}h ago`;
+	const diffDays = Math.floor(diffHours / 24);
+	if (diffDays < 7) return `${diffDays}d ago`;
+	return new Date(timestamp).toLocaleDateString();
 }
