@@ -394,7 +394,7 @@ export function resetKill(connectionId: string): void {
 }
 
 /** Cancel all pending requests/approvals for a connection */
-function cancelAllPending(connectionId: string) {
+function cancelAllPending(_connectionId: string) {
 	for (const [reqId, pending] of pendingRequests) {
 		clearTimeout(pending.timer);
 		pending.reject(new Error('Cancelled by user'));

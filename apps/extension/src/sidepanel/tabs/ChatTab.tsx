@@ -250,7 +250,7 @@ export function ChatTab() {
 	const [isActive, setIsActive] = useState(false);
 	const [conversationId, setConversationId] = useState<string | null>(null);
 	const [showContext, setShowContext] = useState(false);
-	const [wsConnected, setWsConnected] = useState(false);
+	const [_wsConnected, setWsConnected] = useState(false);
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
 	const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
 	const [selectorActive, setSelectorActive] = useState(false);
@@ -653,7 +653,7 @@ export function ChatTab() {
 					}
 				}
 			}
-		} catch (err) {
+		} catch (_err) {
 			if (controller.signal.aborted) return;
 			blocksRef.current.push({
 				type: 'text',
@@ -1225,7 +1225,7 @@ function AssistantMessage({
 	if (blocks.length === 0) return null;
 
 	const lastBlock = blocks[blocks.length - 1];
-	const isThinkingAtEnd = lastBlock.type === 'thinking';
+	const _isThinkingAtEnd = lastBlock.type === 'thinking';
 
 	return (
 		<div className="flex justify-start">
@@ -1269,7 +1269,7 @@ function AssistantMessage({
 
 function ThinkingBlock({ content, isLast }: { content: string; isLast: boolean }) {
 	const [expanded, setExpanded] = useState(false);
-	const isStreaming = isLast && !content; // Will auto-expand once content arrives
+	const _isStreaming = isLast && !content; // Will auto-expand once content arrives
 	const hasContent = content.length > 0;
 
 	// Auto-expand while streaming thinking content

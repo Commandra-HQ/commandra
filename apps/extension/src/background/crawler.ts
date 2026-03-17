@@ -196,7 +196,7 @@ async function indexTabPage(tabId: number): Promise<PageIndex | null> {
 
 export async function indexCurrentPage(tabId: number): Promise<PageIndex | null> {
 	try {
-		const [result] = await chrome.scripting.executeScript({
+		const [_result] = await chrome.scripting.executeScript({
 			target: { tabId },
 			files: ['src/content/index.ts'],
 		});

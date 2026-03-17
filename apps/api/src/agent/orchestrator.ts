@@ -252,13 +252,13 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 												.filter((sub: TextBlock | ImageBlock) => sub.type !== 'image')
 												.map((sub: TextBlock | ImageBlock) =>
 													sub.type === 'text' && sub.text.length > 500
-														? { ...sub, text: sub.text.slice(0, 500) + '...' }
+														? { ...sub, text: `${sub.text.slice(0, 500)}...` }
 														: sub,
 												),
 										} as ToolResultBlock;
 									}
 									if (typeof tr.content === 'string' && tr.content.length > 500) {
-										return { ...tr, content: tr.content.slice(0, 500) + '...' };
+										return { ...tr, content: `${tr.content.slice(0, 500)}...` };
 									}
 								}
 								return b;

@@ -82,7 +82,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 			const payload = message.payload as ActionPayload;
 			console.log(`[AFE] Executing action: ${payload.action}`, payload);
 			const result = executeAction(payload);
-			console.log(`[AFE] Action result:`, result);
+			console.log('[AFE] Action result:', result);
 			sendResponse(result);
 			break;
 		}

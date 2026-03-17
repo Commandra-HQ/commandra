@@ -13,7 +13,7 @@ const KEEPALIVE_ALARM = 'ws-keepalive';
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let connectionId: string | null = null;
+let _connectionId: string | null = null;
 
 export function connectWebSocket() {
 	if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
@@ -43,7 +43,7 @@ export function connectWebSocket() {
 
 				switch (message.type) {
 					case 'connected':
-						connectionId = message.connectionId;
+						_connectionId = message.connectionId;
 						break;
 					case 'auth_result':
 						console.log(`[AFE WS] Auth ${message.success ? 'OK' : 'FAILED'}`);
@@ -86,7 +86,7 @@ export function connectWebSocket() {
 		ws.onclose = () => {
 			console.log('[AFE WS] Disconnected');
 			ws = null;
-			connectionId = null;
+			_connectionId = null;
 			chrome.alarms.clear(KEEPALIVE_ALARM);
 			scheduleReconnect();
 		};
@@ -179,7 +179,7 @@ async function handleActionRequest(message: {
 				chrome.runtime.sendMessage({ type: 'SUB_AGENT_TAB_CLOSED', tabId }).catch(() => {});
 			}
 			sendResult(requestId, { success: true });
-		} catch (err) {
+		} catch (_err) {
 			sendResult(requestId, { success: true }); // Don't fail if tab already closed
 		}
 		return;
@@ -234,14 +234,16 @@ async function handleActionRequest(message: {
 
 		if (action === 'click_element') {
 			return executeInTab(tabId, clickInPage, [vectorSelector, '', label, elementType]);
-		} else if (action === 'type_text') {
+		}
+		if (action === 'type_text') {
 			return executeInTab(tabId, typeInPage, [
 				vectorSelector,
 				message.payload.text as string,
 				'',
 				label,
 			]);
-		} else if (action === 'select_option') {
+		}
+		if (action === 'select_option') {
 			return executeInTab(tabId, selectInPage, [
 				vectorSelector,
 				message.payload.value as string,
@@ -259,7 +261,7 @@ async function handleActionRequest(message: {
 		if (r?.success || !r?.error?.includes('not found')) return first;
 		// Wait 1.5s for DOM to settle (SPA renders, overlays appearing)
 		await new Promise((resolve) => setTimeout(resolve, 1500));
-		console.log(`[AFE WS] Retrying after element not found...`);
+		console.log('[AFE WS] Retrying after element not found...');
 		return fn();
 	}
 
@@ -1351,7 +1353,7 @@ function requestVectorSearch(label: string, elementType: string): Promise<string
 				resolve(result?.selector || null);
 			});
 
-			ws!.send(
+			ws?.send(
 				JSON.stringify({
 					type: 'find_element',
 					label,

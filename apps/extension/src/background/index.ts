@@ -31,7 +31,7 @@ chrome.runtime.onInstalled.addListener(() => {
 connectWebSocket();
 
 // Handle messages from side panel and content scripts
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 	switch (message.type) {
 		case 'CRAWL_START': {
 			const { tabId, maxPages } = message.payload as { tabId: number; maxPages?: number };

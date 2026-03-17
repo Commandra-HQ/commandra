@@ -25,16 +25,12 @@ interface Agent {
 	category: AgentCategory;
 }
 
-interface AgentsTabProps {
-	user: { id: string; email: string };
-}
-
 async function getAuthToken(): Promise<string | null> {
 	const stored = await chrome.storage.local.get(['authToken']);
 	return stored.authToken ?? null;
 }
 
-export function AgentsTab({ user }: AgentsTabProps) {
+export function AgentsTab() {
 	const [agents, setAgents] = useState<Agent[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [showForm, setShowForm] = useState(false);

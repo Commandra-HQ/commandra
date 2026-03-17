@@ -35,7 +35,7 @@ export function getProvider(): LLMProvider {
 	const apiKey = process.env.LLM_API_KEY || process.env.ANTHROPIC_API_KEY;
 
 	if (!apiKey) {
-		throw new Error(`No API key configured. Set LLM_API_KEY or ANTHROPIC_API_KEY.`);
+		throw new Error('No API key configured. Set LLM_API_KEY or ANTHROPIC_API_KEY.');
 	}
 
 	switch (providerId) {

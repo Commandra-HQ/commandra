@@ -96,4 +96,4 @@ if (WS_PORT !== PORT) {
 	standaloneWs.on('connection', handleWsConnection);
 	console.log(`WebSocket server also running on ws://localhost:${WS_PORT}`);
 }
-console.log(`WebSocket server on path /ws (same port as API)`);
+console.log('WebSocket server on path /ws (same port as API)');

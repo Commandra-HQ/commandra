@@ -36,7 +36,7 @@ export default function OrgPage() {
 
 	async function loadMembers() {
 		try {
-			const res = await apiFetch(`/api/orgs/${user!.orgId}/members`);
+			const res = await apiFetch(`/api/orgs/${user?.orgId}/members`);
 			if (res.ok) {
 				const data = await res.json();
 				setMembers(data.members);
@@ -54,7 +54,7 @@ export default function OrgPage() {
 		setSuccess(null);
 
 		try {
-			const res = await apiFetch(`/api/orgs/${user!.orgId}/members`, {
+			const res = await apiFetch(`/api/orgs/${user?.orgId}/members`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
@@ -75,7 +75,7 @@ export default function OrgPage() {
 	async function changeRole(userId: string, role: string) {
 		setError(null);
 		try {
-			const res = await apiFetch(`/api/orgs/${user!.orgId}/members/${userId}`, {
+			const res = await apiFetch(`/api/orgs/${user?.orgId}/members/${userId}`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ role }),
@@ -94,7 +94,7 @@ export default function OrgPage() {
 	async function removeMember(userId: string) {
 		setError(null);
 		try {
-			const res = await apiFetch(`/api/orgs/${user!.orgId}/members/${userId}`, {
+			const res = await apiFetch(`/api/orgs/${user?.orgId}/members/${userId}`, {
 				method: 'DELETE',
 			});
 			if (!res.ok) {

@@ -18,7 +18,7 @@ import { isInternalTool } from './internal-tools.js';
  */
 export function partitionToolsBySafety(
 	toolBlocks: ToolUseBlock[],
-	domain?: string,
+	_domain?: string,
 ): { safe: ToolUseBlock[]; review: ToolUseBlock[]; blocked: ToolUseBlock[] } {
 	const safe: ToolUseBlock[] = [];
 	const review: ToolUseBlock[] = [];

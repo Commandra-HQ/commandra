@@ -122,7 +122,7 @@ export function trimMessagesForTokenBudget(messages: Message[]): Message[] {
 				if (block.type === 'tool_result') {
 					const tr = block as ToolResultBlock;
 					if (typeof tr.content === 'string' && tr.content.length > 2000) {
-						return { ...tr, content: tr.content.slice(0, 2000) + '...[truncated]' };
+						return { ...tr, content: `${tr.content.slice(0, 2000)}...[truncated]` };
 					}
 				}
 				return block;

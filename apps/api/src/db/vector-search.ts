@@ -178,7 +178,7 @@ export async function searchUserMemories(
 	// Try vector-based search first
 	try {
 		const queryVector = await embedText(query);
-		const vectorStr = `[${queryVector.join(',')}]`;
+		const _vectorStr = `[${queryVector.join(',')}]`;
 
 		// Search all user memories for this domain using vector similarity + scoring
 		const allEntries = await db
