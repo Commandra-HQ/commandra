@@ -1009,27 +1009,40 @@ export function ChatTab() {
 					</span>
 				</button>
 				<div className="flex items-center gap-1.5 ml-2">
-					<button
-						onClick={handleReindexPage}
-						disabled={isReindexing}
-						title="Re-index current page"
-						className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50 disabled:opacity-50"
-					>
-						<RefreshCw size={12} className={isReindexing ? 'animate-spin' : ''} />
-					</button>
-					<button
-						onClick={handleIndexSite}
-						title="Deep index site"
-						className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
-					>
-						<Globe size={12} />
-					</button>
-					<button
-						onClick={() => setShowContext(!showContext)}
-						className="p-1 text-muted-foreground hover:text-foreground"
-					>
-						<span className="text-xs">{showContext ? '▲' : '▼'}</span>
-					</button>
+					<div className="relative group">
+						<button
+							onClick={handleReindexPage}
+							disabled={isReindexing}
+							className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50 disabled:opacity-50"
+						>
+							<RefreshCw size={12} className={isReindexing ? 'animate-spin' : ''} />
+						</button>
+						<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity">
+							Re-index page
+						</span>
+					</div>
+					<div className="relative group">
+						<button
+							onClick={handleIndexSite}
+							className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
+						>
+							<Globe size={12} />
+						</button>
+						<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity">
+							Deep index site
+						</span>
+					</div>
+					<div className="relative group">
+						<button
+							onClick={() => setShowContext(!showContext)}
+							className="p-1 text-muted-foreground hover:text-foreground"
+						>
+							<span className="text-xs">{showContext ? '▲' : '▼'}</span>
+						</button>
+						<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity">
+							{showContext ? 'Hide pages' : 'Show pages'}
+						</span>
+					</div>
 				</div>
 			</div>
 
