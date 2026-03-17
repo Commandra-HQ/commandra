@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { useAuth } from '@/lib/auth-context';
 import { Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 export default function LoginPage() {
 	const router = useRouter();
@@ -44,9 +44,7 @@ export default function LoginPage() {
 					</div>
 					<CardTitle>{mode === 'login' ? 'Sign in' : 'Create account'}</CardTitle>
 					<CardDescription>
-						{mode === 'login'
-							? 'Sign in to your dashboard'
-							: 'Create an account to get started'}
+						{mode === 'login' ? 'Sign in to your dashboard' : 'Create an account to get started'}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -86,7 +84,10 @@ export default function LoginPage() {
 							<>
 								No account?{' '}
 								<button
-									onClick={() => { setMode('register'); setError(''); }}
+									onClick={() => {
+										setMode('register');
+										setError('');
+									}}
 									className="text-foreground underline hover:no-underline"
 								>
 									Create one
@@ -96,7 +97,10 @@ export default function LoginPage() {
 							<>
 								Already have an account?{' '}
 								<button
-									onClick={() => { setMode('login'); setError(''); }}
+									onClick={() => {
+										setMode('login');
+										setError('');
+									}}
 									className="text-foreground underline hover:no-underline"
 								>
 									Sign in

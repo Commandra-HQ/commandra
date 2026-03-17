@@ -1,8 +1,8 @@
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { SignJWT } from 'jose';
-import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { organizations, orgMembers, users } from '../db/schema.js';
+import { orgMembers, organizations, users } from '../db/schema.js';
 
 export const tokenRoutes = new Hono();
 
@@ -46,7 +46,10 @@ tokenRoutes.post('/exchange', async (c) => {
 
 		// If org info provided, upsert org and membership
 		if (orgExternalId) {
-			const slug = (orgName || orgExternalId).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+			const slug = (orgName || orgExternalId)
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, '-')
+				.replace(/(^-|-$)/g, '');
 
 			const [org] = await db
 				.insert(organizations)
@@ -71,11 +74,7 @@ tokenRoutes.post('/exchange', async (c) => {
 
 			// Check if this user already has a membership
 			const existingUserMember = existingMember
-				? await db
-						.select()
-						.from(orgMembers)
-						.where(eq(orgMembers.userId, dbUser.id))
-						.limit(1)
+				? await db.select().from(orgMembers).where(eq(orgMembers.userId, dbUser.id)).limit(1)
 				: [];
 
 			if (existingUserMember.length > 0 && existingUserMember[0].orgId === org.id) {
@@ -85,11 +84,14 @@ tokenRoutes.post('/exchange', async (c) => {
 					.set({ role: memberRole })
 					.where(eq(orgMembers.id, existingUserMember[0].id));
 			} else if (!existingUserMember.length || existingUserMember[0].orgId !== org.id) {
-				await db.insert(orgMembers).values({
-					orgId: org.id,
-					userId: dbUser.id,
-					role: memberRole,
-				}).onConflictDoNothing();
+				await db
+					.insert(orgMembers)
+					.values({
+						orgId: org.id,
+						userId: dbUser.id,
+						role: memberRole,
+					})
+					.onConflictDoNothing();
 			}
 
 			jwtPayload.orgId = org.id;

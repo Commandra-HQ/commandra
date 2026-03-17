@@ -1,10 +1,10 @@
 'use client';
 
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { apiFetch } from '@/lib/api';
 import { MessageSquare } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { apiFetch } from '@/lib/api';
 
 interface Conversation {
 	id: string;
@@ -78,7 +78,9 @@ export default function HistoryPage() {
 				<Card>
 					<CardContent className="py-12 text-center">
 						<MessageSquare size={32} className="mx-auto text-muted-foreground mb-3" />
-						<p className="text-sm text-muted-foreground">No conversations yet. Start chatting in the extension.</p>
+						<p className="text-sm text-muted-foreground">
+							No conversations yet. Start chatting in the extension.
+						</p>
 					</CardContent>
 				</Card>
 			) : (
@@ -116,7 +118,9 @@ export default function HistoryPage() {
 									Select a conversation to view messages.
 								</p>
 							) : messages.length === 0 ? (
-								<p className="text-sm text-muted-foreground text-center py-12">No messages found.</p>
+								<p className="text-sm text-muted-foreground text-center py-12">
+									No messages found.
+								</p>
 							) : (
 								messages.map((msg) => (
 									<div
@@ -125,9 +129,7 @@ export default function HistoryPage() {
 									>
 										<div
 											className={`max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
-												msg.role === 'user'
-													? 'bg-primary text-primary-foreground'
-													: 'bg-muted'
+												msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
 											}`}
 										>
 											{msg.content}
@@ -156,4 +158,3 @@ function formatRelative(dateStr: string): string {
 	if (diffDays < 7) return `${diffDays}d ago`;
 	return date.toLocaleDateString();
 }
-

@@ -4,7 +4,7 @@ import { jwtVerify } from 'jose';
 import type { WebSocket } from 'ws';
 import { isRecording, recordStep } from '../agent/recorder.js';
 import { db } from '../db/index.js';
-import { pages, sites } from '../db/schema.js';
+import { sites } from '../db/schema.js';
 import { searchElements } from '../db/vector-search.js';
 import { updateSiteTotals, upsertPage } from '../routes/sites.js';
 
@@ -123,27 +123,24 @@ export function handleWsConnection(ws: WebSocket) {
 							urlPattern = new URL(url).pathname.replace(/\/\d+/g, '/:id');
 						} catch {}
 
-						recordStep(
-							connectionId,
-							action,
-							args,
-							{ success: true },
-							urlPattern,
-							'',
-						).then((step) => {
-							// Send the recorded step back to the extension so the UI updates
-							if (step) {
-								const conn = connections.get(connectionId);
-								if (conn && conn.ws.readyState === conn.ws.OPEN) {
-									conn.ws.send(JSON.stringify({
-										type: 'flow_step_recorded',
-										step,
-										stepCount: step.index + 1,
-										timestamp: Date.now(),
-									}));
+						recordStep(connectionId, action, args, { success: true }, urlPattern, '')
+							.then((step) => {
+								// Send the recorded step back to the extension so the UI updates
+								if (step) {
+									const conn = connections.get(connectionId);
+									if (conn && conn.ws.readyState === conn.ws.OPEN) {
+										conn.ws.send(
+											JSON.stringify({
+												type: 'flow_step_recorded',
+												step,
+												stepCount: step.index + 1,
+												timestamp: Date.now(),
+											}),
+										);
+									}
 								}
-							}
-						}).catch((err) => console.warn('[WS] Failed to record manual step:', err));
+							})
+							.catch((err) => console.warn('[WS] Failed to record manual step:', err));
 					}
 					break;
 				}
@@ -199,7 +196,12 @@ export function handleWsConnection(ws: WebSocket) {
 					const feConn = connections.get(connectionId);
 					if (!feConn?.userId) break;
 
-					const { label: feLabel, elementType: feType, domain: feDomain, requestId: feReqId } = message as {
+					const {
+						label: feLabel,
+						elementType: feType,
+						domain: feDomain,
+						requestId: feReqId,
+					} = message as {
 						label: string;
 						elementType: string;
 						domain: string;
@@ -215,26 +217,35 @@ export function handleWsConnection(ws: WebSocket) {
 								.limit(1);
 
 							if (!feSite) {
-								ws.send(JSON.stringify({ type: 'find_element_result', requestId: feReqId, result: null }));
+								ws.send(
+									JSON.stringify({ type: 'find_element_result', requestId: feReqId, result: null }),
+								);
 								return;
 							}
 
 							const feResults = await searchElements(`${feType}: ${feLabel}`, feSite.id, 1);
 							const best = feResults[0];
 
-							ws.send(JSON.stringify({
-								type: 'find_element_result',
-								requestId: feReqId,
-								result: best && best.score > 0.5 ? {
-									selector: best.selector,
-									label: best.elementLabel,
-									type: best.elementType,
-									score: best.score,
-								} : null,
-							}));
+							ws.send(
+								JSON.stringify({
+									type: 'find_element_result',
+									requestId: feReqId,
+									result:
+										best && best.score > 0.5
+											? {
+													selector: best.selector,
+													label: best.elementLabel,
+													type: best.elementType,
+													score: best.score,
+												}
+											: null,
+								}),
+							);
 						} catch (err) {
 							console.error('[WS] Vector search failed:', err);
-							ws.send(JSON.stringify({ type: 'find_element_result', requestId: feReqId, result: null }));
+							ws.send(
+								JSON.stringify({ type: 'find_element_result', requestId: feReqId, result: null }),
+							);
 						}
 					})();
 					break;
@@ -261,6 +272,7 @@ export function handleWsConnection(ws: WebSocket) {
 /**
  * Send an action request to an extension connection and wait for the result.
  * Returns a Promise that resolves with the action result or rejects on timeout.
+ * If tabId is provided, the extension targets that specific tab (for sub-agents).
  */
 export function sendActionRequest(
 	connectionId: string,

@@ -7,10 +7,9 @@
  */
 
 import type { FlowStep } from '@afe/shared';
+import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { flows, sites } from '../db/schema.js';
-import { getFastModel, getProvider } from '../llm/index.js';
-import { eq } from 'drizzle-orm';
 
 /** In-memory recording sessions keyed by connectionId */
 const recordings = new Map<
@@ -22,11 +21,7 @@ const recordings = new Map<
 	}
 >();
 
-export function startRecording(
-	connectionId: string,
-	userId: string,
-	domain: string,
-) {
+export function startRecording(connectionId: string, userId: string, domain: string) {
 	recordings.set(connectionId, { userId, domain, steps: [] });
 }
 
@@ -119,10 +114,7 @@ export function cancelRecording(connectionId: string) {
 /**
  * Use the fast model to generate a human-readable intent from a tool call.
  */
-async function generateIntent(
-	toolName: string,
-	args: Record<string, unknown>,
-): Promise<string> {
+async function generateIntent(toolName: string, args: Record<string, unknown>): Promise<string> {
 	// Simple heuristic first — only call LLM for complex cases
 	const selector = args.selector as string | undefined;
 	const text = args.text as string | undefined;

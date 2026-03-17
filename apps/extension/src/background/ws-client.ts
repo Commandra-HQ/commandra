@@ -126,6 +126,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 	}
 });
 
+// Track sub-agent tabs so we can clean them up
+const subAgentTabs = new Map<number, string>(); // tabId → agentId
+
 async function handleActionRequest(message: {
 	requestId: string;
 	payload: Record<string, unknown>;
@@ -134,11 +137,84 @@ async function handleActionRequest(message: {
 	const action = payload.action as string;
 	console.log(`[AFE WS] Action: ${action}`, payload);
 
-	const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-	const tab = tabs[0];
+	// Sub-agent tab management — open_tab / close_tab don't need a target tab
+	if (action === 'open_tab') {
+		try {
+			const url = (payload.url as string) || 'about:blank';
+			const agentId = (payload.agentId as string) || '';
+			const newTab = await chrome.tabs.create({ url, active: false });
+			if (newTab.id) {
+				subAgentTabs.set(newTab.id, agentId);
+				// Wait for the tab to finish loading
+				await new Promise<void>((resolve) => {
+					const listener = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+						if (tabId === newTab.id && changeInfo.status === 'complete') {
+							chrome.tabs.onUpdated.removeListener(listener);
+							resolve();
+						}
+					};
+					chrome.tabs.onUpdated.addListener(listener);
+					// Timeout after 15s
+					setTimeout(() => {
+						chrome.tabs.onUpdated.removeListener(listener);
+						resolve();
+					}, 15000);
+				});
+			}
+			// Notify side panel about new sub-agent tab
+			chrome.runtime
+				.sendMessage({
+					type: 'SUB_AGENT_TAB_OPENED',
+					tabId: newTab.id,
+					agentId,
+					url,
+				})
+				.catch(() => {});
+			sendResult(requestId, { success: true, data: { tabId: newTab.id } });
+		} catch (err) {
+			sendResult(requestId, {
+				success: false,
+				error: `Failed to open tab: ${err instanceof Error ? err.message : String(err)}`,
+			});
+		}
+		return;
+	}
+
+	if (action === 'close_tab') {
+		try {
+			const tabId = payload.tabId as number;
+			if (tabId) {
+				subAgentTabs.delete(tabId);
+				await chrome.tabs.remove(tabId);
+				chrome.runtime.sendMessage({ type: 'SUB_AGENT_TAB_CLOSED', tabId }).catch(() => {});
+			}
+			sendResult(requestId, { success: true });
+		} catch (err) {
+			sendResult(requestId, { success: true }); // Don't fail if tab already closed
+		}
+		return;
+	}
+
+	// Determine target tab: use explicit tabId for sub-agents, else active tab
+	let tab: chrome.tabs.Tab | undefined;
+	if (payload.tabId) {
+		try {
+			tab = await chrome.tabs.get(payload.tabId as number);
+		} catch {
+			// Tab might have been closed
+			sendResult(requestId, {
+				success: false,
+				error: `Sub-agent tab ${payload.tabId} not found (may have been closed)`,
+			});
+			return;
+		}
+	} else {
+		const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+		tab = tabs[0];
+	}
 
 	if (!tab?.id) {
-		sendResult(requestId, { success: false, error: 'No active tab found' });
+		sendResult(requestId, { success: false, error: 'No target tab found' });
 		return;
 	}
 
@@ -169,11 +245,32 @@ async function handleActionRequest(message: {
 		if (action === 'click_element') {
 			return executeInTab(tabId, clickInPage, [vectorSelector, '', label, elementType]);
 		} else if (action === 'type_text') {
-			return executeInTab(tabId, typeInPage, [vectorSelector, message.payload.text as string, '', label]);
+			return executeInTab(tabId, typeInPage, [
+				vectorSelector,
+				message.payload.text as string,
+				'',
+				label,
+			]);
 		} else if (action === 'select_option') {
-			return executeInTab(tabId, selectInPage, [vectorSelector, message.payload.value as string, '', label]);
+			return executeInTab(tabId, selectInPage, [
+				vectorSelector,
+				message.payload.value as string,
+				'',
+				label,
+			]);
 		}
 		return r;
+	}
+
+	// Helper: retry an action once after a short delay if element not found
+	async function withRetry(fn: () => Promise<unknown>): Promise<unknown> {
+		const first = await fn();
+		const r = first as { success?: boolean; error?: string } | null;
+		if (r?.success || !r?.error?.includes('not found')) return first;
+		// Wait 1.5s for DOM to settle (SPA renders, overlays appearing)
+		await new Promise((resolve) => setTimeout(resolve, 1500));
+		console.log(`[AFE WS] Retrying after element not found...`);
+		return fn();
 	}
 
 	try {
@@ -184,37 +281,91 @@ async function handleActionRequest(message: {
 			await waitForTabLoad(tab.id);
 			result = { success: true, data: { navigatedTo: payload.url } };
 		} else if (action === 'click_element') {
-			result = await executeInTab(tab.id, clickInPage, [
-				payload.selector as string,
-				fallbacksStr,
-				elementLabel,
-				elementType,
-			]);
+			result = await withRetry(() =>
+				executeInTab(tab.id!, clickInPage, [
+					payload.selector as string,
+					fallbacksStr,
+					elementLabel,
+					elementType,
+				]),
+			);
 			result = await withVectorFallback(tab.id, action, result, elementLabel, elementType);
 		} else if (action === 'type_text') {
-			result = await executeInTab(tab.id, typeInPage, [
-				payload.selector as string,
-				payload.text as string,
-				fallbacksStr,
-				elementLabel,
-			]);
+			result = await withRetry(() =>
+				executeInTab(tab.id!, typeInPage, [
+					payload.selector as string,
+					payload.text as string,
+					fallbacksStr,
+					elementLabel,
+				]),
+			);
 			result = await withVectorFallback(tab.id, action, result, elementLabel, 'input');
 		} else if (action === 'select_option') {
-			result = await executeInTab(tab.id, selectInPage, [
-				payload.selector as string,
-				payload.value as string,
-				fallbacksStr,
-				elementLabel,
-			]);
+			result = await withRetry(() =>
+				executeInTab(tab.id!, selectInPage, [
+					payload.selector as string,
+					payload.value as string,
+					fallbacksStr,
+					elementLabel,
+				]),
+			);
 			result = await withVectorFallback(tab.id, action, result, elementLabel, 'select');
 		} else if (action === 'get_page_state') {
 			result = await executeInTab(tab.id, getPageStateInPage, []);
 		} else if (action === 'screenshot') {
-			const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 75 });
-			const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+			// If this is a sub-agent tab (not the active tab), switch to it briefly to capture
+			const isSubAgentTab = payload.tabId && subAgentTabs.has(payload.tabId as number);
+			let previousTabId: number | undefined;
+			if (isSubAgentTab && tab.id) {
+				// Remember current active tab so we can switch back
+				const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+				previousTabId = activeTabs[0]?.id;
+				// Switch to the sub-agent tab
+				await chrome.tabs.update(tab.id, { active: true });
+				// Wait for the tab to become visible
+				await new Promise((resolve) => setTimeout(resolve, 300));
+			}
+
+			// Capture at moderate quality, then resize via offscreen canvas for smaller context
+			const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 40 });
+			// Resize to max 1280px wide using offscreen document or direct encoding
+			let finalBase64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+			try {
+				// Use createImageBitmap + OffscreenCanvas to resize
+				const response = await fetch(dataUrl);
+				const blob = await response.blob();
+				const bitmap = await createImageBitmap(blob);
+				const maxWidth = 1280;
+				const scale = bitmap.width > maxWidth ? maxWidth / bitmap.width : 1;
+				const w = Math.round(bitmap.width * scale);
+				const h = Math.round(bitmap.height * scale);
+				const canvas = new OffscreenCanvas(w, h);
+				const ctx = canvas.getContext('2d');
+				if (ctx) {
+					ctx.drawImage(bitmap, 0, 0, w, h);
+					const resizedBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.35 });
+					const arrayBuffer = await resizedBlob.arrayBuffer();
+					// Convert to base64 in service worker
+					const bytes = new Uint8Array(arrayBuffer);
+					let binary = '';
+					for (let i = 0; i < bytes.length; i++) {
+						binary += String.fromCharCode(bytes[i]);
+					}
+					finalBase64 = btoa(binary);
+				}
+				bitmap.close();
+			} catch (resizeErr) {
+				// Fallback: use the original capture (still lower quality than before)
+				console.warn('[AFE WS] Screenshot resize failed, using original:', resizeErr);
+			}
+			// Switch back to user's original tab if we switched away for sub-agent screenshot
+			if (isSubAgentTab && previousTabId) {
+				await chrome.tabs.update(previousTabId, { active: true });
+			}
+
 			result = {
 				success: true,
-				data: { image: base64, format: 'jpeg', url: tab.url, title: tab.title },
+				data: { image: finalBase64, format: 'jpeg', url: tab.url, title: tab.title },
 			};
 		} else if (action === 'scroll') {
 			result = await executeInTab(tab.id, scrollInPage, [
@@ -286,12 +437,20 @@ async function executeInTab(
 		});
 		const result = results[0]?.result;
 		if (result === null || result === undefined) {
-			console.warn('[AFE WS] executeInTab returned null/undefined. Function:', func.name, 'Results:', JSON.stringify(results));
+			console.warn(
+				'[AFE WS] executeInTab returned null/undefined. Function:',
+				func.name,
+				'Results:',
+				JSON.stringify(results),
+			);
 		}
 		return result;
 	} catch (err) {
 		console.error('[AFE WS] executeInTab error:', err, 'Function:', func.name);
-		return { success: false, error: `Script execution failed: ${err instanceof Error ? err.message : String(err)}` };
+		return {
+			success: false,
+			error: `Script execution failed: ${err instanceof Error ? err.message : String(err)}`,
+		};
 	}
 }
 
@@ -316,103 +475,263 @@ async function executeInTabAsync(
 
 function clickInPage(selector: string, fallbacks: string, label: string, elementType: string) {
 	// Inline findElement — chrome.scripting.executeScript can't access outer functions
-	function findElement(s: string, fb: string, l: string, et: string): { element: Element | null; usedSelector: string; method: string } {
+	function findElement(
+		s: string,
+		fb: string,
+		l: string,
+		et: string,
+	): { element: Element | null; usedSelector: string; method: string } {
 		let el = document.querySelector(s);
 		if (el) return { element: el, usedSelector: s, method: 'primary' };
 		const fbs = fb ? fb.split('|||') : [];
-		for (const f of fbs) { if (!f) continue; el = document.querySelector(f); if (el) return { element: el, usedSelector: f, method: 'fallback' }; }
+		for (const f of fbs) {
+			if (!f) continue;
+			el = document.querySelector(f);
+			if (el) return { element: el, usedSelector: f, method: 'fallback' };
+		}
 		if (!l) return { element: null, usedSelector: s, method: 'none' };
-		const ts: Record<string, string> = { button: 'button, [role="button"], input[type="submit"], input[type="button"]', link: 'a[href], [role="link"]', input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])', select: 'select', textarea: 'textarea', checkbox: 'input[type="checkbox"], [role="checkbox"]', radio: 'input[type="radio"], [role="radio"]', tab: '[role="tab"]' };
-		const qs = ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+		const ts: Record<string, string> = {
+			button: 'button, [role="button"], input[type="submit"], input[type="button"]',
+			link: 'a[href], [role="link"]',
+			input:
+				'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])',
+			select: 'select',
+			textarea: 'textarea',
+			checkbox: 'input[type="checkbox"], [role="checkbox"]',
+			radio: 'input[type="radio"], [role="radio"]',
+			tab: '[role="tab"]',
+		};
+		const qs =
+			ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
 		const candidates = document.querySelectorAll(qs);
 		const ll = l.toLowerCase().trim();
-		let bestMatch: Element | null = null; let bestScore = 0;
+		let bestMatch: Element | null = null;
+		let bestScore = 0;
 		for (const c of candidates) {
 			if (!(c instanceof HTMLElement)) continue;
-			const r = c.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
-			const cl = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent?.trim().slice(0, 100) || c.getAttribute('placeholder') || c.getAttribute('name') || '').toLowerCase().trim();
+			const r = c.getBoundingClientRect();
+			if (r.width === 0 || r.height === 0) continue;
+			const cl = (
+				c.getAttribute('aria-label') ||
+				c.getAttribute('title') ||
+				c.textContent?.trim().slice(0, 100) ||
+				c.getAttribute('placeholder') ||
+				c.getAttribute('name') ||
+				''
+			)
+				.toLowerCase()
+				.trim();
 			if (!cl) continue;
 			if (cl === ll) return { element: c, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
 			let score = 0;
-			if (cl.includes(ll) || ll.includes(cl)) { score = 0.8; } else { const lw = ll.split(/\s+/); const cw = cl.split(/\s+/); score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1); }
-			if (score > bestScore && score > 0.4) { bestScore = score; bestMatch = c; }
+			if (cl.includes(ll) || ll.includes(cl)) {
+				score = 0.8;
+			} else {
+				const lw = ll.split(/\s+/);
+				const cw = cl.split(/\s+/);
+				score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1);
+			}
+			if (score > bestScore && score > 0.4) {
+				bestScore = score;
+				bestMatch = c;
+			}
 		}
-		if (bestMatch) return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
+		if (bestMatch)
+			return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
 		return { element: null, usedSelector: s, method: 'none' };
 	}
-	const { element: el, usedSelector, method } = findElement(selector, fallbacks, label, elementType);
+	const {
+		element: el,
+		usedSelector,
+		method,
+	} = findElement(selector, fallbacks, label, elementType);
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
 	if (!(el instanceof HTMLElement)) return { success: false, error: `Not clickable: ${selector}` };
 	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	el.click();
-	return { success: true, data: { clicked: usedSelector, method, tag: el.tagName.toLowerCase(), text: el.textContent?.trim().slice(0, 100) } };
+	return {
+		success: true,
+		data: {
+			clicked: usedSelector,
+			method,
+			tag: el.tagName.toLowerCase(),
+			text: el.textContent?.trim().slice(0, 100),
+		},
+	};
 }
 
 function typeInPage(selector: string, text: string, fallbacks: string, label: string) {
 	// Inline findElement — chrome.scripting.executeScript can't access outer functions
-	function findElement(s: string, fb: string, l: string, et: string): { element: Element | null; usedSelector: string; method: string } {
+	function findElement(
+		s: string,
+		fb: string,
+		l: string,
+		et: string,
+	): { element: Element | null; usedSelector: string; method: string } {
 		let el = document.querySelector(s);
 		if (el) return { element: el, usedSelector: s, method: 'primary' };
 		const fbs = fb ? fb.split('|||') : [];
-		for (const f of fbs) { if (!f) continue; el = document.querySelector(f); if (el) return { element: el, usedSelector: f, method: 'fallback' }; }
+		for (const f of fbs) {
+			if (!f) continue;
+			el = document.querySelector(f);
+			if (el) return { element: el, usedSelector: f, method: 'fallback' };
+		}
 		if (!l) return { element: null, usedSelector: s, method: 'none' };
-		const ts: Record<string, string> = { button: 'button, [role="button"], input[type="submit"], input[type="button"]', link: 'a[href], [role="link"]', input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])', select: 'select', textarea: 'textarea', checkbox: 'input[type="checkbox"], [role="checkbox"]', radio: 'input[type="radio"], [role="radio"]', tab: '[role="tab"]' };
-		const qs = ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+		const ts: Record<string, string> = {
+			button: 'button, [role="button"], input[type="submit"], input[type="button"]',
+			link: 'a[href], [role="link"]',
+			input:
+				'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"], [role="textbox"]',
+			select: 'select',
+			textarea: 'textarea, [contenteditable="true"], [role="textbox"]',
+			checkbox: 'input[type="checkbox"], [role="checkbox"]',
+			radio: 'input[type="radio"], [role="radio"]',
+			tab: '[role="tab"]',
+		};
+		const qs =
+			ts[et] ||
+			'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [contenteditable="true"], [role="textbox"]';
 		const candidates = document.querySelectorAll(qs);
 		const ll = l.toLowerCase().trim();
-		let bestMatch: Element | null = null; let bestScore = 0;
+		let bestMatch: Element | null = null;
+		let bestScore = 0;
 		for (const c of candidates) {
 			if (!(c instanceof HTMLElement)) continue;
-			const r = c.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
-			const cl = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent?.trim().slice(0, 100) || c.getAttribute('placeholder') || c.getAttribute('name') || '').toLowerCase().trim();
+			const r = c.getBoundingClientRect();
+			if (r.width === 0 || r.height === 0) continue;
+			const cl = (
+				c.getAttribute('aria-label') ||
+				c.getAttribute('title') ||
+				c.textContent?.trim().slice(0, 100) ||
+				c.getAttribute('placeholder') ||
+				c.getAttribute('name') ||
+				''
+			)
+				.toLowerCase()
+				.trim();
 			if (!cl) continue;
 			if (cl === ll) return { element: c, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
 			let score = 0;
-			if (cl.includes(ll) || ll.includes(cl)) { score = 0.8; } else { const lw = ll.split(/\s+/); const cw = cl.split(/\s+/); score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1); }
-			if (score > bestScore && score > 0.4) { bestScore = score; bestMatch = c; }
+			if (cl.includes(ll) || ll.includes(cl)) {
+				score = 0.8;
+			} else {
+				const lw = ll.split(/\s+/);
+				const cw = cl.split(/\s+/);
+				score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1);
+			}
+			if (score > bestScore && score > 0.4) {
+				bestScore = score;
+				bestMatch = c;
+			}
 		}
-		if (bestMatch) return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
+		if (bestMatch)
+			return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
 		return { element: null, usedSelector: s, method: 'none' };
 	}
 	const { element: el, usedSelector, method } = findElement(selector, fallbacks, label, 'input');
 	if (!el) return { success: false, error: `Element not found: ${selector}` };
-	if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {
-		return { success: false, error: `Not a text input: ${selector}` };
+	const htmlEl = el as HTMLElement;
+	htmlEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	htmlEl.focus();
+
+	// Handle contenteditable elements (Gmail compose body, Notion, rich text editors)
+	if (
+		htmlEl.isContentEditable ||
+		htmlEl.getAttribute('contenteditable') === 'true' ||
+		htmlEl.getAttribute('role') === 'textbox'
+	) {
+		// Clear existing content
+		htmlEl.innerHTML = '';
+		// Insert text using execCommand (works with contenteditable and undo stack)
+		document.execCommand('insertText', false, text);
+		// Also dispatch input event for frameworks that listen
+		htmlEl.dispatchEvent(new Event('input', { bubbles: true }));
+		return {
+			success: true,
+			data: { typed: text, selector: usedSelector, method, inputType: 'contenteditable' },
+		};
 	}
-	el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-	el.focus();
+
+	// Standard input/textarea
+	if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {
+		return { success: false, error: `Not a text input or contenteditable element: ${selector}` };
+	}
 	el.value = '';
 	el.dispatchEvent(new Event('input', { bubbles: true }));
 	el.value = text;
 	el.dispatchEvent(new Event('input', { bubbles: true }));
 	el.dispatchEvent(new Event('change', { bubbles: true }));
-	return { success: true, data: { typed: text, selector: usedSelector, method } };
+	return {
+		success: true,
+		data: { typed: text, selector: usedSelector, method, inputType: 'standard' },
+	};
 }
 
 function selectInPage(selector: string, value: string, fallbacks: string, label: string) {
 	// Inline findElement — chrome.scripting.executeScript can't access outer functions
-	function findElement(s: string, fb: string, l: string, et: string): { element: Element | null; usedSelector: string; method: string } {
+	function findElement(
+		s: string,
+		fb: string,
+		l: string,
+		et: string,
+	): { element: Element | null; usedSelector: string; method: string } {
 		let el = document.querySelector(s);
 		if (el) return { element: el, usedSelector: s, method: 'primary' };
 		const fbs = fb ? fb.split('|||') : [];
-		for (const f of fbs) { if (!f) continue; el = document.querySelector(f); if (el) return { element: el, usedSelector: f, method: 'fallback' }; }
+		for (const f of fbs) {
+			if (!f) continue;
+			el = document.querySelector(f);
+			if (el) return { element: el, usedSelector: f, method: 'fallback' };
+		}
 		if (!l) return { element: null, usedSelector: s, method: 'none' };
-		const ts: Record<string, string> = { button: 'button, [role="button"], input[type="submit"], input[type="button"]', link: 'a[href], [role="link"]', input: 'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])', select: 'select', textarea: 'textarea', checkbox: 'input[type="checkbox"], [role="checkbox"]', radio: 'input[type="radio"], [role="radio"]', tab: '[role="tab"]' };
-		const qs = ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
+		const ts: Record<string, string> = {
+			button: 'button, [role="button"], input[type="submit"], input[type="button"]',
+			link: 'a[href], [role="link"]',
+			input:
+				'input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])',
+			select: 'select',
+			textarea: 'textarea',
+			checkbox: 'input[type="checkbox"], [role="checkbox"]',
+			radio: 'input[type="radio"], [role="radio"]',
+			tab: '[role="tab"]',
+		};
+		const qs =
+			ts[et] || 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]';
 		const candidates = document.querySelectorAll(qs);
 		const ll = l.toLowerCase().trim();
-		let bestMatch: Element | null = null; let bestScore = 0;
+		let bestMatch: Element | null = null;
+		let bestScore = 0;
 		for (const c of candidates) {
 			if (!(c instanceof HTMLElement)) continue;
-			const r = c.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
-			const cl = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent?.trim().slice(0, 100) || c.getAttribute('placeholder') || c.getAttribute('name') || '').toLowerCase().trim();
+			const r = c.getBoundingClientRect();
+			if (r.width === 0 || r.height === 0) continue;
+			const cl = (
+				c.getAttribute('aria-label') ||
+				c.getAttribute('title') ||
+				c.textContent?.trim().slice(0, 100) ||
+				c.getAttribute('placeholder') ||
+				c.getAttribute('name') ||
+				''
+			)
+				.toLowerCase()
+				.trim();
 			if (!cl) continue;
 			if (cl === ll) return { element: c, usedSelector: 'fuzzy:exact', method: 'fuzzy' };
 			let score = 0;
-			if (cl.includes(ll) || ll.includes(cl)) { score = 0.8; } else { const lw = ll.split(/\s+/); const cw = cl.split(/\s+/); score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1); }
-			if (score > bestScore && score > 0.4) { bestScore = score; bestMatch = c; }
+			if (cl.includes(ll) || ll.includes(cl)) {
+				score = 0.8;
+			} else {
+				const lw = ll.split(/\s+/);
+				const cw = cl.split(/\s+/);
+				score = lw.filter((w) => cw.includes(w)).length / Math.max(lw.length, 1);
+			}
+			if (score > bestScore && score > 0.4) {
+				bestScore = score;
+				bestMatch = c;
+			}
 		}
-		if (bestMatch) return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
+		if (bestMatch)
+			return { element: bestMatch, usedSelector: `fuzzy:${bestScore.toFixed(2)}`, method: 'fuzzy' };
 		return { element: null, usedSelector: s, method: 'none' };
 	}
 	const { element: el, usedSelector, method } = findElement(selector, fallbacks, label, 'select');
@@ -428,7 +747,7 @@ function getPageStateInPage() {
 	// Lightweight page indexer — inline version for action context
 	const elements: { type: string; label: string; selector: string }[] = [];
 	const interactiveSelectors =
-		'a, button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick]';
+		'a, button, input, select, textarea, [contenteditable="true"], [role="textbox"], [role="button"], [role="link"], [role="tab"], [onclick]';
 
 	document.querySelectorAll(interactiveSelectors).forEach((el) => {
 		if (!(el instanceof HTMLElement)) return;
@@ -771,13 +1090,35 @@ function getDomainFromTab(tab: chrome.tabs.Tab): string | null {
 function refreshPageStateInPage() {
 	// Full re-index — same as content script indexer but inline for executeScript
 	const INTERACTIVE_SELECTORS = [
-		'button', 'a[href]', 'input', 'select', 'textarea',
-		'[role="button"]', '[role="link"]', '[role="checkbox"]',
-		'[role="radio"]', '[role="tab"]', '[role="menuitem"]',
-		'[onclick]', 'table', 'form',
+		'button',
+		'a[href]',
+		'input',
+		'select',
+		'textarea',
+		'[contenteditable="true"]',
+		'[role="textbox"]',
+		'[role="button"]',
+		'[role="link"]',
+		'[role="checkbox"]',
+		'[role="radio"]',
+		'[role="tab"]',
+		'[role="menuitem"]',
+		'[onclick]',
+		'table',
+		'form',
 	];
 
-	type ElemType = 'button' | 'link' | 'input' | 'select' | 'textarea' | 'checkbox' | 'radio' | 'table' | 'form' | 'other';
+	type ElemType =
+		| 'button'
+		| 'link'
+		| 'input'
+		| 'select'
+		| 'textarea'
+		| 'checkbox'
+		| 'radio'
+		| 'table'
+		| 'form'
+		| 'other';
 
 	function getElemType(el: Element): ElemType {
 		const tag = el.tagName.toLowerCase();
@@ -801,8 +1142,17 @@ function refreshPageStateInPage() {
 		const ariaLabel = el.getAttribute('aria-label');
 		if (ariaLabel) return ariaLabel;
 		const id = el.getAttribute('id');
-		if (id) { const lbl = document.querySelector(`label[for="${id}"]`); if (lbl?.textContent?.trim()) return lbl.textContent.trim().slice(0, 100); }
-		return el.getAttribute('title') || el.textContent?.trim().slice(0, 100) || el.getAttribute('placeholder') || el.getAttribute('name') || el.tagName.toLowerCase();
+		if (id) {
+			const lbl = document.querySelector(`label[for="${id}"]`);
+			if (lbl?.textContent?.trim()) return lbl.textContent.trim().slice(0, 100);
+		}
+		return (
+			el.getAttribute('title') ||
+			el.textContent?.trim().slice(0, 100) ||
+			el.getAttribute('placeholder') ||
+			el.getAttribute('name') ||
+			el.tagName.toLowerCase()
+		);
 	}
 
 	function buildSel(el: Element): string {
@@ -815,7 +1165,10 @@ function refreshPageStateInPage() {
 		const name = el.getAttribute('name');
 		if (name) return `${tag}[name="${name}"]`;
 		const cls = Array.from(el.classList).slice(0, 3).join('.');
-		if (cls) { const s = `${tag}.${cls}`; if (document.querySelectorAll(s).length === 1) return s; }
+		if (cls) {
+			const s = `${tag}.${cls}`;
+			if (document.querySelectorAll(s).length === 1) return s;
+		}
 		// nth-child fallback
 		const parts: string[] = [];
 		let cur: Element | null = el;
@@ -858,8 +1211,11 @@ function refreshPageStateInPage() {
 	const navLinks = Array.from(document.querySelectorAll('a[href]'))
 		.filter((a) => {
 			const href = a.getAttribute('href') || '';
-			return (href.startsWith('/') || href.startsWith(window.location.origin)) &&
-				!href.startsWith('javascript:') && !href.match(/\.(pdf|png|jpg|jpeg|gif|svg|css|js|zip|csv)$/i);
+			return (
+				(href.startsWith('/') || href.startsWith(window.location.origin)) &&
+				!href.startsWith('javascript:') &&
+				!href.match(/\.(pdf|png|jpg|jpeg|gif|svg|css|js|zip|csv)$/i)
+			);
 		})
 		.map((a) => ({
 			label: a.textContent?.trim().slice(0, 80) || '',
@@ -870,10 +1226,15 @@ function refreshPageStateInPage() {
 	const path = window.location.pathname;
 	let pageType = 'other';
 	if (path.includes('settings') || path.includes('preferences')) pageType = 'settings';
-	else if (document.querySelectorAll('form').length > 0 && document.querySelectorAll('table').length === 0) pageType = 'form';
+	else if (
+		document.querySelectorAll('form').length > 0 &&
+		document.querySelectorAll('table').length === 0
+	)
+		pageType = 'form';
 	else if (document.querySelectorAll('table').length > 0) pageType = 'table';
 	else if (path.match(/\/\d+$/) || path.match(/\/[a-f0-9-]{36}$/)) pageType = 'detail';
-	else if (path === '/' || path.includes('dashboard') || path.includes('home')) pageType = 'dashboard';
+	else if (path === '/' || path.includes('dashboard') || path.includes('home'))
+		pageType = 'dashboard';
 
 	const pageIndex = {
 		url: window.location.href,
@@ -1000,14 +1361,16 @@ function requestVectorSearch(label: string, elementType: string): Promise<string
 				resolve(result?.selector || null);
 			});
 
-			ws!.send(JSON.stringify({
-				type: 'find_element',
-				label,
-				elementType,
-				domain,
-				requestId,
-				timestamp: Date.now(),
-			}));
+			ws!.send(
+				JSON.stringify({
+					type: 'find_element',
+					label,
+					elementType,
+					domain,
+					requestId,
+					timestamp: Date.now(),
+				}),
+			);
 		});
 	});
 }

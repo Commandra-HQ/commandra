@@ -1,5 +1,4 @@
 import type { CrawlProgress, FlowStep, SSEEvent, SelectedElement } from '@afe/shared';
-import ReactMarkdown from 'react-markdown';
 import {
 	AlertCircle,
 	ArrowRight,
@@ -12,6 +11,7 @@ import {
 	Download,
 	Eye,
 	FileDown,
+	Globe,
 	Keyboard,
 	List,
 	ListChecks,
@@ -26,6 +26,7 @@ import {
 	X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 /** Site data shapes returned by backend API (via background script) */
 interface StoredSite {
@@ -84,7 +85,24 @@ type MessageBlock =
 			screenshot?: string;
 	  }
 	| { type: 'blocked'; toolName: string; reason: string }
-	| { type: 'plan'; plan: Plan };
+	| { type: 'plan'; plan: Plan }
+	| {
+			type: 'sub_agent';
+			agentId: string;
+			task: string;
+			targetUrl: string;
+			status: 'running' | 'success' | 'error';
+			actions: {
+				toolName: string;
+				label: string;
+				status: 'running' | 'success' | 'error';
+				args?: Record<string, unknown>;
+				result?: unknown;
+				error?: string;
+				screenshot?: string;
+			}[];
+			summary?: string;
+	  };
 
 interface ChatMessage {
 	id: string;
@@ -559,6 +577,65 @@ export function ChatTab() {
 									stepStatus: event.steps.map(() => 'pending' as const),
 								};
 								blocksRef.current.push({ type: 'plan', plan: planData });
+								scheduleFlush();
+								break;
+							}
+
+							case 'sub_agent_start': {
+								const blocks = blocksRef.current;
+								// Remove empty thinking block
+								if (
+									blocks.length > 0 &&
+									blocks[blocks.length - 1].type === 'thinking' &&
+									!(blocks[blocks.length - 1] as { content: string }).content
+								) {
+									blocks.pop();
+								}
+								textAccumRef.current = '';
+								thinkingAccumRef.current = '';
+								blocks.push({
+									type: 'sub_agent',
+									agentId: event.agentId,
+									task: event.task,
+									targetUrl: event.targetUrl,
+									status: 'running',
+									actions: [],
+								});
+								scheduleFlush();
+								break;
+							}
+
+							case 'sub_agent_action': {
+								const blocks = blocksRef.current;
+								for (let i = blocks.length - 1; i >= 0; i--) {
+									const b = blocks[i];
+									if (b.type === 'sub_agent' && b.agentId === event.agentId) {
+										b.actions.push({
+											toolName: event.toolName,
+											label: event.label,
+											status: event.success ? 'success' : 'error',
+											args: event.args,
+											result: event.result,
+											error: event.error,
+											screenshot: event.screenshot,
+										});
+										break;
+									}
+								}
+								scheduleFlush();
+								break;
+							}
+
+							case 'sub_agent_end': {
+								const blocks = blocksRef.current;
+								for (let i = blocks.length - 1; i >= 0; i--) {
+									const b = blocks[i];
+									if (b.type === 'sub_agent' && b.agentId === event.agentId) {
+										b.status = event.success ? 'success' : 'error';
+										b.summary = event.summary;
+										break;
+									}
+								}
 								scheduleFlush();
 								break;
 							}
@@ -1178,6 +1255,8 @@ function AssistantMessage({
 						}
 						case 'tool_call':
 							return <ToolCallBlock key={i} block={block} />;
+						case 'sub_agent':
+							return <SubAgentBlock key={i} block={block} />;
 						case 'blocked':
 							return <BlockedBlock key={i} toolName={block.toolName} reason={block.reason} />;
 						case 'plan':
@@ -1353,6 +1432,92 @@ function ToolCallBlock({
 						<Download size={13} />
 						<span>Download {(block.result as { filename?: string }).filename || 'export'}</span>
 					</button>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function SubAgentBlock({
+	block,
+}: {
+	block: Extract<MessageBlock, { type: 'sub_agent' }>;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const statusColor =
+		block.status === 'running'
+			? 'border-purple-500/40 bg-purple-500/5'
+			: block.status === 'success'
+				? 'border-green-500/30 bg-green-500/5'
+				: 'border-red-500/30 bg-red-500/5';
+
+	const statusIcon =
+		block.status === 'running' ? (
+			<Loader2 size={12} className="text-purple-400 animate-spin shrink-0" />
+		) : block.status === 'success' ? (
+			<Check size={12} className="text-green-400 shrink-0" />
+		) : (
+			<X size={12} className="text-red-400 shrink-0" />
+		);
+
+	// Extract domain from URL for display
+	let domain = block.targetUrl;
+	try {
+		domain = new URL(block.targetUrl).hostname;
+	} catch {
+		/* keep full url */
+	}
+
+	return (
+		<div className={`border rounded-md text-xs ${statusColor}`}>
+			<button
+				onClick={() => setExpanded(!expanded)}
+				className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
+			>
+				<Globe size={13} className="shrink-0 text-purple-400" />
+				<span className="flex-1 truncate text-foreground">
+					<span className="font-medium text-purple-300">Sub-agent</span>
+					<span className="text-muted-foreground ml-1">on {domain}</span>
+				</span>
+				{block.actions.length > 0 && (
+					<span className="text-muted-foreground text-[10px]">
+						{block.actions.length} action{block.actions.length !== 1 ? 's' : ''}
+					</span>
+				)}
+				{statusIcon}
+			</button>
+
+			{expanded && (
+				<div className="px-2.5 pb-2 space-y-1.5 border-t border-border/30 pt-1.5">
+					<div>
+						<span className="text-muted-foreground">Task: </span>
+						<span className="text-foreground/80">{block.task}</span>
+					</div>
+					{block.actions.length > 0 && (
+						<div className="space-y-1">
+							{block.actions.map((action, j) => (
+								<ToolCallBlock
+									key={j}
+									block={{
+										type: 'tool_call',
+										toolName: action.toolName,
+										label: action.label,
+										status: action.status,
+										args: action.args,
+										result: action.result,
+										error: action.error,
+										screenshot: action.screenshot,
+									}}
+								/>
+							))}
+						</div>
+					)}
+					{block.summary && (
+						<div>
+							<span className="text-muted-foreground">Result: </span>
+							<span className="text-foreground/80">{block.summary.slice(0, 300)}</span>
+						</div>
+					)}
 				</div>
 			)}
 		</div>

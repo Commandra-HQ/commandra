@@ -110,6 +110,7 @@ export const conversations = pgTable('conversations', {
 	orgId: uuid('org_id').references(() => organizations.id),
 	siteId: uuid('site_id').references(() => sites.id),
 	title: text('title'),
+	outcome: text('outcome'), // 'success' | 'failure' | 'partial' | null
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -121,6 +122,22 @@ export const messages = pgTable('messages', {
 		.notNull(),
 	role: text('role').notNull(), // 'user' | 'assistant' | 'system'
 	content: text('content').notNull(),
+	/** Structured tool call data (tool names, args, results) for multi-turn context */
+	toolData: jsonb('tool_data').$type<{ tools: { name: string; args: unknown; result: unknown; success: boolean }[] }>(),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const conversationEmbeddings = pgTable('conversation_embeddings', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	conversationId: uuid('conversation_id')
+		.references(() => conversations.id, { onDelete: 'cascade' })
+		.notNull(),
+	messageId: uuid('message_id')
+		.references(() => messages.id, { onDelete: 'cascade' })
+		.notNull(),
+	messageText: text('message_text').notNull(),
+	embeddingModel: text('embedding_model'),
+	embedding: vector('embedding', { dimensions: 1024 }),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -156,6 +173,7 @@ export const flowRuns = pgTable('flow_runs', {
 	status: text('status').notNull(),
 	stepsCompleted: integer('steps_completed').default(0),
 	totalSteps: integer('total_steps').notNull(),
+	adaptations: jsonb('adaptations').$type<unknown[]>().default([]),
 	error: text('error'),
 	startedAt: timestamp('started_at').defaultNow().notNull(),
 	completedAt: timestamp('completed_at'),

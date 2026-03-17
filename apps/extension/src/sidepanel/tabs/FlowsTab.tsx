@@ -1,4 +1,4 @@
-import type { Flow, FlowParameter, FlowStep, SSEEvent } from '@afe/shared';
+import type { FlowParameter, FlowStep, SSEEvent } from '@afe/shared';
 import {
 	ArrowRight,
 	Camera,
@@ -89,7 +89,9 @@ export function FlowsTab() {
 	// Execution state
 	const [isRunning, setIsRunning] = useState(false);
 	const [executionLog, setExecutionLog] = useState<string[]>([]);
-	const [stepStatus, setStepStatus] = useState<Record<number, 'pending' | 'running' | 'success' | 'error'>>({});
+	const [stepStatus, setStepStatus] = useState<
+		Record<number, 'pending' | 'running' | 'success' | 'error'>
+	>({});
 	const abortRef = useRef<AbortController | null>(null);
 	const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -228,18 +230,12 @@ export function FlowsTab() {
 								break;
 
 							case 'tool_start':
-								setExecutionLog((prev) => [
-									...prev,
-									`[${event.toolName}] ${event.label || ''}`,
-								]);
+								setExecutionLog((prev) => [...prev, `[${event.toolName}] ${event.label || ''}`]);
 								break;
 
 							case 'tool_end':
 								if (!event.success) {
-									setExecutionLog((prev) => [
-										...prev,
-										`[Error] ${event.error || 'Tool failed'}`,
-									]);
+									setExecutionLog((prev) => [...prev, `[Error] ${event.error || 'Tool failed'}`]);
 								}
 								break;
 
@@ -260,7 +256,9 @@ export function FlowsTab() {
 							case 'flow_done':
 								setExecutionLog((prev) => [
 									...prev,
-									event.success ? '[Done] Flow completed successfully' : '[Done] Flow finished with errors',
+									event.success
+										? '[Done] Flow completed successfully'
+										: '[Done] Flow finished with errors',
 								]);
 								break;
 
@@ -506,10 +504,7 @@ export function FlowsTab() {
 								Recent Runs
 							</h3>
 							{runs.map((run) => (
-								<div
-									key={run.id}
-									className="flex items-center justify-between text-xs py-1"
-								>
+								<div key={run.id} className="flex items-center justify-between text-xs py-1">
 									<div className="flex items-center gap-2">
 										{run.status === 'completed' ? (
 											<Check size={12} className="text-green-500" />
@@ -522,9 +517,7 @@ export function FlowsTab() {
 											{run.stepsCompleted}/{run.totalSteps} steps
 										</span>
 									</div>
-									<span className="text-muted-foreground">
-										{formatRelativeTime(run.startedAt)}
-									</span>
+									<span className="text-muted-foreground">{formatRelativeTime(run.startedAt)}</span>
 								</div>
 							))}
 						</div>
@@ -541,10 +534,7 @@ export function FlowsTab() {
 		<div className="flex flex-col h-full">
 			<div className="px-4 py-3 border-b border-border flex items-center justify-between">
 				<h2 className="text-sm font-semibold text-foreground">Flows</h2>
-				<button
-					onClick={loadFlows}
-					className="text-xs text-muted-foreground hover:text-foreground"
-				>
+				<button onClick={loadFlows} className="text-xs text-muted-foreground hover:text-foreground">
 					Refresh
 				</button>
 			</div>

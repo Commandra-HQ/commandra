@@ -1,4 +1,14 @@
-import { Brain, Globe, Laptop, LogOut, RefreshCw, Server, Trash2, Wifi, WifiOff } from 'lucide-react';
+import {
+	Brain,
+	Globe,
+	Laptop,
+	LogOut,
+	RefreshCw,
+	Server,
+	Trash2,
+	Wifi,
+	WifiOff,
+} from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';

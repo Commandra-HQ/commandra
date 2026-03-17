@@ -29,13 +29,7 @@ export const embedFlow = inngest.createFunction(
 		const stepIntents = steps.map((s) => s.intent).filter(Boolean);
 
 		// Combine flow name + description + step intents into one text
-		const text = [
-			flow.name,
-			flow.description || '',
-			...stepIntents,
-		]
-			.filter(Boolean)
-			.join('. ');
+		const text = [flow.name, flow.description || '', ...stepIntents].filter(Boolean).join('. ');
 
 		if (text.length < 3) return { skipped: true, reason: 'no meaningful text' };
 

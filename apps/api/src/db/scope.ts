@@ -1,4 +1,4 @@
-import { eq, or, type SQL } from 'drizzle-orm';
+import { type SQL, eq, or } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import type { AuthUser } from '../middleware/auth.js';
 

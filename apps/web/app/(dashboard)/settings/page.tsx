@@ -1,20 +1,32 @@
 'use client';
 
-import { Check, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { apiFetch } from '@/lib/api';
+import { Check, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 const LLM_PROVIDERS = [
-	{ id: 'anthropic', name: 'Anthropic', models: { strong: ['sonnet', 'opus'], fast: ['haiku', 'sonnet'] } },
-	{ id: 'openai', name: 'OpenAI', models: { strong: ['gpt-4o', 'gpt-4-turbo'], fast: ['gpt-4o-mini', 'gpt-4o'] } },
+	{
+		id: 'anthropic',
+		name: 'Anthropic',
+		models: { strong: ['sonnet', 'opus'], fast: ['haiku', 'sonnet'] },
+	},
+	{
+		id: 'openai',
+		name: 'OpenAI',
+		models: { strong: ['gpt-4o', 'gpt-4-turbo'], fast: ['gpt-4o-mini', 'gpt-4o'] },
+	},
 	{ id: 'google', name: 'Google', models: { strong: ['gemini-pro'], fast: ['gemini-flash'] } },
 ];
 
 const EMBEDDING_PROVIDERS = [
-	{ id: 'voyage', name: 'Voyage AI', models: ['voyage-3.5', 'voyage-3-large', 'voyage-3.5-lite', 'voyage-code-3'] },
+	{
+		id: 'voyage',
+		name: 'Voyage AI',
+		models: ['voyage-3.5', 'voyage-3-large', 'voyage-3.5-lite', 'voyage-code-3'],
+	},
 	{ id: 'openai', name: 'OpenAI', models: ['text-embedding-3-small', 'text-embedding-3-large'] },
 	{ id: 'ollama', name: 'Ollama', models: ['nomic-embed-text', 'mxbai-embed-large'] },
 ];
@@ -90,8 +102,10 @@ export default function SettingsPage() {
 		}
 	}
 
-	const currentLlmProvider = LLM_PROVIDERS.find((p) => p.id === settings.llmProvider) || LLM_PROVIDERS[0];
-	const currentEmbeddingProvider = EMBEDDING_PROVIDERS.find((p) => p.id === settings.embeddingProvider) || EMBEDDING_PROVIDERS[0];
+	const currentLlmProvider =
+		LLM_PROVIDERS.find((p) => p.id === settings.llmProvider) || LLM_PROVIDERS[0];
+	const currentEmbeddingProvider =
+		EMBEDDING_PROVIDERS.find((p) => p.id === settings.embeddingProvider) || EMBEDDING_PROVIDERS[0];
 
 	if (loading) {
 		return (
@@ -113,7 +127,9 @@ export default function SettingsPage() {
 			<Card>
 				<CardHeader>
 					<CardTitle>LLM Provider</CardTitle>
-					<CardDescription>Choose which AI provider to use for agent reasoning. You bring your own API key.</CardDescription>
+					<CardDescription>
+						Choose which AI provider to use for agent reasoning. You bring your own API key.
+					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-6">
 					<div className="flex gap-3">
@@ -197,7 +213,10 @@ export default function SettingsPage() {
 			<Card>
 				<CardHeader>
 					<CardTitle>Embedding Provider</CardTitle>
-					<CardDescription>Used for semantic search over page elements, flows, and memory. Voyage AI is recommended by Anthropic.</CardDescription>
+					<CardDescription>
+						Used for semantic search over page elements, flows, and memory. Voyage AI is recommended
+						by Anthropic.
+					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-6">
 					<div className="flex gap-3">

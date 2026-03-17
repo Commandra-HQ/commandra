@@ -1,5 +1,5 @@
 import type { FlowStep } from '@afe/shared';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { runFlowExecution } from '../agent/flow-executor.js';
@@ -78,9 +78,7 @@ flowRoutes.get('/:id', async (c) => {
 		.from(flows)
 		.where(eq(flows.id, flowId))
 		.limit(1);
-	const hasAccess = user.orgId
-		? owned?.orgId === user.orgId
-		: owned?.userId === user.id;
+	const hasAccess = user.orgId ? owned?.orgId === user.orgId : owned?.userId === user.id;
 	if (!hasAccess) return c.json({ error: 'Not found' }, 404);
 
 	// Get recent runs
@@ -122,10 +120,7 @@ flowRoutes.post('/', async (c) => {
 	let [site] = await db.select().from(sites).where(eq(sites.domain, domain)).limit(1);
 
 	if (!site) {
-		[site] = await db
-			.insert(sites)
-			.values({ userId: user.id, domain })
-			.returning();
+		[site] = await db.insert(sites).values({ userId: user.id, domain }).returning();
 	}
 
 	const [flow] = await db
@@ -265,6 +260,48 @@ flowRoutes.post('/:id/run', async (c) => {
 			}
 		}
 	});
+});
+
+// Apply adaptations from a successful flow run
+flowRoutes.post('/:id/apply-adaptations', async (c) => {
+	const user = c.get('user');
+	const flowId = c.req.param('id');
+	const body = await c.req.json();
+	const { runId } = body as { runId: string };
+
+	// Load flow run with adaptations
+	const [run] = await db
+		.select()
+		.from(flowRuns)
+		.where(and(eq(flowRuns.id, runId), eq(flowRuns.flowId, flowId)))
+		.limit(1);
+
+	if (!run || run.status !== 'completed' || !(run.adaptations as unknown[])?.length) {
+		return c.json({ error: 'No adaptations to apply' }, 400);
+	}
+
+	// Load current flow
+	const [flow] = await db
+		.select()
+		.from(flows)
+		.where(and(eq(flows.id, flowId), eq(flows.userId, user.id)))
+		.limit(1);
+	if (!flow) return c.json({ error: 'Flow not found' }, 404);
+
+	// Apply selector updates from adaptations
+	const steps = [...(flow.steps as Record<string, unknown>[])];
+	for (const adaptation of run.adaptations as { stepIndex: number; usedSelector: string }[]) {
+		if (steps[adaptation.stepIndex]) {
+			const args = steps[adaptation.stepIndex].args as Record<string, unknown>;
+			if (args) {
+				args.selector = adaptation.usedSelector;
+			}
+		}
+	}
+
+	await db.update(flows).set({ steps, updatedAt: new Date() }).where(eq(flows.id, flowId));
+
+	return c.json({ ok: true, stepsUpdated: (run.adaptations as unknown[]).length });
 });
 
 // Semantic flow search

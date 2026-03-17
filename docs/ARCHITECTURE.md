@@ -53,18 +53,33 @@
 │  │                                                          │    │
 │  │  while (iterations < maxIterations):                     │    │
 │  │    1. Check kill switch + abort signal                   │    │
-│  │    2. Call LLM (streaming, with extended thinking)       │    │
-│  │    3. Stream thinking + text to client via SSE           │    │
-│  │    4. Collect tool calls from response                   │    │
-│  │    5. For each tool call:                                │    │
-│  │       a. Safety classification (safe/review/blocked)     │    │
-│  │       b. Approval gate if review-level                   │    │
-│  │       c. Execute tool via WS → extension → DOM           │    │
-│  │       d. Audit log to Postgres                           │    │
+│  │    2. Token budget: strip old screenshots, truncate      │    │
+│  │       long results, drop oldest msgs if >200K est.      │    │
+│  │    3. Call LLM (streaming, with extended thinking)       │    │
+│  │    4. Stream thinking + text to client via SSE           │    │
+│  │    5. Collect tool calls from response                   │    │
+│  │    6. Partition tool calls by safety:                    │    │
+│  │       a. Safe → execute in parallel (Promise.allSettled) │    │
+│  │       b. Review → sequential with approval gates         │    │
+│  │       c. Blocked → reject immediately                    │    │
+│  │       d. Audit log each to Postgres                      │    │
 │  │       e. Record step if in teach mode                    │    │
-│  │    6. Feed tool results back to LLM                      │    │
-│  │    7. Loop until end_turn or max iterations              │    │
+│  │    7. Feed tool results back to LLM                      │    │
+│  │    8. Loop until end_turn or max iterations              │    │
 │  └──────────────────┬───────────────────────────────────────┘    │
+│                     │                                             │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │             MULTI-AGENT SWARM                             │    │
+│  │                                                          │    │
+│  │  Coordinator (strong model, main tab)                     │    │
+│  │    ├── spawn_agent → sub-agent (fast model, bg tab)       │    │
+│  │    ├── spawn_agent → sub-agent (fast model, bg tab)       │    │
+│  │    └── wait_for_agents → collect results                  │    │
+│  │                                                          │    │
+│  │  Max 3 concurrent sub-agents, 5 iters each, 60s timeout  │    │
+│  │  Each sub-agent gets dedicated tab via open_tab WS action │    │
+│  │  Tab cleanup: close_tab on complete/fail/timeout          │    │
+│  └──────────────────────────────────────────────────────────┘    │
 │                     │                                             │
 │  ┌──────────────────▼───────────────────────────────────────┐    │
 │  │            LLM PROVIDER LAYER (Provider-Agnostic)        │    │
@@ -76,32 +91,36 @@
 │  │  │ Claude 4    │ │ GPT-4.1     │ │ Google, Bedrock,  │  │    │
 │  │  │ + Thinking  │ │ o3/o4-mini  │ │ Azure, Ollama     │  │    │
 │  │  │ + Vision    │ │ + Reasoning │ │                   │  │    │
+│  │  │ + Caching   │ │             │ │                   │  │    │
 │  │  └─────────────┘ └─────────────┘ └───────────────────┘  │    │
 │  └──────────────────────────────────────────────────────────┘    │
 │                                                                   │
 │  ┌──────────────────┐  ┌───────────────────────────────────┐     │
-│  │  WebSocket Server │  │  TOOL REGISTRY (11 Browser Tools) │     │
+│  │  WebSocket Server │  │  TOOL REGISTRY (16 Tools)          │     │
 │  │  (ws library)     │  │                                   │     │
-│  │                   │  │  click, type, select, navigate,   │     │
-│  │  Connections map  │  │  scroll, screenshot, get_state,   │     │
-│  │  Action routing   │  │  extract_text, extract_table,     │     │
-│  │  Approval flow    │  │  wait, go_back                    │     │
-│  │  Kill switch      │  │                                   │     │
-│  └──────────────────┘  │  + save_memory (internal tool)     │     │
+│  │                   │  │  Browser: click, type, select,    │     │
+│  │  Connections map  │  │  navigate, scroll, screenshot,    │     │
+│  │  Action routing   │  │  get_state, extract_text,         │     │
+│  │  Approval flow    │  │  extract_table, wait, go_back     │     │
+│  │  Kill switch      │  │  Tab: open_tab, close_tab         │     │
+│  └──────────────────┘  │  Internal: save_memory,            │     │
+│                         │  recall_memory, spawn_agent,       │     │
+│                         │  wait_for_agents                   │     │
 │                         └───────────────────────────────────┘     │
 │                                                                   │
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │                    POSTGRES + pgvector                    │    │
 │  │                                                          │    │
 │  │  users, organizations, org_members,                       │    │
-│  │  conversations, messages, audit_logs,                     │    │
+│  │  conversations (+ outcome), messages, audit_logs,         │    │
 │  │  sites, pages, elements (+ embeddings),                  │    │
-│  │  domain_memory, user_memory, flows, flow_steps           │    │
+│  │  domain_memory, user_memory, conversation_embeddings,    │    │
+│  │  flows, flow_steps, flow_runs (+ adaptations)            │    │
 │  └──────────────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-## The Three Key Pieces
+## The Key Pieces
 
 ### 1. Chrome Extension (Thin Client)
 
@@ -129,21 +148,67 @@ The brain. We built our own agentic loop — ~300 lines of TypeScript, no framew
 ```
 1. Receive user message + page context
 2. Build system prompt with page index, selected elements, domain memory, user memory
-3. Call LLM (streaming)
-4. Stream thinking + text to client as SSE events
-5. If LLM returns tool calls:
-   a. Classify each action (safe / review / blocked)
-   b. If review: send approval request via WS, wait for response
-   c. Execute tool → WS → extension → DOM → result
-   d. Log to audit table
-   e. Feed results back to LLM
-6. Repeat until end_turn or max iterations (15)
-7. Save conversation + trigger background memory extraction
+3. Token budget management: strip old screenshots from history,
+   truncate long tool results, drop oldest messages if over 200K token estimate.
+   Catches context_length_exceeded errors and retries with aggressive trimming.
+4. Call LLM (streaming)
+5. Stream thinking + text to client as SSE events
+6. If LLM returns tool calls:
+   a. Partition by safety classification
+   b. Safe tools → execute in parallel (Promise.allSettled)
+   c. Review tools → execute sequentially with approval gates
+   d. Blocked tools → reject immediately
+   e. Log each to audit table
+   f. Feed results back to LLM
+7. Repeat until end_turn or max iterations (15)
+8. Save conversation + trigger background memory extraction
 ```
 
-**Tool dispatch** happens via WebSocket directly — no MCP layer. The tool registry maps tool names to WS message handlers. Each tool sends an `action_request` to the extension and awaits the response.
+**Internal tools** (`save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`) execute server-side — they don't route through WebSocket to the extension.
 
-### 3. Site Index (The Knowledge Layer)
+**Tool dispatch** happens via WebSocket directly — no MCP layer. The tool registry maps tool names to WS message handlers. Each tool sends an `action_request` to the extension and awaits the response. Internal tools (`save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`) run server-side without WS. Tab management tools (`open_tab`, `close_tab`) route through WS for the swarm.
+
+**Anthropic prompt caching:** System prompts use `cache_control: ephemeral` for ~90% input token cost reduction on multi-turn conversations.
+
+### 3. Multi-Agent Swarm
+
+The orchestrator can spawn sub-agents for cross-site parallel workflows (e.g., "check Gmail AND browse GitHub").
+
+**How it works:**
+- The coordinator (strong model, main tab) uses the `spawn_agent` tool to create sub-agents
+- Each sub-agent runs a fast model in a dedicated background tab (opened via `open_tab` WS action)
+- Sub-agents have isolated conversation context but shared memory (read-only)
+- The coordinator uses `wait_for_agents` to collect results from all spawned sub-agents
+
+**Constraints:**
+- Max 3 concurrent sub-agents per user
+- Max 5 iterations per sub-agent
+- 60-second timeout per sub-agent
+- Tab cleanup: `close_tab` is sent when a sub-agent completes, fails, or times out
+
+### 4. Memory System (3 Layers)
+
+**Conversation memory:** Compresses messages >20 into summaries using the fast model. Token budget guard strips old screenshots from history before each LLM call.
+
+**Domain memory:** Per-domain shared knowledge — pages, workflows, element notes. Cached in-memory with 5-minute TTL. Background extraction runs after each conversation to capture new learnings about the site.
+
+**User memory:** Per-user-per-domain preferences, corrections, terminology, and workflows. Relevance-scored using `confidence × recency × reinforcement`. Top-15 memories injected into the system prompt. Corrections are always loaded regardless of score. The `recall_memory` tool allows on-demand search during a conversation. Smart extraction uses the strong model when corrections are detected.
+
+### 5. Embeddings
+
+Embeddings power four subsystems: element fallback matching (when selectors break), flow search, domain memory search, and conversation recall. Providers are configurable via `EMBEDDING_PROVIDER`: Voyage AI (default for Anthropic), OpenAI, or Ollama. All vectors are 1024 dimensions stored in pgvector.
+
+### 6. Learning Feedback Loops
+
+**Outcome tracking:** Users rate conversations with thumbs up/down. Conversations store an `outcome` column (success/failure/partial).
+
+**Memory reinforcement:** Successful outcomes boost confidence scores on associated memories. Failed outcomes reduce confidence, so bad advice fades over time.
+
+**Flow auto-repair:** When selectors break during flow execution, the agent tracks adaptations (stored in `flow_runs.adaptations`). After successful recovery, the system offers to update the saved flow with new selectors.
+
+**Smart extraction:** Conversations where the user corrected the agent trigger extraction with the strong model (instead of fast), ensuring corrections are captured with high fidelity.
+
+### 7. Site Index (The Knowledge Layer)
 
 The agent doesn't guess what's on the page — it knows. The site index is a structured map of every page in the web application.
 

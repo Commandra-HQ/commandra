@@ -45,8 +45,13 @@ settingsRoutes.put('/', async (c) => {
 	const user = c.get('user');
 	const body = await c.req.json();
 	const {
-		llmProvider, llmApiKey, llmModelStrong, llmModelFast,
-		embeddingProvider, embeddingApiKey, embeddingModel,
+		llmProvider,
+		llmApiKey,
+		llmModelStrong,
+		llmModelFast,
+		embeddingProvider,
+		embeddingApiKey,
+		embeddingModel,
 	} = body as {
 		llmProvider?: string;
 		llmApiKey?: string;

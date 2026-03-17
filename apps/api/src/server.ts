@@ -13,11 +13,11 @@ import { conversationRoutes } from './routes/conversations.js';
 import { flowRoutes } from './routes/flows.js';
 import { healthRoutes } from './routes/health.js';
 import { memoryRoutes } from './routes/memory.js';
+import { orgRoutes } from './routes/orgs.js';
 import { settingsRoutes } from './routes/settings.js';
 import { siteRoutes } from './routes/sites.js';
 import { statsRoutes } from './routes/stats.js';
 import { tokenRoutes } from './routes/token.js';
-import { orgRoutes } from './routes/orgs.js';
 import { handleWsConnection } from './ws/handler.js';
 
 const app = new Hono();

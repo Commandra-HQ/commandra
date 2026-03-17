@@ -1,17 +1,85 @@
 import type { SSEEvent } from '@afe/shared';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import { cancelRecording, isRecording, startRecording, stopRecording } from '../agent/recorder.js';
 import { db } from '../db/index.js';
-import { conversations, messages, pages, sites } from '../db/schema.js';
+import { conversationEmbeddings, conversations, messages, pages, sites } from '../db/schema.js';
+import { embedText, getEmbeddingProvider } from '../llm/embeddings.js';
 import { getOrgOrUserScope } from '../db/scope.js';
-import { getFastModel, getProvider } from '../llm/index.js';
+import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
+import { searchConversations, searchElements, searchFlows } from '../db/vector-search.js';
+
+/**
+ * Detect if a user message clearly requires PARALLEL work across multiple distinct websites.
+ * Only triggers when the message contains action verbs targeting 2+ different domains.
+ * Single-site mentions (even multiple) don't trigger if the task is sequential.
+ */
+function detectMultiSiteIntent(message: string): boolean {
+	// Look for explicit URLs pointing to different domains
+	const urlMatches = message.match(/https?:\/\/[^\s]+/gi) || [];
+	const urlDomains = new Set(
+		urlMatches.map((u) => {
+			try {
+				return new URL(u).hostname.replace(/^www\./, '');
+			} catch {
+				return '';
+			}
+		}).filter(Boolean),
+	);
+	if (urlDomains.size >= 2) return true;
+
+	// Look for conjunction patterns that imply parallel tasks on different sites
+	// e.g., "check Gmail AND update Jira", "compare Notion and Confluence"
+	const parallelPatterns = [
+		/\b(and|then|also|plus|while)\b.+\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana)\b/i,
+		/\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana)\b.+\b(and|then|also|plus)\b.+\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana)\b/i,
+		/\bcompare\b.+\band\b/i,
+	];
+
+	for (const pattern of parallelPatterns) {
+		if (pattern.test(message)) {
+			// Verify 2+ different site names
+			const sitePattern = /\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana|salesforce|hubspot|figma)\b/gi;
+			const matches = message.match(sitePattern);
+			if (matches) {
+				const unique = new Set(matches.map((m) => m.toLowerCase()));
+				if (unique.size >= 2) return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+async function embedUserMessage(conversationId: string, messageText: string): Promise<void> {
+	// Get the message ID we just inserted
+	const [msg] = await db
+		.select({ id: messages.id })
+		.from(messages)
+		.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
+		.orderBy(desc(messages.createdAt))
+		.limit(1);
+	if (!msg) return;
+
+	try {
+		const vector = await embedText(messageText);
+		await db.insert(conversationEmbeddings).values({
+			conversationId,
+			messageId: msg.id,
+			messageText: messageText.slice(0, 500), // Cap stored text
+			embeddingModel: getEmbeddingProvider().id,
+			embedding: vector,
+		});
+	} catch {
+		// Embedding may not be configured — that's fine, skip silently
+	}
+}
 
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
@@ -112,6 +180,11 @@ chatRoutes.post('/', async (c) => {
 		content: message,
 	});
 
+	// Background: embed user message for conversational recall
+	embedUserMessage(convId!, message).catch((err) =>
+		console.warn('[Embeddings] User message embed failed:', err),
+	);
+
 	// Load conversation history
 	const history = await db
 		.select()
@@ -119,10 +192,23 @@ chatRoutes.post('/', async (c) => {
 		.where(eq(messages.conversationId, convId))
 		.orderBy(asc(messages.createdAt));
 
-	const chatMessages = history.map((m) => ({
-		role: m.role as 'user' | 'assistant',
-		content: m.content,
-	}));
+	const chatMessages = history.map((m) => {
+		// Include tool call summary in assistant messages for multi-turn context
+		const td = m.toolData as { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } | null;
+		if (m.role === 'assistant' && td?.tools?.length) {
+			const toolSummary = td.tools
+				.map((t) => `[Tool: ${t.name}${t.success ? ' ✓' : ' ✗'}]`)
+				.join(' ');
+			return {
+				role: m.role as 'user' | 'assistant',
+				content: `${m.content}\n\n---\nActions taken: ${toolSummary}`,
+			};
+		}
+		return {
+			role: m.role as 'user' | 'assistant',
+			content: m.content,
+		};
+	});
 
 	// Check if extension is connected
 	const connectionId = getConnectionByUser(user.id);
@@ -130,7 +216,9 @@ chatRoutes.post('/', async (c) => {
 	if (connectionId) resetKill(connectionId);
 
 	// Load domain memory, user memory, and site pages context
-	const pi = pageIndex as { url?: string; urlPattern?: string; sitePages?: unknown; lastIndexedAt?: unknown } | undefined;
+	const pi = pageIndex as
+		| { url?: string; urlPattern?: string; sitePages?: unknown; lastIndexedAt?: unknown }
+		| undefined;
 	let domain: string | undefined;
 	let domainMem: string | undefined;
 	let userMem: string | undefined;
@@ -172,7 +260,8 @@ chatRoutes.post('/', async (c) => {
 					pi.sitePages = sitePages
 						.filter((p) => p.urlPattern !== currentPattern)
 						.map((p) => {
-							const elements = (p.elements as { type: string; label: string; selector: string }[]) || [];
+							const elements =
+								(p.elements as { type: string; label: string; selector: string }[]) || [];
 							return {
 								url: p.url,
 								urlPattern: p.urlPattern || '',
@@ -180,12 +269,14 @@ chatRoutes.post('/', async (c) => {
 								pageType: p.pageType || 'other',
 								elementCount: elements.length,
 								lastIndexedAt: p.lastIndexedAt,
-								keyElements: elements.slice(0, 15).map((el) => ({
+								keyElements: elements.slice(0, 10).map((el) => ({
 									type: el.type,
 									label: el.label,
 									selector: el.selector,
 								})),
-								navigationLinks: ((p.navigationLinks as { label: string; href: string }[]) || []).slice(0, 10),
+								navigationLinks: (
+									(p.navigationLinks as { label: string; href: string }[]) || []
+								).slice(0, 10),
 							};
 						});
 
@@ -203,6 +294,83 @@ chatRoutes.post('/', async (c) => {
 		}
 	}
 
+	// --- Embedding-powered context enrichment ---
+	// Search past conversations, elements, and flows for relevant context
+	let priorContext = '';
+	if (domain) {
+		try {
+			const [site] = pi?.sitePages
+				? [] // Already have site info
+				: await db
+						.select({ id: sites.id })
+						.from(sites)
+						.where(and(eq(sites.domain, domain), getOrgOrUserScope(user, sites)))
+						.limit(1);
+
+			const siteId = site?.id;
+
+			// Run all embedding searches in parallel (non-blocking — skip if embeddings not configured)
+			const [pastConvos, relevantElements, matchingFlows] = await Promise.allSettled([
+				searchConversations(message, user.id, 3),
+				siteId ? searchElements(message, siteId, 8) : Promise.resolve([]),
+				searchFlows(message, user.id, 3),
+			]);
+
+			const contextParts: string[] = [];
+
+			// Past conversations — "have we done this before?"
+			if (pastConvos.status === 'fulfilled' && pastConvos.value.length > 0) {
+				const relevant = pastConvos.value.filter((c) => c.score > 0.3);
+				if (relevant.length > 0) {
+					contextParts.push('### Past Related Conversations');
+					for (const c of relevant) {
+						contextParts.push(
+							`- "${c.messageText}" (similarity: ${(c.score * 100).toFixed(0)}%)`,
+						);
+					}
+				}
+			}
+
+			// Relevant elements across the site — semantic element lookup
+			if (relevantElements.status === 'fulfilled' && relevantElements.value.length > 0) {
+				const relevant = relevantElements.value.filter((e) => e.score > 0.3);
+				if (relevant.length > 0) {
+					contextParts.push('### Relevant Elements on This Site');
+					for (const e of relevant) {
+						contextParts.push(
+							`- ${e.elementType}: "${e.elementLabel}" [${e.selector}] (match: ${(e.score * 100).toFixed(0)}%)`,
+						);
+					}
+				}
+			}
+
+			// Matching flows — saved automations for this task
+			if (matchingFlows.status === 'fulfilled' && matchingFlows.value.length > 0) {
+				const relevant = matchingFlows.value.filter((f) => f.score > 0.3);
+				if (relevant.length > 0) {
+					contextParts.push('### Saved Flows That May Help');
+					for (const f of relevant) {
+						contextParts.push(
+							`- "${f.text}" (match: ${(f.score * 100).toFixed(0)}%)`,
+						);
+					}
+				}
+			}
+
+			if (contextParts.length > 0) {
+				priorContext = contextParts.join('\n');
+			}
+		} catch (err) {
+			console.warn('[Chat] Embedding context enrichment failed:', err);
+		}
+	}
+
+	// Detect multi-site intent — only for genuinely parallel cross-domain tasks
+	const multiSiteDetected = detectMultiSiteIntent(message);
+	if (multiSiteDetected) {
+		console.log('[Chat] Multi-site parallel intent detected');
+	}
+
 	// Get the abort signal from the request (fires when client disconnects)
 	const signal = c.req.raw.signal;
 
@@ -216,6 +384,7 @@ chatRoutes.post('/', async (c) => {
 		};
 
 		try {
+			let toolData: { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } | undefined;
 			if (canAct) {
 				const result = await runOrchestrator({
 					userId: user.id,
@@ -225,11 +394,15 @@ chatRoutes.post('/', async (c) => {
 					selectedElements,
 					domainMemory: domainMem,
 					userMemory: userMem,
+					priorContext: priorContext || undefined,
 					domain,
 					onEvent,
 					signal,
 				});
 				fullResponse = result.response;
+				if (result.toolCalls.length > 0) {
+					toolData = { tools: result.toolCalls };
+				}
 			} else {
 				fullResponse = await runSimpleChat({
 					messages: chatMessages,
@@ -237,6 +410,7 @@ chatRoutes.post('/', async (c) => {
 					selectedElements,
 					domainMemory: domainMem,
 					userMemory: userMem,
+					priorContext: priorContext || undefined,
 					onEvent,
 					signal,
 				});
@@ -244,12 +418,13 @@ chatRoutes.post('/', async (c) => {
 
 			if (signal.aborted) return;
 
-			// Store assistant response (only actual text, not tool status)
+			// Store assistant response with structured tool data
 			if (fullResponse.trim()) {
 				await db.insert(messages).values({
 					conversationId: convId!,
 					role: 'assistant',
 					content: fullResponse,
+					...(toolData && { toolData }),
 				});
 			}
 
@@ -268,6 +443,7 @@ chatRoutes.post('/', async (c) => {
 					transcript,
 					getProvider(),
 					getFastModel(),
+					getStrongModel(),
 				).catch((err) => console.warn('[UserMemory] Extraction failed:', err));
 			}
 

@@ -19,6 +19,8 @@ export interface IndexedElement {
 	attributes: Record<string, string>;
 	position: { x: number; y: number; width: number; height: number };
 	visible: boolean;
+	/** Whether this element is inside a modal, dialog, or overlay */
+	inOverlay?: boolean;
 	pageUrl: string;
 }
 
@@ -30,6 +32,8 @@ export interface PageIndex {
 	elements: IndexedElement[];
 	navigationLinks: { label: string; href: string }[];
 	timestamp: number;
+	/** Detected logged-in user identity from DOM (avatar, profile elements) */
+	userIdentity?: { username?: string; avatar?: string };
 }
 
 export interface SiteIndex {

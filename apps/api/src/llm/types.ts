@@ -30,7 +30,12 @@ export interface Message {
 	content: ContentBlock[] | string;
 }
 
-export type ContentBlock = TextBlock | ImageBlock | ToolUseBlock | ToolResultBlock | ThinkingContentBlock;
+export type ContentBlock =
+	| TextBlock
+	| ImageBlock
+	| ToolUseBlock
+	| ToolResultBlock
+	| ThinkingContentBlock;
 
 export interface TextBlock {
 	type: 'text';

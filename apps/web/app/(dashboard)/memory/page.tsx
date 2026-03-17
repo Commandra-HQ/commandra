@@ -1,12 +1,12 @@
 'use client';
 
-import { Brain, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { apiFetch } from '@/lib/api';
+import { Brain, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface Memory {
 	id: string;
@@ -78,9 +78,7 @@ export default function MemoryPage() {
 				body: JSON.stringify({ content: editContent }),
 			});
 			if (res.ok) {
-				setMemories((prev) =>
-					prev.map((m) => (m.id === id ? { ...m, content: editContent } : m)),
-				);
+				setMemories((prev) => prev.map((m) => (m.id === id ? { ...m, content: editContent } : m)));
 				setEditingId(null);
 			}
 		} catch (err) {
@@ -106,8 +104,7 @@ export default function MemoryPage() {
 		}
 	}
 
-	const filtered =
-		filter === 'all' ? memories : memories.filter((m) => m.category === filter);
+	const filtered = filter === 'all' ? memories : memories.filter((m) => m.category === filter);
 
 	if (loading) {
 		return (
@@ -260,11 +257,7 @@ export default function MemoryPage() {
 												<Button size="sm" variant="outline" onClick={() => handleEdit(memory.id)}>
 													Save
 												</Button>
-												<Button
-													size="sm"
-													variant="ghost"
-													onClick={() => setEditingId(null)}
-												>
+												<Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>
 													Cancel
 												</Button>
 											</div>
@@ -307,4 +300,3 @@ export default function MemoryPage() {
 		</div>
 	);
 }
-

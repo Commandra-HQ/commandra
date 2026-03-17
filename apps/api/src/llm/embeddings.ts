@@ -141,24 +141,38 @@ export function getEmbeddingProvider(): EmbeddingProvider {
 	if (cachedEmbeddingProvider) return cachedEmbeddingProvider;
 
 	const llmProvider = process.env.LLM_PROVIDER || 'anthropic';
-	const providerId = process.env.EMBEDDING_PROVIDER || (
-		llmProvider === 'anthropic' ? 'voyage' :
-		llmProvider === 'openai' ? 'openai' :
-		llmProvider === 'ollama' ? 'ollama' : 'voyage'
-	);
+	const providerId =
+		process.env.EMBEDDING_PROVIDER ||
+		(llmProvider === 'anthropic'
+			? 'voyage'
+			: llmProvider === 'openai'
+				? 'openai'
+				: llmProvider === 'ollama'
+					? 'ollama'
+					: 'voyage');
 
 	// Single EMBEDDING_API_KEY env var; falls back to provider-specific keys or LLM_API_KEY
-	const embeddingApiKey = process.env.EMBEDDING_API_KEY || process.env.VOYAGE_API_KEY || process.env.OPENAI_API_KEY || process.env.LLM_API_KEY;
+	const embeddingApiKey =
+		process.env.EMBEDDING_API_KEY ||
+		process.env.VOYAGE_API_KEY ||
+		process.env.OPENAI_API_KEY ||
+		process.env.LLM_API_KEY;
 
 	switch (providerId) {
 		case 'voyage': {
-			if (!embeddingApiKey) throw new Error('No API key for Voyage AI embeddings. Set EMBEDDING_API_KEY or VOYAGE_API_KEY.');
+			if (!embeddingApiKey)
+				throw new Error(
+					'No API key for Voyage AI embeddings. Set EMBEDDING_API_KEY or VOYAGE_API_KEY.',
+				);
 			const model = process.env.EMBEDDING_MODEL || 'voyage-3.5';
 			cachedEmbeddingProvider = new VoyageEmbeddingProvider(embeddingApiKey, model);
 			break;
 		}
 		case 'openai': {
-			if (!embeddingApiKey) throw new Error('No API key for OpenAI embeddings. Set EMBEDDING_API_KEY, OPENAI_API_KEY, or LLM_API_KEY.');
+			if (!embeddingApiKey)
+				throw new Error(
+					'No API key for OpenAI embeddings. Set EMBEDDING_API_KEY, OPENAI_API_KEY, or LLM_API_KEY.',
+				);
 			const model = process.env.EMBEDDING_MODEL || 'text-embedding-3-small';
 			cachedEmbeddingProvider = new OpenAIEmbeddingProvider(embeddingApiKey, model);
 			break;
@@ -170,10 +184,14 @@ export function getEmbeddingProvider(): EmbeddingProvider {
 			break;
 		}
 		default:
-			throw new Error(`Unknown embedding provider: ${providerId}. Supported: voyage, openai, ollama`);
+			throw new Error(
+				`Unknown embedding provider: ${providerId}. Supported: voyage, openai, ollama`,
+			);
 	}
 
-	console.log(`[Embeddings] Using provider: ${cachedEmbeddingProvider.id} (${cachedEmbeddingProvider.dimensions} dims)`);
+	console.log(
+		`[Embeddings] Using provider: ${cachedEmbeddingProvider.id} (${cachedEmbeddingProvider.dimensions} dims)`,
+	);
 
 	return cachedEmbeddingProvider;
 }
