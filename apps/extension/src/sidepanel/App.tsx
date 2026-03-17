@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { LoginScreen } from './screens/LoginScreen.js';
+import { AgentsTab } from './tabs/AgentsTab.js';
 import { ChatTab } from './tabs/ChatTab.js';
 import { SettingsTab } from './tabs/SettingsTab.js';
 
-type Tab = 'chat' | 'settings';
+type Tab = 'chat' | 'agents' | 'settings';
 
 interface StoredUser {
 	id: string;
@@ -15,6 +16,7 @@ function AuthenticatedApp({ user }: { user: StoredUser }) {
 
 	const tabs: { id: Tab; label: string }[] = [
 		{ id: 'chat', label: 'Chat' },
+		{ id: 'agents', label: 'Agents' },
 		{ id: 'settings', label: 'Settings' },
 	];
 
@@ -42,6 +44,7 @@ function AuthenticatedApp({ user }: { user: StoredUser }) {
 
 			<div className="flex-1 overflow-y-auto">
 				{activeTab === 'chat' && <ChatTab />}
+				{activeTab === 'agents' && <AgentsTab />}
 				{activeTab === 'settings' && <SettingsTab user={user} />}
 			</div>
 		</>

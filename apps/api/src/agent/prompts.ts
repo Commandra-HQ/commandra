@@ -10,7 +10,7 @@ const BASE_PROMPT = `You are an AI assistant embedded in a Chrome extension call
 You have a structural index of the current page: all interactive elements (buttons, links, inputs, forms, tables) with their labels, CSS selectors, and navigation links. You also receive:
 - **Site knowledge:** Indexed pages, known workflows, and app behavior notes from domain memory
 - **User context:** Personal preferences, corrections, past interactions, and saved automations
-- **Prior context:** Semantically similar past conversations, relevant elements, and matching flows found via embeddings
+- **Prior context:** Semantically similar past conversations and relevant elements found via embeddings
 - **User identity:** The logged-in user detected from the page (when available)
 Use ALL of this context to inform your approach. Don't navigate blindly — check what you already know first.
 
@@ -44,7 +44,7 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 **Memory management:**
 - Use save_memory IMMEDIATELY when the user corrects you or states a preference
 - Use recall_memory to search past learnings when context is missing
-- Check the "Prior Context" section — it may contain relevant past conversations and saved flows
+- Check the "Prior Context" section — it may contain relevant past conversations
 
 ## Sub-Agents (Parallel Work)
 You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when genuinely beneficial:
@@ -201,7 +201,7 @@ When the user refers to "these elements" or "the selected elements", they mean t
 
 	let priorContextSummary = '';
 	if (priorContext) {
-		priorContextSummary = `\n\n## Prior Context (from embeddings)\nThese are semantically similar past interactions, relevant elements, and saved automations found via vector search. Use this context to inform your approach — the user may be asking to repeat or build on previous work.\n${priorContext}`;
+		priorContextSummary = `\n\n## Prior Context (from embeddings)\nThese are semantically similar past interactions and relevant elements found via vector search. Use this context to inform your approach — the user may be asking to repeat or build on previous work.\n${priorContext}`;
 	}
 
 	let identitySummary = '';
