@@ -8,6 +8,9 @@ services:
       - "3002:3002"
     env_file:
       - .env
+    environment:
+      # So the API (in container) can reach the Inngest dev server (inngest container)
+      INNGEST_BASE_URL: http://inngest:8288
     depends_on:
       db:
         condition: service_healthy

@@ -1,0 +1,46 @@
+# Dev overlay: API and Web run in dev mode with hot reload. Use:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# DB and Inngest are from the base compose. API and Web use volume mounts and dev commands.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: sh -c "pnpm --filter @afe/shared build && pnpm --filter @afe/api dev"
+    ports:
+      - "3001:3001"
+      - "3002:3002"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://afe:afe_dev@db:5432/afe
+      # So the API (in container) can reach the Inngest dev server (inngest container)
+      INNGEST_BASE_URL: http://inngest:8288
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./packages/shared:/app/packages/shared
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: pnpm --filter @afe/web dev
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    volumes:
+      - ./apps/web:/app/apps/web
+      - ./packages/shared:/app/packages/shared
+    depends_on:
+      - api
+    restart: "no"
+
+  inngest:
+    command: inngest dev -u http://api:3001/api/inngest

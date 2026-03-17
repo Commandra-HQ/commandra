@@ -12,6 +12,8 @@
 		"db:migrate": "turbo db:migrate --filter=@afe/api",
 		"docker:up": "docker compose up -d",
 		"docker:down": "docker compose down",
+		"docker:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build",
+		"docker:dev:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
 		"clean": "turbo clean",
 		"test": "vitest run",
 		"test:watch": "vitest",

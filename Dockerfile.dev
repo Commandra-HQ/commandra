@@ -1,0 +1,29 @@
+# Dev image: full monorepo, deps installed. Use with volume mounts + dev commands for hot reload.
+FROM node:22-slim
+
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+
+WORKDIR /app
+
+# Copy workspace and package manifests
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY packages/shared/package.json ./packages/shared/
+COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+COPY apps/extension/package.json ./apps/extension/
+COPY turbo.json ./
+COPY tsconfig.json ./
+
+# Install all workspace deps (no source yet so we can cache this layer)
+RUN pnpm install --frozen-lockfile
+
+# Copy source so image works without mounts; mounts will override at runtime
+COPY packages/shared ./packages/shared
+COPY apps/api ./apps/api
+COPY apps/web ./apps/web
+
+# Build shared so API and Web can consume it (mount can override packages/shared later)
+RUN pnpm --filter @afe/shared build
+
+# Default: no long-running process (compose overrides with dev commands)
+CMD ["pnpm", "run", "dev"]
