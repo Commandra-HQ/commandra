@@ -25,7 +25,10 @@ primary_region = 'bom'
 [[services]]
   protocol = 'tcp'
   internal_port = 5432
-  ports = []
+
+  [[services.ports]]
+    port = 5432
+    handlers = ["pg_tls"]
 
   [[services.tcp_checks]]
     interval = '15s'
@@ -35,7 +38,10 @@ primary_region = 'bom'
 [[services]]
   protocol = 'tcp'
   internal_port = 6543
-  ports = []
+
+  [[services.ports]]
+    port = 6543
+    handlers = ["pg_tls"]
 
 [[vm]]
   memory = '1gb'

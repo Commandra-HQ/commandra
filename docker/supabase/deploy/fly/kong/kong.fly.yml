@@ -23,7 +23,7 @@ basicauth_credentials:
 
 services:
   - name: meta
-    url: http://commandra-meta.internal:8080/
+    url: https://commandra-meta.fly.dev/
     routes:
       - name: meta-all
         strip_path: true
@@ -37,7 +37,7 @@ services:
             - admin
 
   - name: dashboard
-    url: http://commandra-studio.internal:3000/
+    url: https://commandra-studio.fly.dev/
     routes:
       - name: dashboard-all
         strip_path: true

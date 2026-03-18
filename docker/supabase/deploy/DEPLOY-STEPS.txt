@@ -72,7 +72,10 @@ postgresql://postgres.commandra:YOUR_POSTGRES_PASSWORD@commandra-supavisor.flyca
 (Use the same POSTGRES_PASSWORD as in docker/supabase/.env. Get host from: fly status -a commandra-supavisor.)
 
 --- 9. Migrations ---
-DATABASE_URL="postgresql://postgres.commandra:PASSWORD@commandra-supavisor.flycast:5432/postgres" pnpm db:migrate
+# From repo root. Use fly proxy so your machine can reach Supavisor:
+# Terminal 1: FLY_ORG=commandra fly proxy 15432:5432 -a commandra-supavisor
+# Terminal 2: DATABASE_URL="postgresql://postgres.commandra:PASSWORD@127.0.0.1:15432/postgres" pnpm db:migrate
+# (PASSWORD = POSTGRES_PASSWORD from docker/supabase/.env).
 
 --- 10. Studio ---
 https://commandra-kong.fly.dev (or https://db.commandra.app after step 7). Login: DASHBOARD_USERNAME / DASHBOARD_PASSWORD from .env.

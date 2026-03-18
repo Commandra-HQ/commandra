@@ -11,21 +11,22 @@ primary_region = 'bom'
 
 [env]
   HOSTNAME = '::'
+  EDGE_FUNCTIONS_MANAGEMENT_FOLDER = '/app/edge-functions'
   LOGFLARE_URL = 'http://commandra-analytics.internal:4000'
   NEXT_ANALYTICS_BACKEND_PROVIDER = 'postgres'
   NEXT_PUBLIC_ENABLE_LOGS = 'true'
   POSTGRES_DB = 'postgres'
   POSTGRES_HOST = 'commandra-db.internal'
   POSTGRES_PORT = '5432'
-  STUDIO_PG_META_URL = 'http://commandra-meta.internal:8080'
-  SUPABASE_URL = 'http://commandra-kong.internal:8000'
+  STUDIO_PG_META_URL = 'https://commandra-meta.fly.dev'
+  SUPABASE_URL = 'https://db.commandra.app'
 
 [http_service]
   internal_port = 3000
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
 [[vm]]
   memory = '1gb'
