@@ -1,6 +1,8 @@
 # Production: Supabase at db.commandra.app
 
-Deploy self-hosted Supabase so Commandra production can use it and you can view the database at **https://db.commandra.app**. Commandra uses its own auth (no Supabase Auth).
+Deploy **the same self-hosted Supabase stack** you run locally (`docker/supabase`) so production and dev match. Commandra uses its own auth (no Supabase Auth). No vendor lock-in—enterprises can run this stack on their own VPS or on-prem.
+
+**Fly.io:** To run the same `docker/supabase` stack on Fly (multiple apps + private networking), see [supabase-fly.md](supabase-fly.md) Option B.
 
 ## Prerequisites
 
@@ -142,6 +144,16 @@ Or set `DATABASE_URL` in `.env` to the prod URL temporarily and run `pnpm db:mig
 
 - Open **https://db.commandra.app**
 - Log in with **DASHBOARD_USERNAME** and **DASHBOARD_PASSWORD** from `docker/supabase/.env`
+
+## Enterprise / fully self-hosted
+
+The same `docker/supabase` stack runs identically on your own server, a customer’s VPS, or on-prem. There is no dependency on a managed DB vendor. Enterprises can:
+
+- Run `docker/supabase` on their infrastructure (same images and `.env` pattern as above).
+- Point Commandra at their instance via `DATABASE_URL`; run migrations once.
+- Use Studio on their chosen domain (e.g. `db.customer.com`) with their own secrets and HTTPS.
+
+Local dev, your production, and customer deployments all use the same stack for parity and no lock-in.
 
 ## Summary
 

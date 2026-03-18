@@ -1,28 +1,39 @@
-# DB app. Uses shared Dockerfile so same image can be used on Railway etc.
-# Before first deploy: fly volumes create pgdata --size 10 --region YOUR_REGION
-# Secrets: run ../../set-secrets-from-env.sh db (or set from UI using docker/supabase/.env)
+# fly.toml app configuration file generated for commandra-db on 2026-03-18T13:04:31+05:30
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+# DB app. Uses shared Dockerfile (../../docker/Dockerfile.db). Before first deploy: fly volumes create pgdata --size 10 --region YOUR_REGION.
+# Secrets: set in Fly UI (see deploy/SECRETS-FOR-UI.txt) or run ../../set-secrets-from-env.sh db.
 
-app = "commandra-db"
+app = 'commandra-db'
+primary_region = 'ord'
 
 [build]
-dockerfile = "../../docker/Dockerfile.db"
+  dockerfile = '../../docker/Dockerfile.db'
 
 [env]
-POSTGRES_HOST = "/var/run/postgresql"
-PGPORT = "5432"
-POSTGRES_PORT = "5432"
-PGDATABASE = "postgres"
-POSTGRES_DB = "postgres"
+  PGDATABASE = 'postgres'
+  PGPORT = '5432'
+  POSTGRES_DB = 'postgres'
+  POSTGRES_HOST = '/var/run/postgresql'
+  POSTGRES_PORT = '5432'
 
-[mounts]
-source = "pgdata"
-destination = "/var/lib/postgresql/data"
+[[mounts]]
+  source = 'pgdata'
+  destination = '/var/lib/postgresql/data'
 
 [[services]]
-internal_port = 5432
-protocol = "tcp"
+  protocol = 'tcp'
+  internal_port = 5432
+  ports = []
 
   [[services.tcp_checks]]
-  interval = "15s"
-  timeout = "2s"
-  grace_period = "10s"
+    interval = '15s'
+    timeout = '2s'
+    grace_period = '10s'
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024

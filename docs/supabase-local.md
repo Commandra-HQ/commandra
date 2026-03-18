@@ -2,7 +2,9 @@
 
 Commandra uses **self-hosted Supabase** as the database instead of a standalone Postgres container. Same Drizzle ORM and schema; only the connection target changes. You get Supabase Studio to view and manage the database.
 
-**Production:** For deploying at **db.commandra.app** and a single env you can use in prod, see [supabase-production.md](supabase-production.md).
+**Same setup everywhere:** We use the **same** `docker/supabase` stack locally and in production (VPS, Fly, or customer infra). That keeps dev and prod identical, avoids vendor lock-in, and lets enterprises run the full product on their own infrastructure. Do not use managed/vendor Postgres (e.g. Fly’s Supabase extension) if you want full self-hosted parity.
+
+**Production:** For deploying the same stack at **db.commandra.app** (or any server), see [supabase-production.md](supabase-production.md). For Fly.io, see [supabase-fly.md](supabase-fly.md) Option B.
 
 ---
 
@@ -104,7 +106,7 @@ This applies all migrations in `apps/api/drizzle/`, including `CREATE EXTENSION 
   ```
 - **API + Web in Docker**  
   ```bash
-  docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+  docker compose -f docker-compose.yml -f ./dev/docker-compose.dev.yml up -d
   ```
   Ensure `.env` has `DATABASE_URL` (with `host.docker.internal` if Supabase is on the host).
 

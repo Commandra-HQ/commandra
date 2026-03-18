@@ -1,22 +1,11 @@
-version: "3.8"
+# Dev overlay for Supabase: adds Inbucket (mail), DB seed, and optional Studio port.
+# Run from docker/supabase: docker compose -f docker-compose.yml -f ./dev/docker-compose.dev.yml up -d
 
 services:
   studio:
-    build:
-      context: ..
-      dockerfile: apps/studio/Dockerfile
-      target: dev
+    # Use same image as base; no custom build (apps/studio does not exist in this repo)
     ports:
-      - 8082:8082
-    develop:
-      watch:
-        - action: sync
-          path: ../apps/studio
-          target: /app/apps/studio
-          ignore:
-            - node_modules/
-        - action: rebuild
-          path: package.json
+      - "8082:3000"   # Direct Studio access at http://localhost:8082 (Kong still at 8000)
 
   mail:
     container_name: supabase-mail
