@@ -1,0 +1,33 @@
+# Supavisor (pooler). Uses shared Dockerfile. Depends on commandra-db.
+# Secrets: run ../../set-secrets-from-env.sh supavisor
+
+app = "commandra-supavisor"
+
+[build]
+dockerfile = "../../docker/Dockerfile.supavisor"
+
+[env]
+POSTGRES_HOST = "commandra-db.internal"
+PORT = "4000"
+POSTGRES_PORT = "5432"
+POSTGRES_DB = "postgres"
+CLUSTER_POSTGRES = "true"
+REGION = "local"
+ERL_AFLAGS = "-proto_dist inet_tcp"
+POOLER_DEFAULT_POOL_SIZE = "20"
+POOLER_MAX_CLIENT_CONN = "100"
+POOLER_POOL_MODE = "transaction"
+DB_POOL_SIZE = "5"
+
+[[services]]
+internal_port = 5432
+protocol = "tcp"
+
+  [[services.tcp_checks]]
+  interval = "15s"
+  timeout = "2s"
+  grace_period = "10s"
+
+[[services]]
+internal_port = 6543
+protocol = "tcp"

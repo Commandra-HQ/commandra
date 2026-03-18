@@ -1,0 +1,35 @@
+# Logflare analytics. Uses shared Dockerfile. Depends on commandra-db.
+# Secrets: run ../../set-secrets-from-env.sh analytics
+
+app = "commandra-analytics"
+
+[build]
+dockerfile = "../../docker/Dockerfile.analytics"
+
+[env]
+LOGFLARE_NODE_HOST = "127.0.0.1"
+DB_USERNAME = "supabase_admin"
+DB_DATABASE = "_supabase"
+DB_HOSTNAME = "commandra-db.internal"
+DB_PORT = "5432"
+DB_SCHEMA = "_analytics"
+LOGFLARE_SINGLE_TENANT = "true"
+LOGFLARE_SUPABASE_MODE = "true"
+POSTGRES_BACKEND_SCHEMA = "_analytics"
+LOGFLARE_FEATURE_FLAG_OVERRIDE = "multibackend=true"
+
+[[services]]
+internal_port = 4000
+protocol = "tcp"
+
+  [[services.http_checks]]
+  interval = "10s"
+  timeout = "2s"
+  path = "/health"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0

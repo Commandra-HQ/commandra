@@ -1,0 +1,2 @@
+# Production Postgres for Supabase. Same image for Fly, Railway, or any platform.
+FROM supabase/postgres:15.8.1.085

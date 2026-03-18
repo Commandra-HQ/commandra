@@ -1,0 +1,25 @@
+# Supabase Studio. Uses shared Dockerfile. Depends on meta, analytics, kong.
+# Secrets: run ../../set-secrets-from-env.sh studio
+
+app = "commandra-studio"
+
+[build]
+dockerfile = "../../docker/Dockerfile.studio"
+
+[env]
+HOSTNAME = "::"
+STUDIO_PG_META_URL = "http://commandra-meta.internal:8080"
+POSTGRES_HOST = "commandra-db.internal"
+POSTGRES_PORT = "5432"
+POSTGRES_DB = "postgres"
+SUPABASE_URL = "http://commandra-kong.internal:8000"
+LOGFLARE_URL = "http://commandra-analytics.internal:4000"
+NEXT_PUBLIC_ENABLE_LOGS = "true"
+NEXT_ANALYTICS_BACKEND_PROVIDER = "postgres"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
