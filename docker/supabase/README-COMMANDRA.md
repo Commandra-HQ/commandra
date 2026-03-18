@@ -15,6 +15,10 @@ Commandra uses this folder to run **self-hosted Supabase** (Postgres + Studio). 
    ```bash
    cd docker/supabase && docker compose up -d
    ```
+   **Optional (dev):** Add Inbucket (mail), DB seed, and direct Studio on 8082:
+   ```bash
+   cd docker/supabase && docker compose -f docker-compose.yml -f ./dev/docker-compose.dev.yml up -d
+   ```
 
 3. **Commandra repo root `.env`**  
    Set:
@@ -33,7 +37,8 @@ Commandra uses this folder to run **self-hosted Supabase** (Postgres + Studio). 
 
 ## Production (db.commandra.app)
 
-- **Docs:** [docs/supabase-production.md](../../docs/supabase-production.md)
+- **VPS / your server:** [docs/supabase-production.md](../../docs/supabase-production.md) — self-host the full stack, HTTPS at db.commandra.app.
+- **Fly.io:** [docs/supabase-fly.md](../../docs/supabase-fly.md) — deploy the self-hosted stack via **docker/supabase/deploy/** (Dockerfile-based; same secrets as `.env` via `deploy/set-secrets-from-env.sh`). See **deploy/DEPLOY-STEPS.txt** for steps.
 - **Env:** See [env.production.example](./env.production.example) for URL and auth-disabled overrides; generate secrets with `sh ./utils/generate-keys.sh --update-env`, then set production URLs and the variables in the example file.
 
 ## Auth

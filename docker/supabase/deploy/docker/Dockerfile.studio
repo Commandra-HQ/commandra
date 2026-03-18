@@ -1,0 +1,2 @@
+# Supabase Studio. Same image for Fly, Railway, or any platform.
+FROM supabase/studio:2026.03.16-sha-5528817

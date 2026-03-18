@@ -1,0 +1,18 @@
+# Public gateway. Uses local Dockerfile (Kong config). Attach custom domain db.commandra.app.
+# Secrets: run ../../set-secrets-from-env.sh kong
+
+app = "commandra-kong"
+
+[build]
+dockerfile = "Dockerfile"
+
+[env]
+KONG_DATABASE = "off"
+KONG_DECLARATIVE_CONFIG = "/usr/local/kong/kong.yml"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1

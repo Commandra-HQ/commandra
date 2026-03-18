@@ -1,0 +1,2 @@
+# postgres-meta for Studio. Same image for Fly, Railway, or any platform.
+FROM supabase/postgres-meta:v0.95.2

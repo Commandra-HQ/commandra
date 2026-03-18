@@ -1,0 +1,2 @@
+# Logflare analytics. Same image for Fly, Railway, or any platform.
+FROM supabase/logflare:1.31.2
