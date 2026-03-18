@@ -13,10 +13,14 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-# shellcheck source=/dev/null
-set -a
-source "$ENV_FILE"
-set +a
+# Load only KEY=value lines (avoid 'Organization: foo' etc. breaking shell); quote values so spaces work
+while IFS= read -r line; do
+  if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+    key="${BASH_REMATCH[1]}"
+    value="${BASH_REMATCH[2]}"
+    eval "export $(printf '%q=%q' "$key" "$value")"
+  fi
+done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" || true)
 
 APP="${1:-all}"
 

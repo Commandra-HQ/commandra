@@ -2,14 +2,14 @@
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
-# DB app. Uses shared Dockerfile (../../docker/Dockerfile.db). Before first deploy: fly volumes create pgdata --size 10 --region YOUR_REGION.
-# Secrets: set in Fly UI (see deploy/SECRETS-FOR-UI.txt) or run ../../set-secrets-from-env.sh db.
+# DB app. Uses local Dockerfile (subdir for PGDATA so Fly volume lost+found is OK).
+# Secrets: set in Fly UI (see deploy/SECRETS-FOR-UI.txt). HA: 1 machine + 1 volume (for 2 machines use replication).
 
 app = 'commandra-db'
-primary_region = 'ord'
+primary_region = 'bom'
 
 [build]
-  dockerfile = '../../docker/Dockerfile.db'
+  dockerfile = 'Dockerfile'
 
 [env]
   PGDATABASE = 'postgres'
@@ -20,7 +20,7 @@ primary_region = 'ord'
 
 [[mounts]]
   source = 'pgdata'
-  destination = '/var/lib/postgresql/data'
+  destination = '/var/lib/postgresql/vol'
 
 [[services]]
   protocol = 'tcp'
@@ -29,11 +29,11 @@ primary_region = 'ord'
 
   [[services.tcp_checks]]
     interval = '15s'
-    timeout = '2s'
-    grace_period = '10s'
+    timeout = '5s'
+    grace_period = '60s'
 
 [[vm]]
-  memory = '1gb'
+  memory = '2gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 1024
+  memory_mb = 2048

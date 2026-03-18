@@ -1,35 +1,45 @@
-# Logflare analytics. Uses shared Dockerfile. Depends on commandra-db.
-# Secrets: run ../../set-secrets-from-env.sh analytics
+# fly.toml app configuration file generated for commandra-analytics on 2026-03-18T14:43:35+05:30
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "commandra-analytics"
+app = 'commandra-analytics'
+primary_region = 'bom'
 
 [build]
-dockerfile = "../../docker/Dockerfile.analytics"
+  dockerfile = '../../docker/Dockerfile.analytics'
 
 [env]
-LOGFLARE_NODE_HOST = "127.0.0.1"
-DB_USERNAME = "supabase_admin"
-DB_DATABASE = "_supabase"
-DB_HOSTNAME = "commandra-db.internal"
-DB_PORT = "5432"
-DB_SCHEMA = "_analytics"
-LOGFLARE_SINGLE_TENANT = "true"
-LOGFLARE_SUPABASE_MODE = "true"
-POSTGRES_BACKEND_SCHEMA = "_analytics"
-LOGFLARE_FEATURE_FLAG_OVERRIDE = "multibackend=true"
-
-[[services]]
-internal_port = 4000
-protocol = "tcp"
-
-  [[services.http_checks]]
-  interval = "10s"
-  timeout = "2s"
-  path = "/health"
+  DB_DATABASE = '_supabase'
+  DB_HOSTNAME = 'commandra-db.internal'
+  DB_PORT = '5432'
+  DB_SCHEMA = '_analytics'
+  DB_USERNAME = 'supabase_admin'
+  LOGFLARE_FEATURE_FLAG_OVERRIDE = 'multibackend=true'
+  LOGFLARE_NODE_HOST = '127.0.0.1'
+  LOGFLARE_SINGLE_TENANT = 'true'
+  LOGFLARE_SUPABASE_MODE = 'true'
+  POSTGRES_BACKEND_SCHEMA = '_analytics'
 
 [http_service]
   internal_port = 4000
   force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
+
+[[services]]
+  protocol = 'tcp'
+  internal_port = 4000
+  ports = []
+
+  [[services.http_checks]]
+    interval = '10s'
+    timeout = '2s'
+    path = '/health'
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024

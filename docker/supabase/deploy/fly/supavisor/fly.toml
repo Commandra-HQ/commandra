@@ -1,33 +1,44 @@
-# Supavisor (pooler). Uses shared Dockerfile. Depends on commandra-db.
-# Secrets: run ../../set-secrets-from-env.sh supavisor
+# fly.toml app configuration file generated for commandra-supavisor on 2026-03-18T14:43:34+05:30
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "commandra-supavisor"
+app = 'commandra-supavisor'
+primary_region = 'bom'
 
 [build]
-dockerfile = "../../docker/Dockerfile.supavisor"
+  dockerfile = '../../docker/Dockerfile.supavisor'
 
 [env]
-POSTGRES_HOST = "commandra-db.internal"
-PORT = "4000"
-POSTGRES_PORT = "5432"
-POSTGRES_DB = "postgres"
-CLUSTER_POSTGRES = "true"
-REGION = "local"
-ERL_AFLAGS = "-proto_dist inet_tcp"
-POOLER_DEFAULT_POOL_SIZE = "20"
-POOLER_MAX_CLIENT_CONN = "100"
-POOLER_POOL_MODE = "transaction"
-DB_POOL_SIZE = "5"
+  CLUSTER_POSTGRES = 'true'
+  DB_POOL_SIZE = '5'
+  ERL_AFLAGS = '-proto_dist inet_tcp'
+  POOLER_DEFAULT_POOL_SIZE = '20'
+  POOLER_MAX_CLIENT_CONN = '100'
+  POOLER_POOL_MODE = 'transaction'
+  PORT = '4000'
+  POSTGRES_DB = 'postgres'
+  POSTGRES_HOST = 'commandra-db.internal'
+  POSTGRES_PORT = '5432'
+  REGION = 'local'
 
 [[services]]
-internal_port = 5432
-protocol = "tcp"
+  protocol = 'tcp'
+  internal_port = 5432
+  ports = []
 
   [[services.tcp_checks]]
-  interval = "15s"
-  timeout = "2s"
-  grace_period = "10s"
+    interval = '15s'
+    timeout = '2s'
+    grace_period = '10s'
 
 [[services]]
-internal_port = 6543
-protocol = "tcp"
+  protocol = 'tcp'
+  internal_port = 6543
+  ports = []
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024

@@ -8,57 +8,64 @@ Layout:
     railway/         <- Railway notes (see README there)
     set-secrets-from-env.sh   <- Sync docker/supabase/.env to Fly secrets
 
-Prereqs: flyctl installed, fly auth login, one org. Pick a region (e.g. ord) and use it for all apps.
+Prereqs: flyctl installed, fly auth login, one org. Use region bom for all apps (FLY_ORG=commandra).
 
 --- 1. DB ---
 # From docker/supabase/:
 cd deploy/fly/db
-fly launch --no-deploy --copy-config --name commandra-db --region ord
-fly volumes create pgdata --size 10 --region ord
+fly launch --no-deploy --copy-config --name commandra-db --region bom
+fly volumes create pgdata --size 10 --region bom
 cd ../..
 ./set-secrets-from-env.sh db
-cd fly/db && fly deploy
+cd fly/db && FLY_ORG=commandra fly deploy -a commandra-db --primary-region bom
 cd ../..
 # Wait: fly status
 
 --- 2. Supavisor ---
 cd fly/supavisor
-fly launch --no-deploy --copy-config --name commandra-supavisor --region ord
+fly launch --no-deploy --copy-config --name commandra-supavisor --region bom
 cd ../..
 ./set-secrets-from-env.sh supavisor
-cd fly/supavisor && fly deploy && cd ../..
+cd fly/supavisor && FLY_ORG=commandra fly deploy -a commandra-supavisor && cd ../..
 
 --- 3. Meta ---
 cd fly/meta
-fly launch --no-deploy --copy-config --name commandra-meta --region ord
+fly launch --no-deploy --copy-config --name commandra-meta --region bom
 cd ../..
 ./set-secrets-from-env.sh meta
-cd fly/meta && fly deploy && cd ../..
+cd fly/meta && FLY_ORG=commandra fly deploy -a commandra-meta && cd ../..
 
 --- 4. Analytics ---
 cd fly/analytics
-fly launch --no-deploy --copy-config --name commandra-analytics --region ord
+fly launch --no-deploy --copy-config --name commandra-analytics --region bom
 cd ../..
 ./set-secrets-from-env.sh analytics
-cd fly/analytics && fly deploy && cd ../..
+cd fly/analytics && FLY_ORG=commandra fly deploy -a commandra-analytics && cd ../..
 
 --- 5. Studio ---
 cd fly/studio
-fly launch --no-deploy --copy-config --name commandra-studio --region ord
+fly launch --no-deploy --copy-config --name commandra-studio --region bom
 cd ../..
 ./set-secrets-from-env.sh studio
-cd fly/studio && fly deploy && cd ../..
+cd fly/studio && FLY_ORG=commandra fly deploy -a commandra-studio && cd ../..
 
 --- 6. Kong ---
 cd fly/kong
-fly launch --no-deploy --copy-config --name commandra-kong --region ord
+fly launch --no-deploy --copy-config --name commandra-kong --region bom
 cd ../..
 ./set-secrets-from-env.sh kong
-cd fly/kong && fly deploy && cd ../..
+cd fly/kong && FLY_ORG=commandra fly deploy -a commandra-kong && cd ../..
 
---- 7. Custom domain ---
-fly certs add db.commandra.app -a commandra-kong
-# Add CNAME/A record Fly shows for db.commandra.app.
+--- 7. Studio URL (Fly) and custom domain ---
+# Studio via Kong (basic-auth): https://commandra-kong.fly.dev
+# Login: DASHBOARD_USERNAME / DASHBOARD_PASSWORD from .env
+
+# To use your own URL db.commandra.app (cert already added; add DNS):
+# Add these DNS records for db.commandra.app:
+#   A    db.commandra.app → 66.241.125.189
+#   AAAA db.commandra.app → 2a09:8280:1::e4:d3f6:0
+# Or: fly certs setup db.commandra.app for CNAME. Then Studio: https://db.commandra.app (same login).
+# Check: FLY_ORG=commandra fly certs check db.commandra.app -a commandra-kong
 
 --- 8. Commandra prod DATABASE_URL ---
 postgresql://postgres.commandra:YOUR_POSTGRES_PASSWORD@commandra-supavisor.flycast:5432/postgres
@@ -68,6 +75,14 @@ postgresql://postgres.commandra:YOUR_POSTGRES_PASSWORD@commandra-supavisor.flyca
 DATABASE_URL="postgresql://postgres.commandra:PASSWORD@commandra-supavisor.flycast:5432/postgres" pnpm db:migrate
 
 --- 10. Studio ---
-https://db.commandra.app — login: DASHBOARD_USERNAME / DASHBOARD_PASSWORD from .env.
+https://commandra-kong.fly.dev (or https://db.commandra.app after step 7). Login: DASHBOARD_USERNAME / DASHBOARD_PASSWORD from .env.
 
 Secrets: run ./set-secrets-from-env.sh (from deploy/) or set in Fly UI per app — see SECRETS-FOR-UI.txt for the list.
+
+--- High availability (2 machines) ---
+- DB: 1 machine only (single volume; for 2-node Postgres you’d need replication).
+- Kong: fly.toml has min_machines_running = 2.
+- Other stateless apps (supavisor, meta, studio, analytics): run when desired:
+  fly scale count 2 -a commandra-supavisor
+  fly scale count 2 -a commandra-meta
+  (etc.)
