@@ -43,12 +43,14 @@
 | **shadcn/ui + Tailwind** | Consistent design system with extension |
 | **AuthProvider context** | JWT-based auth with email/password login (no vendor SDK) |
 
-### Database
+### Database & Storage
 
 | Choice | Why |
 |--------|-----|
-| **PostgreSQL 16 + pgvector** | Single DB for everything — relational data + vector embeddings |
-| **Neon** (cloud) / **pgvector/pgvector:pg16** (self-hosted) | Serverless for cloud, standard Docker image for self-hosted |
+| **PostgreSQL 16 + pgvector** | Single DB for structured data + vector embeddings |
+| **Supabase** | Postgres host + Storage for agent files (AGENT.yaml, SKILLS.md, workspace/) |
+| **Supabase Storage** | Agent file layer — human-readable, agent-writable, per-user isolated via RLS |
+| **Neon** (cloud alt) / **pgvector/pgvector:pg16** (self-hosted alt) | Alternative Postgres providers |
 
 ### AI
 
@@ -117,8 +119,8 @@ Self-hosted needs only an LLM provider key + Postgres. Everything else is option
 |----------|---------|-----------|
 | **Anthropic or OpenAI** | LLM (strong + fast models) | Yes (pick one) |
 | **Voyage AI, OpenAI, or Ollama** | Embeddings (configurable via `EMBEDDING_PROVIDER`) | Yes (pick one) |
+| **Supabase** | Postgres + Storage (agent files, workspace) | Yes |
 | **Clerk** | Auth (cloud — lives in landing-page/ repo) | Cloud only |
-| **Neon** | Managed Postgres (cloud) | Cloud only |
 
 ---
 

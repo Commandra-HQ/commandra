@@ -2,7 +2,7 @@
 
 ## The Product
 
-A browser extension + backend platform that lets anyone automate tasks on any web application through natural language. Show once, automate forever. The agent runs in the user's own browser — no screen scraping, no credential sharing, no server-side browsers.
+A browser extension + backend platform that lets anyone automate tasks on any web application through natural language. An autonomous agent that operates in the user's own browser — no screen scraping, no credential sharing, no server-side browsers.
 
 ---
 
@@ -61,7 +61,6 @@ OSS gets us: GitHub stars, community trust, security audits from the crowd, PRs,
 | SSE streaming with structured events + abort support       | Done   |
 | Extended thinking (Anthropic)                              | Done   |
 | Block-based chat UI (thinking, tool calls, plans)          | Done   |
-| Teach mode (record flows, replay with parameters)          | Done   |
 | Domain memory + user memory (adaptive)                     | Done   |
 | Multi-tenant isolation (org + user scoping via `getOrgOrUserScope`) | Done   |
 | JWT-only auth (email/password + token exchange bridge)     | Done   |
@@ -73,7 +72,7 @@ OSS gets us: GitHub stars, community trust, security audits from the crowd, PRs,
 | Capability                                                | Priority |
 | --------------------------------------------------------- | -------- |
 | **Fix dashboard auth** (stats show 0 — 401 bug)          | P0       |
-| **Fix recording step events** (SSE wiring)                | P0       |
+| **Improve agentic chat reliability** (error recovery)     | P0       |
 
 ### Needed for Cloud Launch (Separate `landing-page/` Project)
 
@@ -121,7 +120,7 @@ The product repo has no Clerk, no landing page, no cloud-specific logic. It's a 
 
 ### Why We Win
 
-1. **Show once, automate forever** — teach mode is the value prop. Record a workflow, replay it with different parameters. No scripting.
+1. **Autonomous agentic browsing** — tell the agent what you need in plain language, it plans and executes multi-step tasks end-to-end. No scripting, no recording, no brittle macros.
 2. **Runs in the user's browser** — no credential sharing, works behind VPN/SSO, compliant by default. This is the trust enabler that lets enterprises say yes.
 3. **Open source** — security teams can audit everything. Community builds adapters and integrations.
 4. **Provider-agnostic** — not locked to one LLM vendor. Use whatever model works best.

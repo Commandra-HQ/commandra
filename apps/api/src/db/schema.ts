@@ -79,17 +79,6 @@ export const elementEmbeddings = pgTable('element_embeddings', {
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
-export const flowEmbeddings = pgTable('flow_embeddings', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	flowId: uuid('flow_id')
-		.references(() => flows.id, { onDelete: 'cascade' })
-		.notNull(),
-	text: text('text').notNull(),
-	embeddingModel: text('embedding_model'),
-	embedding: vector('embedding', { dimensions: 1024 }),
-	createdAt: timestamp('created_at').defaultNow().notNull(),
-});
-
 export const memoryEmbeddings = pgTable('memory_embeddings', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	siteId: uuid('site_id')
@@ -141,44 +130,6 @@ export const conversationEmbeddings = pgTable('conversation_embeddings', {
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
-export const flows = pgTable('flows', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	userId: uuid('user_id')
-		.references(() => users.id)
-		.notNull(),
-	orgId: uuid('org_id').references(() => organizations.id),
-	siteId: uuid('site_id')
-		.references(() => sites.id)
-		.notNull(),
-	name: text('name').notNull(),
-	description: text('description'),
-	steps: jsonb('steps').$type<unknown[]>().default([]),
-	parameters: jsonb('parameters').$type<unknown[]>().default([]),
-	status: text('status').default('draft').notNull(),
-	lastRunAt: timestamp('last_run_at'),
-	createdAt: timestamp('created_at').defaultNow().notNull(),
-	updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
-
-export const flowRuns = pgTable('flow_runs', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	flowId: uuid('flow_id')
-		.references(() => flows.id)
-		.notNull(),
-	userId: uuid('user_id')
-		.references(() => users.id)
-		.notNull(),
-	parameterValues: jsonb('parameter_values').$type<Record<string, string>>().default({}),
-	stepResults: jsonb('step_results').$type<unknown[]>().default([]),
-	status: text('status').notNull(),
-	stepsCompleted: integer('steps_completed').default(0),
-	totalSteps: integer('total_steps').notNull(),
-	adaptations: jsonb('adaptations').$type<unknown[]>().default([]),
-	error: text('error'),
-	startedAt: timestamp('started_at').defaultNow().notNull(),
-	completedAt: timestamp('completed_at'),
-});
-
 export const domainMemory = pgTable('domain_memory', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	domain: text('domain').notNull().unique(),
@@ -220,6 +171,41 @@ export const userMemory = pgTable('user_memory', {
 	lastUsedAt: timestamp('last_used_at'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const agents = pgTable('agents', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	userId: uuid('user_id')
+		.references(() => users.id)
+		.notNull(),
+	orgId: uuid('org_id').references(() => organizations.id),
+	slug: text('slug').notNull(),
+	name: text('name').notNull(),
+	description: text('description').notNull().default(''),
+	model: text('model'),
+	maxIterations: integer('max_iterations'),
+	tools: jsonb('tools').$type<string[]>(),
+	domains: jsonb('domains').$type<string[]>(),
+	trigger: jsonb('trigger').$type<{ cron?: string; enabled?: boolean }>(),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const agentRuns = pgTable('agent_runs', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	agentId: uuid('agent_id')
+		.references(() => agents.id, { onDelete: 'cascade' })
+		.notNull(),
+	conversationId: uuid('conversation_id').references(() => conversations.id),
+	userId: uuid('user_id')
+		.references(() => users.id)
+		.notNull(),
+	status: text('status').notNull(), // 'running' | 'completed' | 'failed'
+	toolCalls: integer('tool_calls').default(0),
+	tokensUsed: integer('tokens_used').default(0),
+	durationMs: integer('duration_ms'),
+	error: text('error'),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 export const auditLogs = pgTable('audit_logs', {

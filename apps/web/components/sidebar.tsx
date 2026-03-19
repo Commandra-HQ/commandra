@@ -5,6 +5,7 @@ import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 import {
+	Bot,
 	Brain,
 	Building2,
 	Globe,
@@ -26,6 +27,7 @@ const baseNavItems = [
 	{ href: '/history', label: 'History', icon: History },
 	{ href: '/audit', label: 'Audit Log', icon: Shield },
 	{ href: '/sites', label: 'Sites', icon: Globe },
+	{ href: '/agents', label: 'Agents', icon: Bot },
 	{ href: '/memory', label: 'Memory', icon: Brain },
 	{ href: '/storage', label: 'Storage', icon: HardDrive },
 	{ href: '/settings', label: 'Settings', icon: Settings },

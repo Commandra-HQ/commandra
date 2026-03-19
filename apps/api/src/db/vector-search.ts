@@ -17,13 +17,6 @@ interface ElementSearchResult {
 	score: number;
 }
 
-interface FlowSearchResult {
-	id: string;
-	flowId: string;
-	text: string;
-	score: number;
-}
-
 interface MemorySearchResult {
 	id: string;
 	siteId: string;
@@ -90,40 +83,6 @@ export async function searchElementsOnPage(
 		.limit(limit);
 
 	return results;
-}
-
-/**
- * Search flows by intent/name similarity.
- */
-export async function searchFlows(
-	query: string,
-	userId: string,
-	limit = 5,
-): Promise<FlowSearchResult[]> {
-	const queryVector = await embedText(query);
-	const vectorStr = `[${queryVector.join(',')}]`;
-
-	// We need to join through flows to filter by userId
-	const results = await db.execute<{
-		id: string;
-		flowId: string;
-		text: string;
-		score: number;
-	}>(sql`
-		SELECT
-			fe.id,
-			fe.flow_id as "flowId",
-			fe.text,
-			1 - (fe.embedding <=> ${vectorStr}::vector) as score
-		FROM flow_embeddings fe
-		INNER JOIN flows f ON fe.flow_id = f.id
-		WHERE f.user_id = ${userId}
-		AND fe.embedding IS NOT NULL
-		ORDER BY fe.embedding <=> ${vectorStr}::vector
-		LIMIT ${limit}
-	`);
-
-	return results as unknown as FlowSearchResult[];
 }
 
 /**

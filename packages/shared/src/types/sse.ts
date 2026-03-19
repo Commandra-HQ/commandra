@@ -3,8 +3,6 @@
  * Used by both the API (emitter) and extension (consumer).
  */
 
-import type { FlowStep } from './flows.js';
-
 export type SSEEvent =
 	| { type: 'text_delta'; text: string }
 	| { type: 'thinking' }
@@ -22,23 +20,6 @@ export type SSEEvent =
 	| { type: 'plan'; steps: string[]; description?: string }
 	| { type: 'done'; conversationId: string }
 	| { type: 'error'; message: string }
-	| { type: 'flow_step_recorded'; step: FlowStep; stepCount: number }
-	| { type: 'recording_started' }
-	| { type: 'recording_stopped'; flowId: string; stepCount: number }
-	| { type: 'flow_step_start'; stepIndex: number; totalSteps: number; intent: string }
-	| { type: 'flow_step_end'; stepIndex: number; success: boolean; error?: string }
-	| { type: 'flow_done'; flowRunId: string; success: boolean }
-	| {
-			type: 'flow_adaptation';
-			flowId: string;
-			adaptations: {
-				stepIndex: number;
-				originalSelector: string;
-				usedSelector: string;
-				reason: string;
-			}[];
-			message: string;
-	  }
 	| { type: 'sub_agent_start'; agentId: string; task: string; targetUrl: string }
 	| {
 			type: 'sub_agent_action';

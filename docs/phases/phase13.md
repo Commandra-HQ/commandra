@@ -248,7 +248,7 @@ Coordinator Agent (strong model, main tab)
 
 ## 13e. Learning Feedback Loops
 
-**Problem:** The agent doesn't know if tasks succeeded. Flows don't self-repair. Memory extraction uses the cheap model and misses nuance. No cross-conversation pattern detection.
+**Problem:** The agent doesn't know if tasks succeeded. Memory extraction uses the cheap model and misses nuance. No cross-conversation pattern detection.
 
 ### Implementation
 
@@ -259,37 +259,28 @@ Coordinator Agent (strong model, main tab)
    - Associate outcome with memories extracted from that conversation
    - Reinforce memories from successful conversations, flag memories from failures
 
-2. **Flow auto-repair:**
-   - When a flow run adapts (different selectors, skipped steps, alternate navigation) and succeeds:
-     - Diff the executed steps vs. recorded steps
-     - If >1 step changed, prompt: "This flow adapted to work. Update the saved flow?"
-     - On approval, update `flow.steps` with the new working version
-   - Track `adaptations[]` on `flowRuns` for visibility
-
-3. **Smart memory extraction:**
+2. **Smart memory extraction:**
    - For conversations with corrections or failures: use strong model for extraction
    - For routine successful conversations: use fast model (current behavior)
    - Detection: scan user messages for correction signals ("no", "wrong", "actually", "not that", "instead")
    - Cost impact: minimal (<5% of conversations trigger strong model)
 
-4. **Cross-conversation insights (batch job):**
+3. **Cross-conversation insights (batch job):**
    - Weekly Inngest job per domain: review last 20 conversations + outcomes
    - Extract high-level patterns: "Users frequently ask about X", "Y workflow fails often"
    - Store as `domain_knowledge` memories with high confidence
    - Prune domain memories that contradict new insights
 
 ### Files to modify
-- `apps/api/src/db/schema.ts` — Add `outcome` to conversations, `adaptations` to flowRuns
+- `apps/api/src/db/schema.ts` — Add `outcome` to conversations
 - `apps/api/src/routes/conversations.ts` — Add outcome endpoint
 - `apps/api/src/memory/user.ts` — Outcome-aware reinforcement
-- `apps/api/src/agent/flow-executor.ts` — Track adaptations, offer auto-repair
 - `apps/api/src/memory/domain.ts` — Cross-conversation batch insights
 
 ### Acceptance criteria
 - [ ] Users can rate conversation outcomes (thumbs up/down)
 - [ ] Outcome stored and associated with extracted memories
 - [ ] Successful memories reinforced, failed memories flagged
-- [ ] Flow adaptations tracked and auto-repair offered
 - [ ] Strong model used for memory extraction on correction-heavy conversations
 - [ ] Weekly batch job extracts cross-conversation domain insights
 
@@ -423,5 +414,5 @@ Total: ~2-3 weeks
 - **No new infrastructure.** Everything stays in Postgres + pgvector. No Redis, no separate vector DB.
 - **Provider-agnostic.** All improvements must work across Anthropic, OpenAI, and Ollama.
 - **Extension stays thin.** Sub-agent tab management happens in extension but reasoning stays on backend.
-- **Backwards compatible.** Existing conversations, memories, flows, and embeddings continue to work.
+- **Backwards compatible.** Existing conversations, memories, and embeddings continue to work.
 - **No breaking API changes.** New SSE events are additive. New tools are additive.

@@ -2,15 +2,16 @@
  * System prompts for the agent.
  */
 
+import type { AgentConfig } from '@afe/shared';
 import { PLANNING_INSTRUCTIONS } from './planner.js';
 
-const BASE_PROMPT = `You are an AI assistant embedded in a Chrome extension called "Commandra." You help users understand and interact with web applications. You execute tasks in the user's own browser — they are already logged in, and you can see and interact with the page as they would.
+const IDENTITY_SECTION = `You are an AI assistant embedded in a Chrome extension called "Commandra." You help users understand and interact with web applications. You execute tasks in the user's own browser — they are already logged in, and you can see and interact with the page as they would.`;
 
-## How You See the Page
+const RULES_SECTION = `## How You See the Page
 You have a structural index of the current page: all interactive elements (buttons, links, inputs, forms, tables) with their labels, CSS selectors, and navigation links. You also receive:
 - **Site knowledge:** Indexed pages, known workflows, and app behavior notes from domain memory
 - **User context:** Personal preferences, corrections, past interactions, and saved automations
-- **Prior context:** Semantically similar past conversations, relevant elements, and matching flows found via embeddings
+- **Prior context:** Semantically similar past conversations and relevant elements found via embeddings
 - **User identity:** The logged-in user detected from the page (when available)
 Use ALL of this context to inform your approach. Don't navigate blindly — check what you already know first.
 
@@ -44,7 +45,7 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 **Memory management:**
 - Use save_memory IMMEDIATELY when the user corrects you or states a preference
 - Use recall_memory to search past learnings when context is missing
-- Check the "Prior Context" section — it may contain relevant past conversations and saved flows
+- Check the "Prior Context" section — it may contain relevant past conversations
 
 ## Sub-Agents (Parallel Work)
 You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when genuinely beneficial:
@@ -61,7 +62,7 @@ You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when ge
 - You're unsure → default to doing it yourself. Sub-agents add complexity.
 
 **How to use:**
-1. Call spawn_agent with a task + targetUrl for each parallel site
+1. Call spawn_agent with a task + targetUrl for each parallel site. You can target a specific agent by slug via \`agentSlug\`, or let the system use the default coordinator.
 2. Call wait_for_agents to collect results
 3. Synthesize into one response
 
@@ -69,6 +70,26 @@ You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when ge
 - Do NOT take excessive screenshots — page state auto-refreshes after actions
 - Only screenshot when you need visual confirmation of something not in the element index
 - Keep tool usage efficient to avoid context limits`;
+
+function buildBasePrompt(agentConfig?: AgentConfig): string {
+	const identity = agentConfig?.soul || IDENTITY_SECTION;
+	const skillsSection = agentConfig?.skills ? `\n\n## Agent Skills\n${agentConfig.skills}` : '';
+	let learningsSection = '';
+	if (agentConfig?.learnings) {
+		const lines = agentConfig.learnings.split('\n').filter((l) => l.trim().startsWith('- '));
+		if (lines.length > 0) {
+			learningsSection = `\n\n## Past Learnings\n${lines.slice(-20).join('\n')}`;
+		}
+	}
+	let errorsSection = '';
+	if (agentConfig?.errors) {
+		const lines = agentConfig.errors.split('\n').filter((l) => l.trim().startsWith('- '));
+		if (lines.length > 0) {
+			errorsSection = `\n\n## Known Failure Patterns\n${lines.slice(-10).join('\n')}`;
+		}
+	}
+	return `${identity}\n\n${RULES_SECTION}${skillsSection}${learningsSection}${errorsSection}`;
+}
 
 interface SelectedElement {
 	selector: string;
@@ -105,9 +126,12 @@ export function buildSystemPrompt(
 	domainMemory?: string,
 	userMemory?: string,
 	priorContext?: string,
+	agentConfig?: AgentConfig,
 ): string {
+	const basePrompt = buildBasePrompt(agentConfig);
+
 	if (!pageIndex) {
-		return `${BASE_PROMPT}
+		return `${basePrompt}
 
 ## Current Page
 No page is currently indexed — but you CAN still act. If the user asks you to go somewhere or do something:
@@ -209,7 +233,7 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		identitySummary = `\n- **Logged-in user:** ${pi.userIdentity.username}`;
 	}
 
-	return `${BASE_PROMPT}
+	return `${basePrompt}
 
 ## Current Page
 - **URL:** ${pi.url || 'Unknown'}

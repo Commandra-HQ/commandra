@@ -1,4 +1,3 @@
-import { startRecorderInPage, stopRecorderInPage } from '../content/recorder.js';
 import { startSelectorInPage, stopSelectorInPage } from '../content/selector.js';
 import { startCrawl, stopCrawl } from './crawler.js';
 import {
@@ -6,7 +5,6 @@ import {
 	isConnected,
 	sendApproval,
 	sendKill,
-	sendManualAction,
 	sendPageIndexed,
 } from './ws-client.js';
 
@@ -60,19 +58,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			return true; // async
 		}
 
-		case 'PAGE_INDEXED': {
-			// Content script re-indexed a page (SPA nav or DOM change) — forward to backend
-			const { domain: pageDomain, pageIndex: pi } = message as {
-				domain: string;
-				pageIndex: unknown;
-			};
-			if (pageDomain && pi) {
-				sendPageIndexed(pageDomain, pi);
-			}
-			sendResponse({ ok: true });
-			break;
-		}
-
 		case 'GET_WS_STATUS': {
 			sendResponse({ connected: isConnected() });
 			break;
@@ -111,45 +96,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 				.then(() => sendResponse({ ok: true }))
 				.catch(() => sendResponse({ ok: false }));
 			return true; // async
-		}
-
-		case 'RECORDER_START': {
-			const { tabId } = message.payload as { tabId: number };
-			chrome.scripting
-				.executeScript({
-					target: { tabId },
-					func: startRecorderInPage,
-				})
-				.then(() => {
-					// Listen for recorded actions from the page via content script bridge
-					sendResponse({ ok: true });
-				})
-				.catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
-			return true; // async
-		}
-
-		case 'RECORDER_STOP': {
-			const { tabId } = message.payload as { tabId: number };
-			chrome.scripting
-				.executeScript({
-					target: { tabId },
-					func: stopRecorderInPage,
-				})
-				.then(() => sendResponse({ ok: true }))
-				.catch(() => sendResponse({ ok: false }));
-			return true; // async
-		}
-
-		case 'RECORDED_ACTION': {
-			// Forwarded from content script — send to backend via WS
-			const { action, args, url } = message as {
-				action: string;
-				args: Record<string, unknown>;
-				url: string;
-			};
-			sendManualAction(action, args, url);
-			sendResponse({ ok: true });
-			break;
 		}
 
 		case 'kill': {

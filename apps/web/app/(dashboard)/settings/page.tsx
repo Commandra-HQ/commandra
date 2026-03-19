@@ -214,7 +214,7 @@ export default function SettingsPage() {
 				<CardHeader>
 					<CardTitle>Embedding Provider</CardTitle>
 					<CardDescription>
-						Used for semantic search over page elements, flows, and memory. Voyage AI is recommended
+						Used for semantic search over page elements and memory. Voyage AI is recommended
 						by Anthropic.
 					</CardDescription>
 				</CardHeader>

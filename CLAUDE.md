@@ -2,7 +2,7 @@
 
 ## What This Project Is
 
-An open-source platform (Chrome extension + backend) that lets anyone automate tasks on any web application through natural language. Think "Cursor for internal dashboards." Show once, automate forever.
+An open-source platform (Chrome extension + backend) that lets anyone automate tasks on any web application through natural language. Think "Cursor for internal dashboards." Users create specialized, self-improving agents that work in their browser, learn from every run, and can invoke each other.
 
 ## Project Structure (Parent Level)
 
@@ -20,7 +20,7 @@ This monorepo is the product. It's what gets open-sourced. It's what self-hosted
 
 ## Architecture in One Paragraph
 
-Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, user identity detection, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Page state auto-refreshes after state-changing actions (click, navigate, type, select). Before each conversation turn, the backend enriches context by searching conversation/element/flow embeddings via pgvector for semantically relevant past interactions. Pre-seeded domain knowledge gives the agent baseline understanding of popular apps (Gmail, GitHub, etc.) on first use. Agents always execute in the user's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores everything. The whole thing runs in Docker. Auth is JWT-only in this repo — no Clerk dependency. External auth providers (Clerk, OIDC) can exchange tokens for JWTs via the `/api/token/exchange` endpoint.
+Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, user identity detection, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Page state auto-refreshes after state-changing actions (click, navigate, type, select). Before each conversation turn, the backend enriches context by searching conversation/element embeddings via pgvector for semantically relevant past interactions. Pre-seeded domain knowledge gives the agent baseline understanding of popular apps (Gmail, GitHub, etc.) on first use. Agents always execute in the user's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores structured data. Supabase Storage stores agent files (AGENT.yaml, SOUL.md, SKILLS.md, LEARNINGS.md, workspace/). The whole thing runs in Docker. Auth is JWT-only in this repo — no Clerk dependency. External auth providers (Clerk, OIDC) can exchange tokens for JWTs via the `/api/token/exchange` endpoint.
 
 ## Rules
 
@@ -59,7 +59,7 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 ### Organizations
 - Organizations are optional — only used for cloud team plans and enterprise deployments
 - Schema: `organizations` (id, name, slug, externalId) + `orgMembers` (orgId, userId, role)
-- Nullable `orgId` FK on: `sites`, `flows`, `conversations`, `auditLogs`
+- Nullable `orgId` FK on: `sites`, `conversations`, `auditLogs`
 - Data scoping: `getOrgOrUserScope()` helper (`apps/api/src/db/scope.ts`) returns org-scoped or user-scoped WHERE clause
 - When `user.orgId` is set, queries scope by org (shared data). Otherwise, scope by userId (personal data).
 - Org API routes: `apps/api/src/routes/orgs.ts` — CRUD for orgs + member management (admin-only)
@@ -73,18 +73,28 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Always implement a kill switch (Escape key halts all agent activity)
 - Never bypass the safety classification system
 
+### Agent System (Phase 15 — Active)
+- **Agents are files**: each agent is a folder in Supabase Storage with `AGENT.yaml` (config), `SOUL.md` (personality), `SKILLS.md` (learned capabilities), `LEARNINGS.md` (corrections/discoveries), `ERRORS.md` (failure patterns), and `workspace/` (scratch files)
+- **Agent registry**: `apps/api/src/agent/agent-registry.ts` — loads, lists, resolves agents by capability or domain match
+- **Default agent**: every user gets a `_coordinator` agent that behaves like the current orchestrator. Users who never create agents get this automatically.
+- **Agent-to-agent invocation**: `spawn_agent` can target a specific agent by slug or match by capability. Max invocation depth: 2. Agents have `can_invoke` lists.
+- **Self-improvement**: after every run, post-execution analysis writes to SKILLS.md (new patterns), LEARNINGS.md (corrections), ERRORS.md (failures). Skills are selectively injected into prompts (not full dump).
+- **Agent scheduler**: agents with cron triggers run on schedule (requires active browser connection). Cheap check first, full LLM run only if needed.
+- **Supabase Storage**: `@supabase/supabase-js` client at `apps/api/src/storage/supabase.ts`. Agent files in `agent-files` bucket, path: `{userId}/agents/{agentSlug}/`. RLS enforces per-user isolation.
+
 ### Agent Orchestration
 - Provider-agnostic: all LLM calls go through the provider layer (`apps/api/src/llm/`)
 - Never import a vendor SDK directly outside the provider adapter files
 - Use the strong model for planning and complex reasoning, fast model for data reads and navigation
 - Safety classification happens pre-execution in the orchestrator loop
 - Audit logging happens post-execution in the orchestrator loop
+- **Per-agent config**: orchestrator accepts `AgentConfig` — respects agent's model, tool allowlist, safety overrides, max iterations
 - **Parallel tool calling**: safe tools execute in parallel via `Promise.allSettled`, review tools sequential with approval gates, blocked tools rejected immediately
 - **Token budget management**: strips old screenshots, truncates long results, catches context_length_exceeded and retries with aggressive trimming
-- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`
-- **Multi-agent swarm**: coordinator (strong model) spawns sub-agents (strong model) in separate browser tabs via `open_tab`/`close_tab` WS actions. Max 3 concurrent, 10 iterations each, 2min timeout. Sub-agents only spawn for genuinely parallel multi-site tasks — NOT for single-site requests. Sub-agent tool calls emit `sub_agent_action` events with full tool data (args, result, screenshot) and render as rich ToolCallBlock components nested inside the sub-agent's accordion in the UI.
+- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`, `save_to_workspace`, `read_from_workspace`, `list_workspace`
+- **Multi-agent swarm**: coordinator spawns sub-agents (with agent identity) in separate browser tabs via `open_tab`/`close_tab` WS actions. Max 3 concurrent, 10 iterations each, 2min timeout.
 - **Auto page state refresh**: after `click_element`, `navigate`, `type_text`, `select_option` — orchestrator auto-calls `get_page_state` and merges updated DOM into the tool result (500ms delay for SPA transitions)
-- **Embedding-powered context enrichment**: before orchestrator runs, `chat.ts` searches `conversation_embeddings`, `element_embeddings`, and `flow_embeddings` in parallel; results injected as "Prior Context" in system prompt
+- **Embedding-powered context enrichment**: before orchestrator runs, `chat.ts` searches `conversation_embeddings` and `element_embeddings` in parallel; results injected as "Prior Context" in system prompt
 - **Structured tool call history**: assistant messages stored with `toolData` jsonb (tool names, args, results, success). On conversation resume, tool summaries appended to history for multi-turn action context
 - **Site identity detection**: extension indexer detects logged-in user via avatar alt text, profile elements, aria-labels, meta tags. Injected into system prompt as "Logged-in user"
 
@@ -102,8 +112,8 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 ### Prompt Caching
 - Anthropic: `cache_control: { type: 'ephemeral' }` on system prompt for ~90% input token cost reduction on multi-turn conversations
 
-### Database
-- Postgres + pgvector, single database for everything
+### Database & Storage
+- Postgres + pgvector for structured data, Supabase Storage for agent files
 - Use Drizzle migrations, never manual schema changes
 - Audit logs are append-only, never update or delete them
 - Element embeddings use pgvector (1024 dims), no separate vector DB
@@ -111,7 +121,11 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Embedding adapters live in `apps/api/src/llm/embeddings.ts` alongside the LLM provider layer
 - Org-scoped tables have nullable `orgId` — use `getOrgOrUserScope()` for queries
 - `messages.tool_data` (jsonb): stores structured tool call records (name, args, result, success) alongside assistant text for multi-turn context
-- Four embedding tables actively used: `element_embeddings`, `conversation_embeddings`, `flow_embeddings` (all searched during context enrichment), `memory_embeddings` (reserved)
+- Three embedding tables actively used: `element_embeddings`, `conversation_embeddings` (both searched during context enrichment), `memory_embeddings` (reserved)
+- `agents` table: metadata + stats (slug, name, status, capabilities, domains, run counts). Config lives in Supabase Storage, not DB.
+- `agent_runs` table: run history (trigger, status, result, tools_used, tokens, learnings_generated)
+- `agent_embeddings` table: capability embeddings for semantic agent resolution
+- Agent files (AGENT.yaml, SOUL.md, SKILLS.md, etc.) live in Supabase Storage bucket `agent-files`, path: `{userId}/agents/{agentSlug}/`
 
 ### File Structure
 - Monorepo with Turborepo: `apps/extension`, `apps/api`, `apps/web`, `packages/shared`
@@ -119,17 +133,23 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Extension content scripts go in `apps/extension/src/content/`
 - Agent-related code goes in `apps/api/src/agent/`
 - Orchestrator: `apps/api/src/agent/orchestrator.ts` (main agentic loop)
+- Agent registry: `apps/api/src/agent/agent-registry.ts` (agent CRUD, resolution, loading)
 - Multi-agent swarm: `apps/api/src/agent/swarm.ts` (sub-agent lifecycle + tab management)
+- Self-improvement: `apps/api/src/agent/self-improve.ts` (post-execution analysis)
+- Agent scheduler: `apps/api/src/agent/scheduler.ts` (cron evaluation, run dispatch)
 - Planning: `apps/api/src/agent/planner.ts` (plan parsing, approval, workflow templates)
 - Memory: `apps/api/src/memory/` (conversation.ts, domain.ts, user.ts, domain-seeds.ts)
 - Domain seeds: `apps/api/src/memory/domain-seeds.ts` (pre-built knowledge for popular apps)
+- Storage: `apps/api/src/storage/` (supabase.ts, agent-files.ts)
 - LLM provider adapters go in `apps/api/src/llm/providers/`
 - Embeddings: `apps/api/src/llm/embeddings.ts`
-- Vector search: `apps/api/src/db/vector-search.ts` (element, conversation, flow, user memory search)
+- Vector search: `apps/api/src/db/vector-search.ts` (element, conversation, user memory, agent capability search)
 - Auth middleware: `apps/api/src/middleware/auth.ts`
 - Org + data scoping: `apps/api/src/db/scope.ts`, `apps/api/src/routes/orgs.ts`
+- Agent routes: `apps/api/src/routes/agents.ts` (agent CRUD, files, runs)
 - Dashboard (Next.js) goes in `apps/web/`
 - Dashboard auth callback: `apps/web/app/auth/callback/page.tsx` (for cloud redirect flow)
+- Dashboard agent pages: `apps/web/app/(dashboard)/agents/` (list, create, detail, file editor)
 
 ### Don't
 - Don't add Cloudflare Workers, Vercel, or serverless runtimes — we use Docker
@@ -138,3 +158,6 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Don't add PostHog, Amplitude, or analytics — console logs + Sentry for now
 - Don't add features that aren't being built in the current phase
 - Don't over-engineer. If three lines of code work, don't create an abstraction
+- Don't store agent config in Postgres — AGENT.yaml, SOUL.md, SKILLS.md live in Supabase Storage. Only metadata/stats in Postgres.
+- Don't build an agent marketplace or cross-user agent sharing yet
+- Don't allow nested agent spawning beyond depth 2

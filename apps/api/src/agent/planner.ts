@@ -71,7 +71,7 @@ For simple tasks (1-2 actions), skip the plan and just execute directly.
 - **SPAs are tricky:** After click/navigate, the page state auto-updates. Check the updated elements before your next action.
 - **Wait for dynamic content:** If you expect a modal, dropdown, or AJAX content, use wait_for_element before interacting.
 - **Identify yourself:** Check the "Logged-in user" in Current Page section. The user is already authenticated — you don't need to log in.
-- **Leverage embeddings:** If a user says "do that thing again" or references past work, check the Prior Context section for related conversations and flows.`;
+- **Leverage embeddings:** If a user says "do that thing again" or references past work, check the Prior Context section for related conversations.`;
 
 /**
  * Parse plan blocks from agent response text.

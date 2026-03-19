@@ -6,7 +6,7 @@
  * Emits structured SSE events instead of raw text.
  */
 
-import type { SSEEvent } from '@afe/shared';
+import type { AgentConfig, SSEEvent } from '@afe/shared';
 import { searchUserMemories } from '../db/vector-search.js';
 import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import type {
@@ -24,9 +24,9 @@ import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { loadAgentBySlug } from './agent-registry.js';
 import { parsePlan } from './planner.js';
 import { buildSystemPrompt } from './prompts.js';
-import { isRecording, recordStep } from './recorder.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { saveLocalFile } from '../storage/local.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
@@ -51,6 +51,8 @@ export interface OrchestratorParams {
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 	maxIterations?: number;
+	agentConfig: AgentConfig;
+	depth?: number;
 }
 
 export interface ToolCallRecord {
@@ -82,15 +84,17 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		domain,
 		onEvent,
 		signal,
-		maxIterations = 15,
+		maxIterations: maxIter,
+		agentConfig,
 	} = params;
 
+	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 15;
 	const provider = getProvider();
-	const model = getStrongModel();
-	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext);
+	const model = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
+	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext, agentConfig);
 
 	// Add save_memory internal tool alongside browser tools
-	const browserTools = getToolDefinitions();
+	const browserTools = getToolDefinitions(agentConfig.tools);
 	const saveMemoryTool = {
 		name: 'save_memory',
 		description:
@@ -131,7 +135,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	const spawnAgentTool = {
 		name: 'spawn_agent',
 		description:
-			'Spawn a sub-agent to perform a task in a separate browser context. Use for parallel operations like reading data from multiple pages simultaneously. Sub-agents use the fast model and have max 5 iterations.',
+			'Spawn a sub-agent to perform a task in a separate browser context. Use for parallel operations like reading data from multiple pages simultaneously. You can target a specific agent by slug via `agentSlug`, or let the system use the default coordinator.',
 		parameters: {
 			type: 'object' as const,
 			properties: {
@@ -142,6 +146,10 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				targetUrl: {
 					type: 'string',
 					description: 'URL the sub-agent should navigate to first',
+				},
+				agentSlug: {
+					type: 'string',
+					description: 'Optional slug of a specific agent to use for this task (e.g. "email-drafter")',
 				},
 				timeout: {
 					type: 'number',
@@ -191,12 +199,13 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			required: ['filename', 'content', 'category'],
 		},
 	};
+	const currentDepth = params.depth ?? 0;
 	const tools = [
 		...browserTools,
 		saveMemoryTool,
 		recallMemoryTool,
-		spawnAgentTool,
-		waitForAgentsTool,
+		// Exclude spawn/wait tools at depth >= 2 to prevent deep nesting
+		...(currentDepth >= 2 ? [] : [spawnAgentTool, waitForAgentsTool]),
 		saveToLocalTool,
 	];
 	const context = { connectionId, userId };
@@ -409,6 +418,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 							provider,
 							domainMemory,
 							userMemory,
+							currentDepth,
 						),
 					),
 				);
@@ -445,6 +455,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 					provider,
 					domainMemory,
 					userMemory,
+					currentDepth,
 				);
 				toolResults.push(result);
 			}
@@ -510,15 +521,17 @@ export async function runSimpleChat(params: {
 	priorContext?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
+	agentConfig: AgentConfig;
 }): Promise<string> {
 	const provider = getProvider();
-	const model = getStrongModel();
+	const model = params.agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
 	const systemPrompt = buildSystemPrompt(
 		params.pageIndex,
 		params.selectedElements,
 		params.domainMemory,
 		params.userMemory,
 		params.priorContext,
+		params.agentConfig,
 	);
 
 	await params.onEvent({ type: 'thinking' });
@@ -607,6 +620,7 @@ async function executeToolBlock(
 	provider: { supportsVision: boolean },
 	domainMemoryStr?: string,
 	userMemoryStr?: string,
+	depth?: number,
 ): Promise<ToolResultBlock> {
 	// Handle internal tools (no WS routing)
 
@@ -640,8 +654,14 @@ async function executeToolBlock(
 
 	// spawn_agent — launch a sub-agent for parallel work
 	if (block.name === 'spawn_agent') {
-		const args = block.input as { task: string; targetUrl: string; timeout?: number };
+		const args = block.input as { task: string; targetUrl: string; agentSlug?: string; timeout?: number };
 		try {
+			// Load target agent config if slug specified
+			let subAgentConfig: AgentConfig | undefined;
+			if (args.agentSlug) {
+				const loaded = await loadAgentBySlug(args.agentSlug, userId);
+				if (loaded) subAgentConfig = loaded;
+			}
 			const result = await spawnSubAgent({
 				userId,
 				connectionId,
@@ -653,6 +673,8 @@ async function executeToolBlock(
 				timeout: args.timeout,
 				onEvent,
 				signal: undefined,
+				agentConfig: subAgentConfig,
+				depth: (depth ?? 0) + 1,
 			});
 			return {
 				type: 'tool_result',
@@ -1138,25 +1160,6 @@ async function handleToolCall(
 			screenshot: screenshotImage,
 			error: toolSucceeded ? undefined : (resultData?.error as string) || 'Action failed',
 		});
-
-		// Record step if in teach mode (skip read-only tools and failed tools)
-		if (
-			toolSucceeded &&
-			isRecording(connectionId) &&
-			!['screenshot', 'get_page_state', 'refresh_page_state', 'go_back'].includes(name)
-		) {
-			const step = await recordStep(
-				connectionId,
-				name,
-				toolArgs,
-				{ success: true, data: result },
-				'', // URL pattern will be filled by page context
-				'',
-			);
-			if (step) {
-				await onEvent({ type: 'flow_step_recorded', step, stepCount: step.index + 1 });
-			}
-		}
 
 		return { data: enrichedResult, isError: !toolSucceeded };
 	} catch (err) {

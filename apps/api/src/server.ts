@@ -5,12 +5,11 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { serve as inngestServe } from 'inngest/hono';
 import { WebSocketServer } from 'ws';
-import { embedFlow, embedPageElements, inngest } from './inngest/index.js';
+import { embedPageElements, inngest } from './inngest/index.js';
 import { auditRoutes } from './routes/audit.js';
 import { authRoutes } from './routes/auth.js';
 import { chatRoutes } from './routes/chat.js';
 import { conversationRoutes } from './routes/conversations.js';
-import { flowRoutes } from './routes/flows.js';
 import { healthRoutes } from './routes/health.js';
 import { memoryRoutes } from './routes/memory.js';
 import { orgRoutes } from './routes/orgs.js';
@@ -19,6 +18,8 @@ import { siteRoutes } from './routes/sites.js';
 import { statsRoutes } from './routes/stats.js';
 import { storageRoutes } from './routes/storage.js';
 import { tokenRoutes } from './routes/token.js';
+import { agentRoutes } from './routes/agents.js';
+import { startScheduler, stopScheduler } from './agent/scheduler.js';
 import { initLocalStorage } from './storage/local.js';
 import { handleWsConnection } from './ws/handler.js';
 
@@ -52,18 +53,31 @@ app.route('/api/audit', auditRoutes);
 app.route('/api/sites', siteRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/stats', statsRoutes);
-app.route('/api/flows', flowRoutes);
 app.route('/api/memory', memoryRoutes);
 app.route('/api/orgs', orgRoutes);
 app.route('/api/storage', storageRoutes);
+app.route('/api/agents', agentRoutes);
 
 // Inngest handler — serve as middleware
-const inngestHandler = inngestServe({ client: inngest, functions: [embedPageElements, embedFlow] });
+const inngestHandler = inngestServe({ client: inngest, functions: [embedPageElements] });
 app.all('/api/inngest', (c) => inngestHandler(c));
 app.all('/api/inngest/*', (c) => inngestHandler(c));
 
 // Initialize local storage directories
 initLocalStorage();
+
+// Start agent scheduler
+startScheduler();
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+	stopScheduler();
+	process.exit(0);
+});
+process.on('SIGINT', () => {
+	stopScheduler();
+	process.exit(0);
+});
 
 const PORT = Number(process.env.PORT) || 3001;
 const WS_PORT = Number(process.env.WS_PORT) || 3002;
