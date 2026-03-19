@@ -1,6 +1,7 @@
 import { Clock, Loader2, MessageSquare, Plus, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { ActiveChat } from '../App.js';
+import { useNavigate } from 'react-router-dom';
+import { useActiveChats } from '../contexts/active-chats.js';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 
@@ -11,11 +12,6 @@ interface ConversationSummary {
 	updatedAt: string;
 	agentId?: string | null;
 	agentName?: string | null;
-}
-
-interface HubTabProps {
-	activeChats: Map<string, ActiveChat>;
-	onOpenConversation: (convId: string | null) => void;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -38,7 +34,9 @@ function formatElapsed(startedAt: number): string {
 	return `${minutes}m ${secs}s`;
 }
 
-export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
+export function HubTab() {
+	const navigate = useNavigate();
+	const { activeChats } = useActiveChats();
 	const [conversations, setConversations] = useState<ConversationSummary[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [currentDomain, setCurrentDomain] = useState('');
@@ -82,6 +80,14 @@ export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
 		}
 	}
 
+	function openConversation(convId: string | null) {
+		if (convId) {
+			navigate(`/chat/${convId}`);
+		} else {
+			navigate('/chat');
+		}
+	}
+
 	const activeList = Array.from(activeChats.values());
 
 	return (
@@ -89,7 +95,7 @@ export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
 			{/* New Chat */}
 			<div className="px-3 pt-3 pb-2 flex-shrink-0">
 				<button
-					onClick={() => onOpenConversation(null)}
+					onClick={() => openConversation(null)}
 					className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-border hover:bg-secondary/50 transition-colors"
 				>
 					<Plus size={14} className="text-muted-foreground flex-shrink-0" />
@@ -113,7 +119,7 @@ export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
 					{activeList.map((chat) => (
 						<button
 							key={chat.conversationId}
-							onClick={() => onOpenConversation(chat.conversationId)}
+							onClick={() => openConversation(chat.conversationId)}
 							className="w-full text-left px-3 py-2 hover:bg-secondary/50 transition-colors flex items-center gap-2"
 						>
 							<div className="relative flex-shrink-0">
@@ -160,7 +166,7 @@ export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
 				{conversations.map((conv) => (
 					<button
 						key={conv.id}
-						onClick={() => onOpenConversation(conv.id)}
+						onClick={() => openConversation(conv.id)}
 						className="w-full text-left px-3 py-2 hover:bg-secondary/50 transition-colors flex items-center gap-2"
 					>
 						<MessageSquare

@@ -14,14 +14,11 @@ import {
 	WifiOff,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { THEME_OPTIONS, Theme, useTheme } from '../theme.js';
+import { useAuth } from '../contexts/auth.js';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
-
-interface SettingsTabProps {
-	user: { id: string; email: string };
-	onBack: () => void;
-}
 
 const THEME_ICONS: Record<Theme, typeof Monitor> = {
 	system: Monitor,
@@ -29,7 +26,9 @@ const THEME_ICONS: Record<Theme, typeof Monitor> = {
 	dark: Moon,
 };
 
-export function SettingsTab({ user, onBack }: SettingsTabProps) {
+export function SettingsTab() {
+	const navigate = useNavigate();
+	const { user, logout } = useAuth();
 	const { theme, setTheme } = useTheme();
 	const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'disconnected'>(
 		'checking',
@@ -106,8 +105,7 @@ export function SettingsTab({ user, onBack }: SettingsTabProps) {
 	}, [checkBackend, checkWsStatus, loadCurrentSite]);
 
 	async function handleDisconnect() {
-		await chrome.storage.local.remove(['authToken', 'user']);
-		window.dispatchEvent(new Event('auth-changed'));
+		await logout();
 	}
 
 	async function handleClearMemory() {
@@ -149,7 +147,7 @@ export function SettingsTab({ user, onBack }: SettingsTabProps) {
 		<div className="flex flex-col h-full">
 		<header className="px-4 py-3 border-b border-border flex items-center gap-2 flex-shrink-0">
 			<button
-				onClick={onBack}
+				onClick={() => navigate('/')}
 				className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
 				title="Back"
 			>
