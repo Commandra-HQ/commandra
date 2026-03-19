@@ -50,7 +50,7 @@ export interface OrchestratorParams {
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 	maxIterations?: number;
-	agentConfig?: AgentConfig;
+	agentConfig: AgentConfig;
 }
 
 export interface ToolCallRecord {
@@ -86,13 +86,13 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		agentConfig,
 	} = params;
 
-	const maxIterations = agentConfig?.maxIterations ?? maxIter ?? 15;
+	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 15;
 	const provider = getProvider();
-	const model = agentConfig?.model === 'fast' ? getFastModel() : getStrongModel();
+	const model = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
 	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext, agentConfig);
 
 	// Add save_memory internal tool alongside browser tools
-	const browserTools = getToolDefinitions(agentConfig?.tools);
+	const browserTools = getToolDefinitions(agentConfig.tools);
 	const saveMemoryTool = {
 		name: 'save_memory',
 		description:
@@ -512,10 +512,10 @@ export async function runSimpleChat(params: {
 	priorContext?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
-	agentConfig?: AgentConfig;
+	agentConfig: AgentConfig;
 }): Promise<string> {
 	const provider = getProvider();
-	const model = params.agentConfig?.model === 'fast' ? getFastModel() : getStrongModel();
+	const model = params.agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
 	const systemPrompt = buildSystemPrompt(
 		params.pageIndex,
 		params.selectedElements,

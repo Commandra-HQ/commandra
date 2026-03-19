@@ -329,7 +329,7 @@ chatRoutes.post('/', async (c) => {
 					domain,
 					onEvent,
 					signal,
-					agentConfig: agentConfig.id !== '_coordinator' ? agentConfig : undefined,
+					agentConfig,
 				});
 				fullResponse = result.response;
 				if (result.toolCalls.length > 0) {
@@ -345,7 +345,7 @@ chatRoutes.post('/', async (c) => {
 					priorContext: priorContext || undefined,
 					onEvent,
 					signal,
-					agentConfig: agentConfig.id !== '_coordinator' ? agentConfig : undefined,
+					agentConfig,
 				});
 			}
 
