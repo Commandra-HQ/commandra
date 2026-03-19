@@ -1,13 +1,12 @@
 # Phase 12b — Vector Embeddings + Semantic Search
 
-Postgres has pgvector installed and `element_embeddings` table exists, but nothing generates or queries embeddings yet. This phase adds provider-agnostic embedding generation (background, never in the indexing hot path) and vector search for element finding, flow matching, and memory retrieval.
+Postgres has pgvector installed and `element_embeddings` table exists, but nothing generates or queries embeddings yet. This phase adds provider-agnostic embedding generation (background, never in the indexing hot path) and vector search for element finding and memory retrieval.
 
 ## What Gets Embedded
 
 | Data | Why | When |
 |------|-----|------|
 | Element labels (button text, input names, link labels) | Find the right element when selectors break and fuzzy match isn't enough | Background Inngest job after page upsert |
-| Flow names + step intents | "do that thing from last week" → find the right flow | On flow create/update |
 | Domain memory entries | Retrieve relevant learned patterns for current context | On memory write |
 
 ## What Does NOT Get Embedded
@@ -37,7 +36,6 @@ Page indexed → stored in Postgres (no embeddings, fast)
         Store in element_embeddings table
                   ↓
 At action time: fuzzy match fails → vector search fallback
-At flow search: embed user query → cosine similarity on flows
 At memory retrieval: embed context → find relevant memories
 ```
 
@@ -62,13 +60,6 @@ Action execution → primary selector fails → fallback selectors fail → fuzz
   → Extension executes action with returned selector
 ```
 
-### Flow Search
-```
-User types in FlowsTab search → embed query
-  → Cosine similarity against flow name + step intent embeddings
-  → Return ranked flows
-```
-
 ## Schema Changes
 
 ### Update element_embeddings
@@ -76,18 +67,6 @@ User types in FlowsTab search → embed query
 - Add `embeddingModel` column to track which model generated the embedding
 - Add `labelHash` column to detect when re-embedding is needed (label changed)
 - Add HNSW index for fast cosine similarity search
-
-### New table: flow_embeddings
-```sql
-CREATE TABLE flow_embeddings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  flow_id UUID NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
-  text TEXT NOT NULL,           -- flow name + concatenated step intents
-  embedding vector(1536),
-  embedding_model TEXT,
-  created_at TIMESTAMP DEFAULT NOW()
-);
-```
 
 ### New table: memory_embeddings
 ```sql
@@ -114,13 +93,11 @@ Step 1: Embedding provider layer                               ✅ Done
 
 Step 2: Schema migration                                        ✅ Done
         Update element_embeddings: vector dim 1536, add embeddingModel + labelHash columns
-        Create flow_embeddings table
         Create memory_embeddings table
         Add HNSW indexes on all embedding columns
 
 Step 3: Background embedding job (Inngest)                      ✅ Done
         Event: page/upserted → triggers element embedding job
-        Event: flow/saved → triggers flow embedding job
         Inngest serve endpoint wired into Hono server
         Batch embed element labels for new/changed elements
         Skip elements with matching labelHash (already embedded)
@@ -130,7 +107,6 @@ Step 4: Vector search functions                                 ✅ Done
         apps/api/src/db/vector-search.ts
         searchElements(query, siteId, limit) → cosine similarity on element_embeddings
         searchElementsOnPage(query, pageId, limit) → scoped to single page
-        searchFlows(query, userId, limit) → cosine similarity on flow_embeddings
         searchMemories(query, siteId, limit) → cosine similarity on memory_embeddings
 
 Step 5: Wire into selector resilience                           ✅ Done
@@ -139,10 +115,7 @@ Step 5: Wire into selector resilience                           ✅ Done
         Extension falls back to this after fuzzy match fails (4th tier)
         5-second timeout on vector search to not block actions
 
-Step 6: Wire into flows + memory                                ✅ Done
-        Flow create → embed name + step intents → Inngest background job
-        Flow update → re-embed if name/steps changed
-        GET /api/flows/search?q= → semantic flow search endpoint
+Step 6: Wire into memory                                         ✅ Done
         Memory embedding table ready (write + search wired, awaits memory system)
 ```
 

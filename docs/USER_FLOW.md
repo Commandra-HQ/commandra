@@ -125,7 +125,7 @@ The extension detects which indexed site the user is on and loads the relevant c
 │  Page: Invoice Dashboard                        │
 │─────────────────────────────────────────────────│
 │                                                 │
-│  [Chat]  [Flows]  [Agents]  [Settings]          │
+│  [Chat]  [History]  [Settings]                   │
 │                                                 │
 │  ┌───────────────────────────────────────────┐  │
 │  │ Welcome back. You're on the Invoice       │  │
@@ -167,60 +167,6 @@ Users can add multiple websites. Each gets its own index.
 
 ---
 
-## Flow & Agent Management
-
-### Flows Tab
-
-```
-┌─────────────────────────────────────────────────┐
-│  Your Flows                          [+ New]    │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │ Submit Expense Report                     │  │
-│  │ erp.company.com · 6 steps                │  │
-│  │ Params: amount, category, description     │  │
-│  │ Last run: yesterday                       │  │
-│  │ [Run]  [Edit]  [→ Make Agent]             │  │
-│  └───────────────────────────────────────────┘  │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │ Download Q4 Reports                       │  │
-│  │ erp.company.com · 4 steps                │  │
-│  │ Params: quarter                           │  │
-│  │ Last run: 3 days ago                      │  │
-│  │ [Run]  [Edit]  [→ Make Agent]             │  │
-│  └───────────────────────────────────────────┘  │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
-
-### Agents Tab
-
-```
-┌─────────────────────────────────────────────────┐
-│  Your Agents                         [+ New]    │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │ Daily Timesheet Logger          ● Active  │  │
-│  │ Runs: Mon-Fri at 5:00 PM                 │  │
-│  │ Flow: Log Timesheet                       │  │
-│  │ Last run: today at 5:00 PM (✓ success)   │  │
-│  │ [Pause]  [Run Now]  [History]             │  │
-│  └───────────────────────────────────────────┘  │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │ Monthly Report Generator       ○ Paused   │  │
-│  │ Runs: 1st of each month                   │  │
-│  │ Flow: Generate Monthly Report             │  │
-│  │ Last run: Mar 1 (✓ success)              │  │
-│  │ [Resume]  [Run Now]  [History]            │  │
-│  └───────────────────────────────────────────┘  │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
-
----
-
 ## The User Journey (Summary)
 
 ```
@@ -233,13 +179,10 @@ Chat with the agent on any indexed page
     │
     ├── Select & instruct: hover over table → "Export this data"
     │
-    ├── Teach mode: "Let me show you how to submit an expense"
+    ├── Multi-step workflows: "Do the monthly close across 3 apps"
     │
     ▼
-Save useful tasks as Flows (reusable, parameterized)
-    │
-    ▼
-Promote Flows to Agents (autonomous, scheduled, triggered)
+Agent learns your preferences and gets better over time
     │
     ▼
 Manage everything from the extension side panel

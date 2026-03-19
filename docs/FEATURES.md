@@ -62,56 +62,7 @@ Agent: "Found 23 pending invoices. Here are the vendors and amounts:
 - Select a button → "Click this every day at 9am"
 - Select multiple elements → "Copy these values to my spreadsheet"
 
-### Flow 3: Teach Mode (Record & Replay)
-
-User shows the agent how to do something once. Agent learns the steps and can repeat them.
-
-```
-User: "Let me show you how to submit an expense"
-Agent: "I'm watching. Go ahead — I'll learn the steps."
-
-User performs the task manually:
-  1. Clicks "New Expense"
-  2. Fills in amount, category, description
-  3. Uploads receipt
-  4. Clicks Submit
-
-Agent: "Got it. I recorded 4 steps:
-        1. Navigate to /expenses/new
-        2. Fill form: Amount, Category, Description
-        3. Upload file to receipt field
-        4. Click Submit
-
-        Want me to save this as a reusable flow?
-        I can parameterize it so next time you just say
-        'Submit expense for $45 at Starbucks'"
-```
-
-### Flow 4: Chat → Flow → Agent Pipeline
-
-This is how one-time tasks become permanent automations. Each level adds more autonomy.
-
-```
-CHAT (one-time)
-  "Download the Q4 report and email it to the finance team"
-  → Agent does it once, right now
-
-          ↓ User clicks "Save as Flow"
-
-FLOW (reusable)
-  "Download Quarterly Report"
-  Parameters: quarter, recipient_email
-  → User can re-run anytime with different inputs
-
-          ↓ User clicks "Schedule"
-
-AGENT (autonomous)
-  Trigger: 1st Monday of each quarter
-  Auto-runs the flow, sends notification when done
-  → Fully autonomous, human notified after completion
-```
-
-### Flow 5: Multi-Step Cross-App Workflows
+### Flow 3: Multi-Step Cross-App Workflows
 
 Agent works across multiple internal applications in sequence.
 
@@ -151,16 +102,15 @@ Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent.
 | **Activity feed** | Real-time view of what the agent is doing |
 | **Kill switch** | Escape key or icon click to halt immediately |
 
-### Tier 2: Workflows
+### Tier 2: Agentic Intelligence
 
 | Feature | Description |
 |---------|-------------|
-| **Recording mode** | Watch user perform a task, learn the steps |
-| **Flow creation** | Save tasks as reusable flows with parameters |
-| **Flow library** | Browse and run saved flows |
 | **Site crawl** | Index entire web app via background tabs |
 | **Self-healing selectors** | Multiple fallback strategies when UI changes |
-| **Self-healing flows** | Flow auto-repair: tracks selector adaptations, offers to update saved flows |
+| **Autonomous task completion** | Agent plans and executes multi-step tasks end-to-end |
+| **Contextual awareness** | Agent uses domain and user memory to improve over time |
+| **Conversation continuity** | Resume past conversations with full context recall |
 
 ### Tier 3: Automation
 
@@ -178,7 +128,7 @@ Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent.
 | Feature | Description | Status |
 |---------|-------------|--------|
 | **Organizations** | Org schema, member management, role-based access (admin/member/viewer) | Done |
-| **Team sharing** | Org-scoped flows, sites, conversations shared across team members | Done |
+| **Team sharing** | Org-scoped sites, conversations shared across team members | Done |
 | **Admin dashboard** | Who's running what, audit logs, permissions | Done (basic) |
 | **Audit trail** | Every action logged with before/after state | Done |
 | **Exportable audit** | PDF/CSV reports for compliance teams | |
@@ -230,7 +180,7 @@ This is the enterprise selling point. Every action goes through classification b
 | Page HTML, screenshots, form data | Local browser. Screenshots sent to LLM (configurable, not stored on backend). Old screenshots auto-stripped from conversation history. |
 | Session cookies, auth tokens | Browser only (never touched) |
 | Page structure (element types, labels) | Synced to backend (no actual data values) |
-| Workflow definitions | Backend (parameterized, no real data) |
+| Conversation history | Backend (structured, no raw page data) |
 | LLM prompts | Structure + labels only, no PII or business data |
 
 **Self-hosted option:** the entire platform runs in a Docker container. For air-gapped environments, customers can use their own LLM — zero data leaves their network.

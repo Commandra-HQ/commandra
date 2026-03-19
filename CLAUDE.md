@@ -2,7 +2,7 @@
 
 ## What This Project Is
 
-An open-source platform (Chrome extension + backend) that lets anyone automate tasks on any web application through natural language. Think "Cursor for internal dashboards." Show once, automate forever.
+An open-source platform (Chrome extension + backend) that lets anyone automate tasks on any web application through natural language. Think "Cursor for internal dashboards."
 
 ## Project Structure (Parent Level)
 
@@ -20,7 +20,7 @@ This monorepo is the product. It's what gets open-sourced. It's what self-hosted
 
 ## Architecture in One Paragraph
 
-Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, user identity detection, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Page state auto-refreshes after state-changing actions (click, navigate, type, select). Before each conversation turn, the backend enriches context by searching conversation/element/flow embeddings via pgvector for semantically relevant past interactions. Pre-seeded domain knowledge gives the agent baseline understanding of popular apps (Gmail, GitHub, etc.) on first use. Agents always execute in the user's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores everything. The whole thing runs in Docker. Auth is JWT-only in this repo — no Clerk dependency. External auth providers (Clerk, OIDC) can exchange tokens for JWTs via the `/api/token/exchange` endpoint.
+Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, user identity detection, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Page state auto-refreshes after state-changing actions (click, navigate, type, select). Before each conversation turn, the backend enriches context by searching conversation/element embeddings via pgvector for semantically relevant past interactions. Pre-seeded domain knowledge gives the agent baseline understanding of popular apps (Gmail, GitHub, etc.) on first use. Agents always execute in the user's browser (never server-side browsers) — this is the core privacy guarantee. Postgres + pgvector stores everything. The whole thing runs in Docker. Auth is JWT-only in this repo — no Clerk dependency. External auth providers (Clerk, OIDC) can exchange tokens for JWTs via the `/api/token/exchange` endpoint.
 
 ## Rules
 
@@ -59,7 +59,7 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 ### Organizations
 - Organizations are optional — only used for cloud team plans and enterprise deployments
 - Schema: `organizations` (id, name, slug, externalId) + `orgMembers` (orgId, userId, role)
-- Nullable `orgId` FK on: `sites`, `flows`, `conversations`, `auditLogs`
+- Nullable `orgId` FK on: `sites`, `conversations`, `auditLogs`
 - Data scoping: `getOrgOrUserScope()` helper (`apps/api/src/db/scope.ts`) returns org-scoped or user-scoped WHERE clause
 - When `user.orgId` is set, queries scope by org (shared data). Otherwise, scope by userId (personal data).
 - Org API routes: `apps/api/src/routes/orgs.ts` — CRUD for orgs + member management (admin-only)
@@ -84,7 +84,7 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`
 - **Multi-agent swarm**: coordinator (strong model) spawns sub-agents (strong model) in separate browser tabs via `open_tab`/`close_tab` WS actions. Max 3 concurrent, 10 iterations each, 2min timeout. Sub-agents only spawn for genuinely parallel multi-site tasks — NOT for single-site requests. Sub-agent tool calls emit `sub_agent_action` events with full tool data (args, result, screenshot) and render as rich ToolCallBlock components nested inside the sub-agent's accordion in the UI.
 - **Auto page state refresh**: after `click_element`, `navigate`, `type_text`, `select_option` — orchestrator auto-calls `get_page_state` and merges updated DOM into the tool result (500ms delay for SPA transitions)
-- **Embedding-powered context enrichment**: before orchestrator runs, `chat.ts` searches `conversation_embeddings`, `element_embeddings`, and `flow_embeddings` in parallel; results injected as "Prior Context" in system prompt
+- **Embedding-powered context enrichment**: before orchestrator runs, `chat.ts` searches `conversation_embeddings` and `element_embeddings` in parallel; results injected as "Prior Context" in system prompt
 - **Structured tool call history**: assistant messages stored with `toolData` jsonb (tool names, args, results, success). On conversation resume, tool summaries appended to history for multi-turn action context
 - **Site identity detection**: extension indexer detects logged-in user via avatar alt text, profile elements, aria-labels, meta tags. Injected into system prompt as "Logged-in user"
 
@@ -111,7 +111,7 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Embedding adapters live in `apps/api/src/llm/embeddings.ts` alongside the LLM provider layer
 - Org-scoped tables have nullable `orgId` — use `getOrgOrUserScope()` for queries
 - `messages.tool_data` (jsonb): stores structured tool call records (name, args, result, success) alongside assistant text for multi-turn context
-- Four embedding tables actively used: `element_embeddings`, `conversation_embeddings`, `flow_embeddings` (all searched during context enrichment), `memory_embeddings` (reserved)
+- Three embedding tables actively used: `element_embeddings`, `conversation_embeddings` (both searched during context enrichment), `memory_embeddings` (reserved)
 
 ### File Structure
 - Monorepo with Turborepo: `apps/extension`, `apps/api`, `apps/web`, `packages/shared`
@@ -125,7 +125,7 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Domain seeds: `apps/api/src/memory/domain-seeds.ts` (pre-built knowledge for popular apps)
 - LLM provider adapters go in `apps/api/src/llm/providers/`
 - Embeddings: `apps/api/src/llm/embeddings.ts`
-- Vector search: `apps/api/src/db/vector-search.ts` (element, conversation, flow, user memory search)
+- Vector search: `apps/api/src/db/vector-search.ts` (element, conversation, user memory search)
 - Auth middleware: `apps/api/src/middleware/auth.ts`
 - Org + data scoping: `apps/api/src/db/scope.ts`, `apps/api/src/routes/orgs.ts`
 - Dashboard (Next.js) goes in `apps/web/`

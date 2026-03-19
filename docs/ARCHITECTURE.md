@@ -12,7 +12,7 @@
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │  │
 │  │  │ Side Panel   │  │ Element      │  │ Content Script   │  │  │
 │  │  │ React Chat   │  │ Selector     │  │ (DOM indexing +  │  │  │
-│  │  │ Flows, Teach │  │ Overlay      │  │  action execute) │  │  │
+│  │  │              │  │ Overlay      │  │  action execute) │  │  │
 │  │  └──────┬───────┘  └──────────────┘  └────────┬─────────┘  │  │
 │  │         │                                      │            │  │
 │  │         │ SSE (chat)    ┌──────────────────┐   │            │  │
@@ -37,13 +37,11 @@
 │  │                                                          │    │
 │  │  Routes:                                                 │    │
 │  │  ├── POST /api/chat       → SSE streaming response       │    │
-│  │  ├── POST /api/chat/record/start|stop                    │    │
 │  │  ├── GET  /api/conversations                             │    │
 │  │  ├── GET  /api/audit                                     │    │
 │  │  ├── GET  /api/stats                                     │    │
 │  │  ├── GET  /api/sites                                     │    │
 │  │  ├── CRUD /api/memory                                    │    │
-│  │  ├── CRUD /api/flows                                     │    │
 │  │  ├── CRUD /api/orgs        → org + member management     │    │
 │  │  └── POST /api/index      → page/element indexing        │    │
 │  └──────────────────┬───────────────────────────────────────┘    │
@@ -63,7 +61,6 @@
 │  │       b. Review → sequential with approval gates         │    │
 │  │       c. Blocked → reject immediately                    │    │
 │  │       d. Audit log each to Postgres                      │    │
-│  │       e. Record step if in teach mode                    │    │
 │  │    7. Feed tool results back to LLM                      │    │
 │  │    8. Loop until end_turn or max iterations              │    │
 │  └──────────────────┬───────────────────────────────────────┘    │
@@ -114,8 +111,7 @@
 │  │  users, organizations, org_members,                       │    │
 │  │  conversations (+ outcome), messages, audit_logs,         │    │
 │  │  sites, pages, elements (+ embeddings),                  │    │
-│  │  domain_memory, user_memory, conversation_embeddings,    │    │
-│  │  flows, flow_steps, flow_runs (+ adaptations)            │    │
+│  │  domain_memory, user_memory, conversation_embeddings     │    │
 │  └──────────────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -130,7 +126,7 @@ The extension lives in the user's browser. It does three things:
 
 **Executes actions** — when the backend agent decides to click a button or fill a form, the command comes over WebSocket to the background service worker, which injects a script into the page via `chrome.scripting.executeScript`. Events are simulated to match human behavior (mousedown → mouseup → click).
 
-**Provides the UI** — side panel for chat (with markdown rendering, streaming thinking, block-based messages), element selector overlay for point-and-click control, flows tab for saved automations, teach mode for recording.
+**Provides the UI** — side panel for chat (with markdown rendering, streaming thinking, block-based messages), element selector overlay for point-and-click control.
 
 The extension is deliberately thin. It doesn't make LLM calls or run agent logic. It's a bridge between the user's authenticated browser session and the backend brain.
 
@@ -196,15 +192,13 @@ The orchestrator can spawn sub-agents for cross-site parallel workflows (e.g., "
 
 ### 5. Embeddings
 
-Embeddings power four subsystems: element fallback matching (when selectors break), flow search, domain memory search, and conversation recall. Providers are configurable via `EMBEDDING_PROVIDER`: Voyage AI (default for Anthropic), OpenAI, or Ollama. All vectors are 1024 dimensions stored in pgvector.
+Embeddings power three subsystems: element fallback matching (when selectors break), domain memory search, and conversation recall. Providers are configurable via `EMBEDDING_PROVIDER`: Voyage AI (default for Anthropic), OpenAI, or Ollama. All vectors are 1024 dimensions stored in pgvector.
 
 ### 6. Learning Feedback Loops
 
 **Outcome tracking:** Users rate conversations with thumbs up/down. Conversations store an `outcome` column (success/failure/partial).
 
 **Memory reinforcement:** Successful outcomes boost confidence scores on associated memories. Failed outcomes reduce confidence, so bad advice fades over time.
-
-**Flow auto-repair:** When selectors break during flow execution, the agent tracks adaptations (stored in `flow_runs.adaptations`). After successful recovery, the system offers to update the saved flow with new selectors.
 
 **Smart extraction:** Conversations where the user corrected the agent trigger extraction with the strong model (instead of fast), ensuring corrections are captured with high fidelity.
 
