@@ -18,6 +18,21 @@ export type SSEEvent =
 	  }
 	| { type: 'blocked'; toolName: string; reason: string }
 	| { type: 'plan'; steps: string[]; description?: string }
+	| {
+			type: 'plan_submitted';
+			planId: string;
+			steps: { label: string; status: string }[];
+			description: string;
+	  }
+	| { type: 'plan_approved'; planId: string }
+	| { type: 'plan_rejected'; planId: string; reason?: string }
+	| {
+			type: 'plan_step_updated';
+			planId: string;
+			stepIndex: number;
+			status: 'in_progress' | 'completed' | 'failed';
+			error?: string;
+	  }
 	| { type: 'done'; conversationId: string }
 	| { type: 'error'; message: string }
 	| { type: 'sub_agent_start'; agentId: string; task: string; targetUrl: string }

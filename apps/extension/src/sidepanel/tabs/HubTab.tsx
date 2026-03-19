@@ -1,4 +1,4 @@
-import { Clock, Loader2, MessageSquare, Plus, Zap } from 'lucide-react';
+import { Clock, ListChecks, Loader2, MessageSquare, Plus, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useActiveChats } from '../contexts/active-chats.js';
@@ -12,6 +12,11 @@ interface ConversationSummary {
 	updatedAt: string;
 	agentId?: string | null;
 	agentName?: string | null;
+	planStatus?: {
+		totalSteps: number;
+		completedSteps: number;
+		status: string;
+	} | null;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -182,6 +187,12 @@ export function HubTab() {
 									<span className="inline-flex items-center gap-0.5 text-[10px] text-yellow-500">
 										<Zap size={8} />
 										{conv.agentName}
+									</span>
+								)}
+								{conv.planStatus && conv.planStatus.status !== 'completed' && (
+									<span className="inline-flex items-center gap-0.5 text-[10px] text-blue-400">
+										<ListChecks size={8} />
+										{conv.planStatus.completedSteps}/{conv.planStatus.totalSteps}
 									</span>
 								)}
 								<span className="text-[10px] text-muted-foreground">

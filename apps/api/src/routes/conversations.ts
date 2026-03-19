@@ -20,6 +20,7 @@ conversationRoutes.get('/', async (c) => {
 			title: conversations.title,
 			agentId: conversations.agentId,
 			agentName: agents.name,
+			planStatus: conversations.planStatus,
 			createdAt: conversations.createdAt,
 			updatedAt: conversations.updatedAt,
 		})

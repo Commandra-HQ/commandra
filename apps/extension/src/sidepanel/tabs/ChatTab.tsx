@@ -126,6 +126,13 @@ interface ApprovalRequest {
 	reason: string;
 }
 
+interface PlanApprovalRequest {
+	requestId: string;
+	planId: string;
+	description: string;
+	steps: string[];
+}
+
 interface SiteData {
 	site: StoredSite | null;
 	pages: StoredPage[];
@@ -259,6 +266,7 @@ export function ChatTab() {
 	const [showContext, setShowContext] = useState(false);
 	const [wsConnected, setWsConnected] = useState(false);
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
+	const [pendingPlanApproval, setPendingPlanApproval] = useState<PlanApprovalRequest | null>(null);
 	const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
 	const [selectorActive, setSelectorActive] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -373,8 +381,17 @@ export function ChatTab() {
 					setMode('crawling');
 				}
 			} else if (message.type === 'APPROVAL_REQUEST') {
-				const req = message as unknown as { requestId: string; payload: ApprovalRequest };
-				setPendingApprovals((prev) => [...prev, { ...req.payload, requestId: req.requestId }]);
+				const req = message as unknown as { requestId: string; payload: Record<string, unknown> };
+				if (req.payload.type === 'plan_approval') {
+					setPendingPlanApproval({
+						requestId: req.requestId,
+						planId: req.payload.planId as string,
+						description: req.payload.description as string,
+						steps: req.payload.steps as string[],
+					});
+				} else {
+					setPendingApprovals((prev) => [...prev, { ...(req.payload as unknown as ApprovalRequest), requestId: req.requestId }]);
+				}
 			} else if (message.type === 'ELEMENT_SELECTED') {
 				const els = message.payload as SelectedElement[];
 				setSelectedElements(els);
@@ -616,6 +633,28 @@ export function ChatTab() {
 								scheduleFlush();
 								break;
 							}
+
+							case 'plan_step_updated': {
+								// Update the plan block's step status
+								const blocks = blocksRef.current;
+								for (const b of blocks) {
+									if (b.type === 'plan' && b.plan.stepStatus) {
+										const statusMap: Record<string, 'pending' | 'running' | 'done' | 'error'> = {
+											in_progress: 'running',
+											completed: 'done',
+											failed: 'error',
+										};
+										b.plan.stepStatus[event.stepIndex] = statusMap[event.status] || 'pending';
+									}
+								}
+								scheduleFlush();
+								break;
+							}
+
+							case 'plan_approved':
+							case 'plan_rejected':
+								// These are informational — the plan block already renders
+								break;
 
 							case 'sub_agent_start': {
 								const blocks = blocksRef.current;
@@ -1046,6 +1085,41 @@ export function ChatTab() {
 					</div>
 				</div>
 			))}
+
+			{/* Plan Approval */}
+			{pendingPlanApproval && (
+				<div className="border-b border-blue-500/30 bg-blue-500/5 px-4 py-3 space-y-2">
+					<p className="text-xs font-semibold text-foreground">
+						Plan requires approval
+					</p>
+					<p className="text-xs text-muted-foreground">{pendingPlanApproval.description}</p>
+					<ol className="list-decimal list-inside space-y-0.5 pl-1">
+						{pendingPlanApproval.steps.map((step, i) => (
+							<li key={i} className="text-xs text-foreground">{step}</li>
+						))}
+					</ol>
+					<div className="flex gap-2 pt-1">
+						<button
+							onClick={() => {
+								handleApproval(pendingPlanApproval.requestId, true);
+								setPendingPlanApproval(null);
+							}}
+							className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
+						>
+							Approve Plan
+						</button>
+						<button
+							onClick={() => {
+								handleApproval(pendingPlanApproval.requestId, false);
+								setPendingPlanApproval(null);
+							}}
+							className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700"
+						>
+							Reject
+						</button>
+					</div>
+				</div>
+			)}
 
 			{/* Messages */}
 			<div className="flex-1 overflow-y-auto p-4 space-y-4">

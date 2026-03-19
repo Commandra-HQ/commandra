@@ -30,7 +30,11 @@ import { buildSystemPrompt } from './prompts.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { uploadAgentFile } from '../storage/agent-files.js';
 import { saveLocalFile } from '../storage/local.js';
+import { type StoredPlan, loadPlan, savePlan, updatePlanStep } from '../storage/plan-files.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
+import { db } from '../db/index.js';
+import { conversations } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
 
 export interface OrchestratorParams {
 	userId: string;
@@ -49,6 +53,7 @@ export interface OrchestratorParams {
 	userMemory?: string;
 	priorContext?: string;
 	domain?: string;
+	conversationId?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 	maxIterations?: number;
@@ -83,6 +88,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		userMemory,
 		priorContext,
 		domain,
+		conversationId,
 		onEvent,
 		signal,
 		maxIterations: maxIter,
@@ -260,6 +266,52 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			required: ['agentSlug', 'filename', 'content'],
 		},
 	};
+	const submitPlanTool = {
+		name: 'submit_plan',
+		description:
+			'Submit an execution plan for user approval BEFORE executing any multi-step task (3+ steps). This is MANDATORY — you must NOT execute a plan until the user approves it. The plan will be shown to the user and you must wait for their approval or rejection.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				description: {
+					type: 'string',
+					description: 'Brief summary of what this plan accomplishes',
+				},
+				steps: {
+					type: 'array',
+					items: { type: 'string' },
+					description: 'Ordered list of steps to execute. Each should be a clear, actionable description.',
+				},
+			},
+			required: ['description', 'steps'],
+		},
+	};
+
+	const updatePlanTool = {
+		name: 'update_plan',
+		description:
+			'Update the status of a plan step after executing it. Call this after each step completes (success or failure) to keep the plan up to date.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				stepIndex: {
+					type: 'number',
+					description: 'Zero-based index of the step to update',
+				},
+				status: {
+					type: 'string',
+					enum: ['in_progress', 'completed', 'failed'],
+					description: 'New status for the step',
+				},
+				error: {
+					type: 'string',
+					description: 'Error message if step failed',
+				},
+			},
+			required: ['stepIndex', 'status'],
+		},
+	};
+
 	const currentDepth = params.depth ?? 0;
 	const tools = [
 		...browserTools,
@@ -270,6 +322,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		saveToLocalTool,
 		createAgentTool,
 		updateAgentFilesTool,
+		submitPlanTool,
+		updatePlanTool,
 	];
 	const context = { connectionId, userId };
 
@@ -684,6 +738,7 @@ async function executeToolBlock(
 	domainMemoryStr?: string,
 	userMemoryStr?: string,
 	depth?: number,
+	conversationId?: string,
 ): Promise<ToolResultBlock> {
 	// Handle internal tools (no WS routing)
 
@@ -932,6 +987,176 @@ async function executeToolBlock(
 				type: 'tool_result',
 				toolUseId: block.id,
 				content: JSON.stringify({ success: true, message: `Updated ${args.filename} for agent "${args.agentSlug}"` }),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// submit_plan — save plan + send for approval (blocks until user responds)
+	if (block.name === 'submit_plan' && params.conversationId) {
+		const args = block.input as { description: string; steps: string[] };
+		try {
+			const plan: StoredPlan = {
+				description: args.description,
+				steps: args.steps.map((label) => ({ label, status: 'pending' as const })),
+			};
+			// Persist plan to storage
+			await savePlan(userId, params.conversationId, plan);
+
+			// Update conversation planStatus
+			db.update(conversations)
+				.set({
+					planStatus: {
+						totalSteps: plan.steps.length,
+						completedSteps: 0,
+						status: 'pending' as const,
+					},
+					updatedAt: new Date(),
+				})
+				.where(eq(conversations.id, params.conversationId))
+				.catch(() => {});
+
+			const planId = params.conversationId; // use convId as planId
+
+			// Send plan to extension for approval (blocks here)
+			const approval = await sendApprovalRequest(connectionId, {
+				type: 'plan_approval',
+				planId,
+				description: args.description,
+				steps: args.steps,
+			});
+
+			if (approval.approved) {
+				// Mark plan as approved
+				const approvedPlan: StoredPlan = {
+					...plan,
+					steps: plan.steps.map((s) => ({ ...s })),
+				};
+				await savePlan(userId, params.conversationId, approvedPlan);
+				db.update(conversations)
+					.set({
+						planStatus: {
+							totalSteps: plan.steps.length,
+							completedSteps: 0,
+							status: 'approved' as const,
+						},
+						updatedAt: new Date(),
+					})
+					.where(eq(conversations.id, params.conversationId))
+					.catch(() => {});
+
+				await onEvent({
+					type: 'plan_approved',
+					planId,
+				});
+
+				return {
+					type: 'tool_result',
+					toolUseId: block.id,
+					content: JSON.stringify({
+						success: true,
+						approved: true,
+						message: 'Plan approved by user. Proceed with execution. Call update_plan with stepIndex and status as you complete each step.',
+					}),
+					isError: false,
+				};
+			} else {
+				await onEvent({
+					type: 'plan_rejected',
+					planId,
+					reason: approval.reason,
+				});
+				return {
+					type: 'tool_result',
+					toolUseId: block.id,
+					content: JSON.stringify({
+						success: true,
+						approved: false,
+						reason: approval.reason || 'User rejected the plan',
+						message: 'Plan rejected. Ask the user what they would like to change.',
+					}),
+					isError: false,
+				};
+			}
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// update_plan — mark step status + persist
+	if (block.name === 'update_plan' && params.conversationId) {
+		const args = block.input as { stepIndex: number; status: 'in_progress' | 'completed' | 'failed'; error?: string };
+		try {
+			const updated = await updatePlanStep(
+				userId,
+				params.conversationId,
+				args.stepIndex,
+				args.status,
+				args.error,
+			);
+
+			if (!updated) {
+				return {
+					type: 'tool_result',
+					toolUseId: block.id,
+					content: JSON.stringify({ success: false, error: 'Plan not found or invalid step index' }),
+					isError: true,
+				};
+			}
+
+			const completedSteps = updated.steps.filter((s) => s.status === 'completed').length;
+			const failedSteps = updated.steps.filter((s) => s.status === 'failed').length;
+			const allDone = completedSteps + failedSteps === updated.steps.length;
+
+			// Update conversation planStatus
+			db.update(conversations)
+				.set({
+					planStatus: {
+						totalSteps: updated.steps.length,
+						completedSteps,
+						status: allDone
+							? failedSteps > 0
+								? ('failed' as const)
+								: ('completed' as const)
+							: ('in_progress' as const),
+					},
+					updatedAt: new Date(),
+				})
+				.where(eq(conversations.id, params.conversationId))
+				.catch(() => {});
+
+			// Emit SSE event
+			await onEvent({
+				type: 'plan_step_updated',
+				planId: params.conversationId,
+				stepIndex: args.stepIndex,
+				status: args.status,
+				error: args.error,
+			});
+
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({
+					success: true,
+					completedSteps,
+					totalSteps: updated.steps.length,
+					allDone,
+				}),
 				isError: false,
 			};
 		} catch (err) {

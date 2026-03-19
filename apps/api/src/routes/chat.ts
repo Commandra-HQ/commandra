@@ -337,6 +337,7 @@ chatRoutes.post('/', async (c) => {
 					userMemory: userMem,
 					priorContext: priorContext || undefined,
 					domain,
+					conversationId: convId,
 					onEvent,
 					signal,
 					agentConfig,

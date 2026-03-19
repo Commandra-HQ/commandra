@@ -1,11 +1,9 @@
 /**
- * Plan generation and parsing.
+ * Plan generation and approval.
  *
- * For complex multi-step tasks, the agent outputs a structured plan
- * before executing. The plan is embedded in the response as a JSON block
- * that the frontend can parse and render as a step list.
- *
- * Format: <!--plan:{"steps":["step1","step2"]}-->
+ * Plans are submitted via the submit_plan tool, persisted as PLAN.md in
+ * Supabase Storage, and require explicit user approval before execution.
+ * Steps are updated via update_plan as the agent executes.
  */
 
 export interface Plan {
@@ -19,17 +17,16 @@ export interface Plan {
 export const PLANNING_INSTRUCTIONS = `
 ## Planning
 
-For tasks that require 3 or more browser actions, ALWAYS generate a plan first. Output the plan as a structured block before executing:
+For tasks that require 3 or more browser actions, you MUST call the submit_plan tool FIRST. This sends the plan to the user for approval.
 
-<!--plan:{"steps":["Step 1 description","Step 2 description","Step 3 description"],"description":"Brief summary of what you'll do"}-->
+**How planning works:**
+1. Call submit_plan with a description and steps array
+2. The user sees the plan and can approve or reject it
+3. If approved, execute each step in order
+4. After each step, call update_plan with the stepIndex and status ("completed" or "failed")
+5. If a step fails, call update_plan with status "failed" and an error message, then explain to the user
 
-Then WAIT for the user to approve before executing. Do NOT execute the plan until the user says "go", "execute", "yes", "do it", "proceed", or similar.
-
-After the user approves:
-- Execute each step in order
-- After each step, verify the result — page state auto-updates after actions
-- If a step fails, explain what happened and propose an alternative
-- Report progress as you go: "Step 1/N: [doing X]..."
+**IMPORTANT:** Do NOT execute multi-step tasks without calling submit_plan first. The tool blocks until the user responds — you cannot skip it.
 
 For simple tasks (1-2 actions), skip the plan and just execute directly.
 
@@ -39,7 +36,7 @@ For simple tasks (1-2 actions), skip the plan and just execute directly.
 1. Navigate to the app (if not already there)
 2. Click compose/new message button
 3. Wait for compose UI to appear (often a modal or panel, not a new page)
-4. Fill in recipient field → Tab → subject → Tab → body
+4. Fill in recipient field, subject, body
 5. Click Send (this will require user approval)
 
 **Reading/extracting data from a page:**
@@ -75,6 +72,7 @@ For simple tasks (1-2 actions), skip the plan and just execute directly.
 
 /**
  * Parse plan blocks from agent response text.
+ * @deprecated Use submit_plan tool instead. Kept for backward compatibility.
  */
 export function parsePlan(text: string): Plan | null {
 	const match = text.match(/<!--plan:(.*?)-->/s);
@@ -91,6 +89,7 @@ export function parsePlan(text: string): Plan | null {
 
 /**
  * Check if a user message is approving a plan.
+ * @deprecated Approval now handled via WS approval gate in submit_plan tool.
  */
 export function isPlanApproval(message: string): boolean {
 	const normalized = message.toLowerCase().trim();
