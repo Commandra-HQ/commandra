@@ -4,14 +4,14 @@
  */
 
 import { db } from '../db/index.js';
-import { agents } from '../db/schema.js';
+import { agents, conversations, messages as messagesTable } from '../db/schema.js';
 import { sql } from 'drizzle-orm';
 import { resolveAgent } from './agent-registry.js';
 import { runOrchestrator } from './orchestrator.js';
-import { recordAgentRun } from './self-improve.js';
+import { analyzeAndImprove, recordAgentRun } from './self-improve.js';
 import { loadDomainMemory } from '../memory/domain.js';
 import { loadUserMemory } from '../memory/user.js';
-import { getConnectionByUser } from '../ws/handler.js';
+import { getConnectionByUser, sendActionRequest, sendToExtension } from '../ws/handler.js';
 import { getFastModel, getProvider } from '../llm/index.js';
 import { collectStream } from '../llm/types.js';
 import type { SSEEvent } from '@afe/shared';
@@ -111,13 +111,56 @@ async function runScheduledAgent(
 			userMem = um ?? undefined;
 		}
 
-		// No-op event handler — scheduled runs don't stream to a client
+		// Create a conversation record so scheduled runs appear in history
+		const taskMessage = `Execute your scheduled task: ${agent.description}`;
+		const [conv] = await db
+			.insert(conversations)
+			.values({ userId: agent.userId, title: `[Scheduled] ${agent.name}` })
+			.returning();
+		await db.insert(messagesTable).values({
+			conversationId: conv.id,
+			role: 'user',
+			content: taskMessage,
+		});
+
+		// Open a dedicated background tab so we don't interfere with the user's active tab
+		const startUrl = domain ? `https://${domain}` : 'about:blank';
+		let scheduledTabId: number | undefined;
+		try {
+			const tabResult = (await sendActionRequest(
+				connectionId,
+				'open_tab',
+				{ action: 'open_tab', url: startUrl, agentId: `scheduled-${agent.slug}` },
+				20000,
+			)) as { success?: boolean; data?: { tabId?: number } } | null;
+			if (tabResult?.success && tabResult.data?.tabId) {
+				scheduledTabId = tabResult.data.tabId;
+			}
+		} catch {
+			// Fall back to using the active tab if open_tab fails
+		}
+
+		// Notify the extension that a scheduled agent is running
+		sendToExtension(connectionId, {
+			type: 'scheduled_agent_start',
+			agentSlug: agent.slug,
+			agentName: agent.name,
+			conversationId: conv.id,
+			tabId: scheduledTabId,
+		});
+
+		// No-op SSE handler — scheduled runs don't stream to an HTTP response
 		const noopEvent = async (_event: SSEEvent): Promise<void> => {};
+
+		// If we got a dedicated tab, wait for it to load
+		if (scheduledTabId) {
+			await new Promise((resolve) => setTimeout(resolve, 3000));
+		}
 
 		const result = await runOrchestrator({
 			userId: agent.userId,
 			connectionId,
-			messages: [{ role: 'user', content: `Execute your scheduled task: ${agent.description}` }],
+			messages: [{ role: 'user', content: taskMessage }],
 			domainMemory: domainMem,
 			userMemory: userMem,
 			domain,
@@ -125,15 +168,48 @@ async function runScheduledAgent(
 			agentConfig,
 		});
 
+		const durationMs = Date.now() - startTime;
+
+		// Save assistant response to conversation
+		if (result.response.trim()) {
+			await db.insert(messagesTable).values({
+				conversationId: conv.id,
+				role: 'assistant',
+				content: result.response,
+				...(result.toolCalls.length > 0 && { toolData: { tools: result.toolCalls } }),
+			});
+		}
+
 		await recordAgentRun({
 			agentId: agent.id,
 			userId: agent.userId,
+			conversationId: conv.id,
 			status: 'completed',
 			toolCalls: result.toolCalls.length,
-			durationMs: Date.now() - startTime,
+			durationMs,
 		});
 
-		console.log(`[Scheduler] Agent "${agent.slug}" completed in ${Date.now() - startTime}ms`);
+		// Self-improvement for scheduled runs
+		const transcript = `user: ${taskMessage}\n\nassistant: ${result.response}`;
+		analyzeAndImprove({
+			userId: agent.userId,
+			agentConfig,
+			toolCalls: result.toolCalls,
+			transcript,
+			duration: durationMs,
+		}).catch((err) => console.warn('[Scheduler] analyzeAndImprove failed:', err));
+
+		// Notify extension that the run completed
+		sendToExtension(connectionId, {
+			type: 'scheduled_agent_end',
+			agentSlug: agent.slug,
+			agentName: agent.name,
+			conversationId: conv.id,
+			success: true,
+			summary: result.response.slice(0, 200),
+		});
+
+		console.log(`[Scheduler] Agent "${agent.slug}" completed in ${durationMs}ms`);
 	} catch (err) {
 		const errorMsg = err instanceof Error ? err.message : String(err);
 		await recordAgentRun({
@@ -141,6 +217,14 @@ async function runScheduledAgent(
 			userId: agent.userId,
 			status: 'failed',
 			durationMs: Date.now() - startTime,
+			error: errorMsg,
+		});
+		// Notify extension about failure
+		sendToExtension(connectionId, {
+			type: 'scheduled_agent_end',
+			agentSlug: agent.slug,
+			agentName: agent.name,
+			success: false,
 			error: errorMsg,
 		});
 		console.error(`[Scheduler] Agent "${agent.slug}" failed:`, errorMsg);
