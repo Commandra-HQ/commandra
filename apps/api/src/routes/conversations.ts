@@ -2,7 +2,7 @@ import { and, count, desc, eq, gte } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { conversations, messages, userMemory } from '../db/schema.js';
+import { agents, conversations, messages, userMemory } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 
@@ -18,10 +18,13 @@ conversationRoutes.get('/', async (c) => {
 		.select({
 			id: conversations.id,
 			title: conversations.title,
+			agentId: conversations.agentId,
+			agentName: agents.name,
 			createdAt: conversations.createdAt,
 			updatedAt: conversations.updatedAt,
 		})
 		.from(conversations)
+		.leftJoin(agents, eq(conversations.agentId, agents.id))
 		.where(getOrgOrUserScope(user, conversations))
 		.orderBy(desc(conversations.updatedAt))
 		.limit(50);
