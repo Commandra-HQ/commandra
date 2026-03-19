@@ -26,7 +26,6 @@ import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
 import { parsePlan } from './planner.js';
 import { buildSystemPrompt } from './prompts.js';
-import { isRecording, recordStep } from './recorder.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { saveLocalFile } from '../storage/local.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
@@ -1138,25 +1137,6 @@ async function handleToolCall(
 			screenshot: screenshotImage,
 			error: toolSucceeded ? undefined : (resultData?.error as string) || 'Action failed',
 		});
-
-		// Record step if in teach mode (skip read-only tools and failed tools)
-		if (
-			toolSucceeded &&
-			isRecording(connectionId) &&
-			!['screenshot', 'get_page_state', 'refresh_page_state', 'go_back'].includes(name)
-		) {
-			const step = await recordStep(
-				connectionId,
-				name,
-				toolArgs,
-				{ success: true, data: result },
-				'', // URL pattern will be filled by page context
-				'',
-			);
-			if (step) {
-				await onEvent({ type: 'flow_step_recorded', step, stepCount: step.index + 1 });
-			}
-		}
 
 		return { data: enrichedResult, isError: !toolSucceeded };
 	} catch (err) {

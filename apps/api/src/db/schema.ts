@@ -130,44 +130,6 @@ export const conversationEmbeddings = pgTable('conversation_embeddings', {
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
-export const flows = pgTable('flows', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	userId: uuid('user_id')
-		.references(() => users.id)
-		.notNull(),
-	orgId: uuid('org_id').references(() => organizations.id),
-	siteId: uuid('site_id')
-		.references(() => sites.id)
-		.notNull(),
-	name: text('name').notNull(),
-	description: text('description'),
-	steps: jsonb('steps').$type<unknown[]>().default([]),
-	parameters: jsonb('parameters').$type<unknown[]>().default([]),
-	status: text('status').default('draft').notNull(),
-	lastRunAt: timestamp('last_run_at'),
-	createdAt: timestamp('created_at').defaultNow().notNull(),
-	updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
-
-export const flowRuns = pgTable('flow_runs', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	flowId: uuid('flow_id')
-		.references(() => flows.id)
-		.notNull(),
-	userId: uuid('user_id')
-		.references(() => users.id)
-		.notNull(),
-	parameterValues: jsonb('parameter_values').$type<Record<string, string>>().default({}),
-	stepResults: jsonb('step_results').$type<unknown[]>().default([]),
-	status: text('status').notNull(),
-	stepsCompleted: integer('steps_completed').default(0),
-	totalSteps: integer('total_steps').notNull(),
-	adaptations: jsonb('adaptations').$type<unknown[]>().default([]),
-	error: text('error'),
-	startedAt: timestamp('started_at').defaultNow().notNull(),
-	completedAt: timestamp('completed_at'),
-});
-
 export const domainMemory = pgTable('domain_memory', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	domain: text('domain').notNull().unique(),
