@@ -4,14 +4,14 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 
 ## Foundation (Done)
 
-| Phase | Name             | What Shipped                                                                                   | Status  |
-| ----- | ---------------- | ---------------------------------------------------------------------------------------------- | ------- |
+| Phase | Name             | What Shipped                                                                                                         | Status  |
+| ----- | ---------------- | -------------------------------------------------------------------------------------------------------------------- | ------- |
 | 1     | Auth + Shell UI  | JWT-only auth, token exchange for external providers, auth callback redirect flow, shell with tabs, user in Postgres | ✅ Done |
-| 2     | Site Indexing    | Background tab crawler indexes full site, Dexie storage, site map UI in side panel             | ✅ Done |
-| 3     | Chat             | User chats about current page, Claude responds with page context, streaming responses          | ✅ Done |
-| 4     | Browser Actions  | Agentic loop executes DOM actions via WS, activity feed, navigate/click/type/select/read tools | ✅ Done |
-| 5     | Safety Layer     | Three-tier classification (safe/review/blocked), approval gates, kill switch, audit logging    | ✅ Done |
-| 6     | Element Selector | DevTools-style hover highlight, click-to-select, drag-to-select area, element chips in chat    | ✅ Done |
+| 2     | Site Indexing    | Background tab crawler indexes full site, Dexie storage, site map UI in side panel                                   | ✅ Done |
+| 3     | Chat             | User chats about current page, Claude responds with page context, streaming responses                                | ✅ Done |
+| 4     | Browser Actions  | Agentic loop executes DOM actions via WS, activity feed, navigate/click/type/select/read tools                       | ✅ Done |
+| 5     | Safety Layer     | Three-tier classification (safe/review/blocked), approval gates, kill switch, audit logging                          | ✅ Done |
+| 6     | Element Selector | DevTools-style hover highlight, click-to-select, drag-to-select area, element chips in chat                          | ✅ Done |
 
 ## Intelligence (Next)
 
@@ -23,25 +23,27 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 
 ## Automation
 
-| Phase | Name                      | What Ships                                                                                     | Status  |
-| ----- | ------------------------- | ---------------------------------------------------------------------------------------------- | ------- |
-| 10    | [Removed]                 | Previously Flows & Teach Mode — project pivoted to agentic chat + autonomous agents            |         |
-| 12    | Backend Indexing + Search | Kill IndexedDB, sync pages to Postgres, selector resilience, incremental re-indexing           | ✅ Done |
-| 12b   | Vector Embeddings         | Provider-agnostic embeddings, background Inngest jobs, vector search for elements/memory       | ✅ Done |
-| 10c   | Adaptive Memory           | Per-user learning from corrections/preferences, memory management UI, save_memory tool         | ✅ Done |
+| Phase | Name                      | What Ships                                                                               | Status  |
+| ----- | ------------------------- | ---------------------------------------------------------------------------------------- | ------- |
+| 10    | [Removed]                 | Previously Flows & Teach Mode — project pivoted to agentic chat + autonomous agents      |         |
+| 12    | Backend Indexing + Search | Kill IndexedDB, sync pages to Postgres, selector resilience, incremental re-indexing     | ✅ Done |
+| 12b   | Vector Embeddings         | Provider-agnostic embeddings, background Inngest jobs, vector search for elements/memory | ✅ Done |
+| 10c   | Adaptive Memory           | Per-user learning from corrections/preferences, memory management UI, save_memory tool   | ✅ Done |
 
 ## Scale
 
-| Phase | Name              | What Ships                                                       | Status |
-| ----- | ----------------- | ---------------------------------------------------------------- | ------ |
-| 13    | Agentic System Overhaul | Parallel tool calling, intelligent memory, multi-agent swarm, embedding improvements, learning loops, speed optimizations | ✅ Done  |
-| 14    | Teams + Sharing   | Org schema + API, member management, org-scoped data, dashboard org UI | ✅ Done |
+| Phase | Name                    | What Ships                                                                                                                | Status  |
+| ----- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------- |
+| 13    | Agentic System Overhaul | Parallel tool calling, intelligent memory, multi-agent swarm, embedding improvements, learning loops, speed optimizations | ✅ Done |
+| 14    | Teams + Sharing         | Org schema + API, member management, org-scoped data, dashboard org UI                                                    |         |
 
 ## Autonomous Agents (Next)
 
-| Phase | Name              | What Ships                                                       | Status |
-| ----- | ----------------- | ---------------------------------------------------------------- | ------ |
-| 15    | [Autonomous Agent System](phase15-autonomous-agents.md) | Agents as persistent, self-improving entities. Agent definitions in Supabase Storage (AGENT.yaml, SOUL.md, SKILLS.md). Agent registry with capability-based resolution. Agent-to-agent invocation. Self-improvement loop (learnings, errors, skill promotion). Agent scheduler (heartbeat/cron). Dashboard agent management UI. |  |
+| Phase | Name                                  | What Ships                                                                                                                   | Status |
+| ----- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 15    | [Autonomous Agent System](phase15.md) | Agents as persistent, self-improving entities. Agent definitions in Supabase Storage (AGENT.yaml,SOUL.md, SKILLS.md. )       |        |
+|       |                                       | Agent registry with capability-based resolution. Agent-to-agent invocation.                                                  |        |
+|       |                                       | Self-improvement loop (learnings, errors, skill promotion). Agent scheduler (heartbeat/cron). Dashboard agent management UI. |        |
 
 ---
 
