@@ -79,17 +79,6 @@ export const elementEmbeddings = pgTable('element_embeddings', {
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
-export const flowEmbeddings = pgTable('flow_embeddings', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	flowId: uuid('flow_id')
-		.references(() => flows.id, { onDelete: 'cascade' })
-		.notNull(),
-	text: text('text').notNull(),
-	embeddingModel: text('embedding_model'),
-	embedding: vector('embedding', { dimensions: 1024 }),
-	createdAt: timestamp('created_at').defaultNow().notNull(),
-});
-
 export const memoryEmbeddings = pgTable('memory_embeddings', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	siteId: uuid('site_id')
