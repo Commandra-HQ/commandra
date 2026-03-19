@@ -42,9 +42,8 @@ export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
 	const [conversations, setConversations] = useState<ConversationSummary[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [currentDomain, setCurrentDomain] = useState('');
-	const [currentTitle, setCurrentTitle] = useState('');
 
-	// Update elapsed time for active chats every second
+	// Tick for elapsed time on active chats
 	const [, setTick] = useState(0);
 	useEffect(() => {
 		if (activeChats.size === 0) return;
@@ -54,17 +53,23 @@ export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
 
 	useEffect(() => {
 		loadConversations();
-		loadCurrentPage();
+		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+			const tab = tabs[0];
+			if (tab?.url) {
+				try {
+					setCurrentDomain(new URL(tab.url).hostname);
+				} catch {}
+			}
+		});
 	}, []);
 
 	async function loadConversations() {
 		try {
 			setLoading(true);
 			const stored = await chrome.storage.local.get('authToken');
-			const token = stored.authToken;
-			if (!token) return;
+			if (!stored.authToken) return;
 			const res = await fetch(`${API_URL}/api/conversations`, {
-				headers: { Authorization: `Bearer ${token}` },
+				headers: { Authorization: `Bearer ${stored.authToken}` },
 			});
 			if (res.ok) {
 				const data = await res.json();
@@ -77,49 +82,53 @@ export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
 		}
 	}
 
-	function loadCurrentPage() {
-		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-			const tab = tabs[0];
-			if (tab?.url) {
-				try {
-					setCurrentDomain(new URL(tab.url).hostname);
-					setCurrentTitle(tab.title || '');
-				} catch {}
-			}
-		});
-	}
-
 	const activeList = Array.from(activeChats.values());
 
 	return (
-		<div className="flex flex-col h-full">
-			{/* Active / Running section */}
-			{activeList.length > 0 && (
-				<div className="border-b border-border">
-					<div className="px-4 pt-3 pb-1">
-						<p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-							Running
-						</p>
+		<div className="flex flex-col h-full overflow-hidden">
+			{/* New Chat */}
+			<div className="px-3 pt-3 pb-2 flex-shrink-0">
+				<button
+					onClick={() => onOpenConversation(null)}
+					className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-border hover:bg-secondary/50 transition-colors"
+				>
+					<Plus size={14} className="text-muted-foreground flex-shrink-0" />
+					<div className="flex-1 min-w-0 text-left">
+						<p className="text-xs font-medium text-foreground">New Chat</p>
+						{currentDomain && (
+							<p className="text-[10px] text-muted-foreground truncate">
+								{currentDomain}
+							</p>
+						)}
 					</div>
+				</button>
+			</div>
+
+			{/* Active / Running */}
+			{activeList.length > 0 && (
+				<div className="flex-shrink-0 border-b border-border">
+					<p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+						Running
+					</p>
 					{activeList.map((chat) => (
 						<button
 							key={chat.conversationId}
 							onClick={() => onOpenConversation(chat.conversationId)}
-							className="w-full text-left px-4 py-2.5 hover:bg-secondary/50 transition-colors flex items-start gap-2.5"
+							className="w-full text-left px-3 py-2 hover:bg-secondary/50 transition-colors flex items-center gap-2"
 						>
-							<div className="mt-1 relative flex-shrink-0">
-								<Zap size={14} className="text-yellow-500" />
-								<span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+							<div className="relative flex-shrink-0">
+								<Zap size={12} className="text-yellow-500" />
+								<span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 bg-green-500 rounded-full animate-pulse" />
 							</div>
 							<div className="flex-1 min-w-0">
 								<p className="text-xs font-medium text-foreground truncate">
 									{chat.agentName}
 								</p>
-								<p className="text-[10px] text-muted-foreground truncate mt-0.5">
+								<p className="text-[10px] text-muted-foreground truncate">
 									{chat.task}
 								</p>
 							</div>
-							<span className="text-[10px] text-muted-foreground flex-shrink-0 mt-0.5">
+							<span className="text-[10px] text-muted-foreground flex-shrink-0">
 								{formatElapsed(chat.startedAt)}
 							</span>
 						</button>
@@ -127,32 +136,11 @@ export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
 				</div>
 			)}
 
-			{/* Quick Actions */}
-			<div className="px-4 py-3 border-b border-border">
-				<button
-					onClick={() => onOpenConversation(null)}
-					className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-border hover:bg-secondary/50 transition-colors"
-				>
-					<Plus size={14} className="text-muted-foreground" />
-					<div className="flex-1 text-left">
-						<p className="text-xs font-medium text-foreground">New Chat</p>
-						{currentDomain && (
-							<p className="text-[10px] text-muted-foreground truncate">
-								{currentDomain}
-								{currentTitle ? ` — ${currentTitle}` : ''}
-							</p>
-						)}
-					</div>
-				</button>
-			</div>
-
-			{/* Recent Conversations */}
-			<div className="flex-1 overflow-y-auto">
-				<div className="px-4 pt-3 pb-1">
-					<p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-						Recent
-					</p>
-				</div>
+			{/* Recent Conversations — scrollable */}
+			<div className="flex-1 overflow-y-auto min-h-0">
+				<p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+					Recent
+				</p>
 
 				{loading && (
 					<div className="flex items-center justify-center py-8">
@@ -161,9 +149,9 @@ export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
 				)}
 
 				{!loading && conversations.length === 0 && (
-					<div className="px-4 py-8 text-center">
+					<div className="px-3 py-8 text-center">
 						<p className="text-xs text-muted-foreground">No conversations yet.</p>
-						<p className="text-xs text-muted-foreground mt-1">
+						<p className="text-[10px] text-muted-foreground mt-1">
 							Start a new chat to get going.
 						</p>
 					</div>
@@ -173,33 +161,29 @@ export function HubTab({ activeChats, onOpenConversation }: HubTabProps) {
 					<button
 						key={conv.id}
 						onClick={() => onOpenConversation(conv.id)}
-						className="w-full text-left px-4 py-2.5 hover:bg-secondary/50 transition-colors"
+						className="w-full text-left px-3 py-2 hover:bg-secondary/50 transition-colors flex items-center gap-2"
 					>
-						<div className="flex items-start gap-2.5">
-							<MessageSquare
-								size={14}
-								className="text-muted-foreground mt-0.5 flex-shrink-0"
-							/>
-							<div className="flex-1 min-w-0">
-								<p className="text-xs text-foreground truncate">
-									{conv.title || 'Untitled'}
-								</p>
-								<div className="flex items-center gap-2 mt-0.5">
-									{conv.agentName && (
-										<span className="inline-flex items-center gap-0.5 text-[10px] text-yellow-500">
-											<Zap size={8} />
-											{conv.agentName}
-										</span>
-									)}
-									<span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-										<MessageSquare size={8} />
-										{conv.messageCount}
+						<MessageSquare
+							size={12}
+							className="text-muted-foreground flex-shrink-0"
+						/>
+						<div className="flex-1 min-w-0">
+							<p className="text-xs text-foreground truncate">
+								{conv.title || 'Untitled'}
+							</p>
+							<div className="flex items-center gap-1.5 mt-0.5">
+								{conv.agentName && (
+									<span className="inline-flex items-center gap-0.5 text-[10px] text-yellow-500">
+										<Zap size={8} />
+										{conv.agentName}
 									</span>
-									<span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-										<Clock size={8} />
-										{formatRelativeTime(new Date(conv.updatedAt).getTime())}
-									</span>
-								</div>
+								)}
+								<span className="text-[10px] text-muted-foreground">
+									{conv.messageCount} msgs
+								</span>
+								<span className="text-[10px] text-muted-foreground">
+									{formatRelativeTime(new Date(conv.updatedAt).getTime())}
+								</span>
 							</div>
 						</div>
 					</button>

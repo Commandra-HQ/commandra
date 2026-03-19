@@ -1,4 +1,5 @@
 import {
+	ArrowLeft,
 	Brain,
 	Globe,
 	Laptop,
@@ -19,6 +20,7 @@ const API_URL = process.env.API_URL || 'http://localhost:3001';
 
 interface SettingsTabProps {
 	user: { id: string; email: string };
+	onBack: () => void;
 }
 
 const THEME_ICONS: Record<Theme, typeof Monitor> = {
@@ -27,7 +29,7 @@ const THEME_ICONS: Record<Theme, typeof Monitor> = {
 	dark: Moon,
 };
 
-export function SettingsTab({ user }: SettingsTabProps) {
+export function SettingsTab({ user, onBack }: SettingsTabProps) {
 	const { theme, setTheme } = useTheme();
 	const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'disconnected'>(
 		'checking',
@@ -144,7 +146,18 @@ export function SettingsTab({ user }: SettingsTabProps) {
 	}
 
 	return (
-		<div className="p-4 space-y-5">
+		<div className="flex flex-col h-full">
+		<header className="px-4 py-3 border-b border-border flex items-center gap-2 flex-shrink-0">
+			<button
+				onClick={onBack}
+				className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
+				title="Back"
+			>
+				<ArrowLeft size={14} />
+			</button>
+			<h2 className="text-sm font-semibold text-foreground">Settings</h2>
+		</header>
+		<div className="flex-1 overflow-y-auto p-4 space-y-5">
 			{/* Theme */}
 			<section className="space-y-2">
 				<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -309,6 +322,7 @@ export function SettingsTab({ user }: SettingsTabProps) {
 					<span>Disconnect</span>
 				</button>
 			</section>
+		</div>
 		</div>
 	);
 }

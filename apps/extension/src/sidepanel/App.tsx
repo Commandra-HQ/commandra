@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Settings } from 'lucide-react';
 import { useTheme } from './theme.js';
 import { LoginScreen } from './screens/LoginScreen.js';
 import { ChatTab } from './tabs/ChatTab.js';
 import { HubTab } from './tabs/HubTab.js';
 import { SettingsTab } from './tabs/SettingsTab.js';
 
-type Tab = 'hub' | 'chat' | 'settings';
+type Page = 'hub' | 'chat' | 'settings';
 
 export interface ActiveChat {
 	conversationId: string;
@@ -20,7 +21,7 @@ interface StoredUser {
 }
 
 function AuthenticatedApp({ user }: { user: StoredUser }) {
-	const [activeTab, setActiveTab] = useState<Tab>('hub');
+	const [page, setPage] = useState<Page>('hub');
 	const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 	const [activeChats, setActiveChats] = useState<Map<string, ActiveChat>>(new Map());
 
@@ -82,49 +83,37 @@ function AuthenticatedApp({ user }: { user: StoredUser }) {
 
 	function openConversation(convId: string | null) {
 		setActiveConversationId(convId);
-		setActiveTab('chat');
+		setPage('chat');
 	}
 
 	function goToHub() {
-		setActiveTab('hub');
+		setPage('hub');
 	}
-
-	const tabs: { id: Tab; label: string }[] = [
-		{ id: 'hub', label: 'Hub' },
-		{ id: 'chat', label: 'Chat' },
-		{ id: 'settings', label: 'Settings' },
-	];
 
 	return (
 		<>
-			<header className="px-4 py-3 border-b border-border">
-				<h1 className="text-sm font-semibold text-foreground">Commandra</h1>
-			</header>
-
-			<nav className="flex border-b border-border">
-				{tabs.map((tab) => (
+			{/* Global header — visible on hub only (chat/settings have their own back nav) */}
+			{page === 'hub' && (
+				<header className="px-4 py-3 border-b border-border flex items-center justify-between">
+					<h1 className="text-sm font-semibold text-foreground">Commandra</h1>
 					<button
-						key={tab.id}
-						onClick={() => setActiveTab(tab.id)}
-						className={`flex-1 py-2 text-xs font-medium text-center ${
-							activeTab === tab.id
-								? 'text-foreground border-b-2 border-foreground'
-								: 'text-muted-foreground hover:text-foreground'
-						}`}
+						onClick={() => setPage('settings')}
+						className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-secondary/50 transition-colors"
+						title="Settings"
 					>
-						{tab.label}
+						<Settings size={16} />
 					</button>
-				))}
-			</nav>
+				</header>
+			)}
 
-			<div className="flex-1 overflow-y-auto">
-				{activeTab === 'hub' && (
+			<div className="flex-1 overflow-hidden">
+				{page === 'hub' && (
 					<HubTab
 						activeChats={activeChats}
 						onOpenConversation={openConversation}
 					/>
 				)}
-				{activeTab === 'chat' && (
+				{page === 'chat' && (
 					<ChatTab
 						conversationId={activeConversationId}
 						onConversationChange={setActiveConversationId}
@@ -133,7 +122,9 @@ function AuthenticatedApp({ user }: { user: StoredUser }) {
 						onStreamEnd={markChatDone}
 					/>
 				)}
-				{activeTab === 'settings' && <SettingsTab user={user} />}
+				{page === 'settings' && (
+					<SettingsTab user={user} onBack={goToHub} />
+				)}
 			</div>
 		</>
 	);
@@ -143,7 +134,6 @@ export function App() {
 	const [user, setUser] = useState<StoredUser | null>(null);
 	const [loading, setLoading] = useState(true);
 
-	// Apply theme (system/light/dark) to <html> for Tailwind dark: classes
 	useTheme();
 
 	useEffect(() => {
