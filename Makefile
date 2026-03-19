@@ -9,9 +9,7 @@ export
 setup:
 	cp -n .env.example .env || true
 	pnpm install
-	docker compose up -d db
-	@echo "Waiting for Postgres to be ready..."
-	@until docker compose exec db pg_isready -U afe > /dev/null 2>&1; do sleep 1; done
+	pnpm supabase:local
 	pnpm --filter @afe/shared build
 	pnpm --filter @afe/api db:generate
 	pnpm --filter @afe/api db:migrate
@@ -19,15 +17,16 @@ setup:
 
 # ---------- Development ----------
 dev:
-	docker compose up -d db
-	@until docker compose exec db pg_isready -U afe > /dev/null 2>&1; do sleep 1; done
+	@cd docker/supabase && docker compose up -d
+	@echo "Waiting for Supabase Postgres..."
+	@until cd docker/supabase && docker compose exec -T db pg_isready -U postgres -h localhost > /dev/null 2>&1; do sleep 1; done
 	pnpm --filter @afe/shared build
 	cd apps/api && npx drizzle-kit studio &
 	pnpm dev
 
 dev-api:
-	docker compose up -d db
-	@until docker compose exec db pg_isready -U afe > /dev/null 2>&1; do sleep 1; done
+	@cd docker/supabase && docker compose up -d
+	@until cd docker/supabase && docker compose exec -T db pg_isready -U postgres -h localhost > /dev/null 2>&1; do sleep 1; done
 	pnpm --filter @afe/shared build
 	pnpm --filter @afe/api dev
 
@@ -50,9 +49,10 @@ db-migrate:
 	pnpm --filter @afe/api db:migrate
 
 db-reset:
-	docker compose down -v
-	docker compose up -d db
-	@until docker compose exec db pg_isready -U afe > /dev/null 2>&1; do sleep 1; done
+	cd docker/supabase && docker compose down -v && docker compose up -d
+	@echo "Waiting for Supabase Postgres..."
+	@until cd docker/supabase && docker compose exec -T db pg_isready -U postgres -h localhost > /dev/null 2>&1; do sleep 1; done
+	@sleep 5
 	pnpm --filter @afe/api db:generate
 	pnpm --filter @afe/api db:migrate
 	@echo "Database reset complete."
@@ -97,10 +97,10 @@ ci: lint test build
 
 # ---------- Docker ----------
 up:
-	docker compose up -d
+	cd docker/supabase && docker compose up -d
 
 stop:
-	docker compose down
+	cd docker/supabase && docker compose down
 
 # ---------- Cleanup ----------
 clean:
