@@ -987,30 +987,30 @@ async function executeToolBlock(
 	}
 
 	// submit_plan — save plan + send for approval (blocks until user responds)
-	if (block.name === 'submit_plan' && conversationId) {
+	if (block.name === 'submit_plan') {
 		const args = block.input as { description: string; steps: string[] };
 		try {
 			const plan: StoredPlan = {
 				description: args.description,
 				steps: args.steps.map((label) => ({ label, status: 'pending' as const })),
 			};
-			// Persist plan to storage
-			await savePlan(userId, conversationId, plan);
+			// Persist plan to storage (if we have a conversation)
+			if (conversationId) {
+				await savePlan(userId, conversationId, plan);
+				db.update(conversations)
+					.set({
+						planStatus: {
+							totalSteps: plan.steps.length,
+							completedSteps: 0,
+							status: 'pending' as const,
+						},
+						updatedAt: new Date(),
+					})
+					.where(eq(conversations.id, conversationId))
+					.catch(() => {});
+			}
 
-			// Update conversation planStatus
-			db.update(conversations)
-				.set({
-					planStatus: {
-						totalSteps: plan.steps.length,
-						completedSteps: 0,
-						status: 'pending' as const,
-					},
-					updatedAt: new Date(),
-				})
-				.where(eq(conversations.id, conversationId))
-				.catch(() => {});
-
-			const planId = conversationId; // use convId as planId
+			const planId = conversationId || 'plan'; // use convId as planId
 
 			// Send plan to extension for approval (blocks here)
 			const approval = await sendApprovalRequest(connectionId, {
@@ -1022,22 +1022,24 @@ async function executeToolBlock(
 
 			if (approval.approved) {
 				// Mark plan as approved
-				const approvedPlan: StoredPlan = {
-					...plan,
-					steps: plan.steps.map((s) => ({ ...s })),
-				};
-				await savePlan(userId, conversationId, approvedPlan);
-				db.update(conversations)
-					.set({
-						planStatus: {
-							totalSteps: plan.steps.length,
-							completedSteps: 0,
-							status: 'approved' as const,
-						},
-						updatedAt: new Date(),
-					})
-					.where(eq(conversations.id, conversationId))
-					.catch(() => {});
+				if (conversationId) {
+					const approvedPlan: StoredPlan = {
+						...plan,
+						steps: plan.steps.map((s) => ({ ...s })),
+					};
+					await savePlan(userId, conversationId, approvedPlan);
+					db.update(conversations)
+						.set({
+							planStatus: {
+								totalSteps: plan.steps.length,
+								completedSteps: 0,
+								status: 'approved' as const,
+							},
+							updatedAt: new Date(),
+						})
+						.where(eq(conversations.id, conversationId))
+						.catch(() => {});
+				}
 
 				await onEvent({
 					type: 'plan_approved',
@@ -1084,8 +1086,16 @@ async function executeToolBlock(
 	}
 
 	// update_plan — mark step status + persist
-	if (block.name === 'update_plan' && conversationId) {
+	if (block.name === 'update_plan') {
 		const args = block.input as { stepIndex: number; status: 'in_progress' | 'completed' | 'failed'; error?: string };
+		if (!conversationId) {
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: 'No conversation context for plan updates' }),
+				isError: true,
+			};
+		}
 		try {
 			const updated = await updatePlanStep(
 				userId,

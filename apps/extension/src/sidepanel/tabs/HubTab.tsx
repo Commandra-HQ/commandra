@@ -93,7 +93,14 @@ export function HubTab() {
 		}
 	}
 
-	const activeList = Array.from(activeChats.values());
+	// Sort: running conversations first, then by updatedAt
+	const sorted = [...conversations].sort((a, b) => {
+		const aRunning = activeChats.has(a.id);
+		const bRunning = activeChats.has(b.id);
+		if (aRunning && !bRunning) return -1;
+		if (!aRunning && bRunning) return 1;
+		return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+	});
 
 	return (
 		<div className="flex flex-col h-full overflow-hidden">
@@ -115,51 +122,15 @@ export function HubTab() {
 				</button>
 			</div>
 
-			{/* Active / Running */}
-			{activeList.length > 0 && (
-				<div className="flex-shrink-0 border-b border-border">
-					<p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-						Running
-					</p>
-					{activeList.map((chat) => (
-						<button
-							key={chat.conversationId}
-							onClick={() => openConversation(chat.conversationId)}
-							className="w-full text-left px-3 py-2 hover:bg-secondary/50 transition-colors flex items-center gap-2"
-						>
-							<div className="relative flex-shrink-0">
-								<Zap size={12} className="text-yellow-500" />
-								<span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 bg-green-500 rounded-full animate-pulse" />
-							</div>
-							<div className="flex-1 min-w-0">
-								<p className="text-xs font-medium text-foreground truncate">
-									{chat.agentName}
-								</p>
-								<p className="text-[10px] text-muted-foreground truncate">
-									{chat.task}
-								</p>
-							</div>
-							<span className="text-[10px] text-muted-foreground flex-shrink-0">
-								{formatElapsed(chat.startedAt)}
-							</span>
-						</button>
-					))}
-				</div>
-			)}
-
-			{/* Recent Conversations — scrollable */}
+			{/* Conversation list — scrollable, running ones float to top */}
 			<div className="flex-1 overflow-y-auto min-h-0">
-				<p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-					Recent
-				</p>
-
 				{loading && (
 					<div className="flex items-center justify-center py-8">
 						<Loader2 size={16} className="animate-spin text-muted-foreground" />
 					</div>
 				)}
 
-				{!loading && conversations.length === 0 && (
+				{!loading && sorted.length === 0 && (
 					<div className="px-3 py-8 text-center">
 						<p className="text-xs text-muted-foreground">No conversations yet.</p>
 						<p className="text-[10px] text-muted-foreground mt-1">
@@ -168,43 +139,74 @@ export function HubTab() {
 					</div>
 				)}
 
-				{conversations.map((conv) => (
-					<button
-						key={conv.id}
-						onClick={() => openConversation(conv.id)}
-						className="w-full text-left px-3 py-2 hover:bg-secondary/50 transition-colors flex items-center gap-2"
-					>
-						<MessageSquare
-							size={12}
-							className="text-muted-foreground flex-shrink-0"
-						/>
-						<div className="flex-1 min-w-0">
-							<p className="text-xs text-foreground truncate">
-								{conv.title || 'Untitled'}
-							</p>
-							<div className="flex items-center gap-1.5 mt-0.5">
-								{conv.agentName && (
-									<span className="inline-flex items-center gap-0.5 text-[10px] text-yellow-500">
-										<Zap size={8} />
-										{conv.agentName}
-									</span>
+				{sorted.map((conv) => {
+					const active = activeChats.get(conv.id);
+					const isRunning = !!active;
+
+					return (
+						<button
+							key={conv.id}
+							onClick={() => openConversation(conv.id)}
+							className={`w-full text-left px-3 py-2 hover:bg-secondary/50 transition-colors flex items-center gap-2 ${
+								isRunning ? 'bg-green-500/5' : ''
+							}`}
+						>
+							{/* Status icon */}
+							<div className="relative flex-shrink-0">
+								{isRunning ? (
+									<>
+										<Loader2 size={12} className="text-green-500 animate-spin" />
+									</>
+								) : (
+									<MessageSquare size={12} className="text-muted-foreground" />
 								)}
-								{conv.planStatus && conv.planStatus.status !== 'completed' && (
-									<span className="inline-flex items-center gap-0.5 text-[10px] text-blue-400">
-										<ListChecks size={8} />
-										{conv.planStatus.completedSteps}/{conv.planStatus.totalSteps}
-									</span>
-								)}
-								<span className="text-[10px] text-muted-foreground">
-									{conv.messageCount} msgs
-								</span>
-								<span className="text-[10px] text-muted-foreground">
-									{formatRelativeTime(new Date(conv.updatedAt).getTime())}
-								</span>
 							</div>
-						</div>
-					</button>
-				))}
+
+							{/* Content */}
+							<div className="flex-1 min-w-0">
+								<p className={`text-xs truncate ${isRunning ? 'font-medium text-foreground' : 'text-foreground'}`}>
+									{conv.title || 'Untitled'}
+								</p>
+								<div className="flex items-center gap-1.5 mt-0.5">
+									{isRunning && (
+										<span className="text-[10px] text-green-500 font-medium">
+											Running
+										</span>
+									)}
+									{conv.agentName && (
+										<span className="inline-flex items-center gap-0.5 text-[10px] text-yellow-500">
+											<Zap size={8} />
+											{conv.agentName}
+										</span>
+									)}
+									{conv.planStatus && conv.planStatus.status !== 'completed' && (
+										<span className="inline-flex items-center gap-0.5 text-[10px] text-blue-400">
+											<ListChecks size={8} />
+											{conv.planStatus.completedSteps}/{conv.planStatus.totalSteps}
+										</span>
+									)}
+									{!isRunning && (
+										<>
+											<span className="text-[10px] text-muted-foreground">
+												{conv.messageCount} msgs
+											</span>
+											<span className="text-[10px] text-muted-foreground">
+												{formatRelativeTime(new Date(conv.updatedAt).getTime())}
+											</span>
+										</>
+									)}
+								</div>
+							</div>
+
+							{/* Elapsed time for running chats */}
+							{isRunning && active && (
+								<span className="text-[10px] text-green-500 tabular-nums flex-shrink-0">
+									{formatElapsed(active.startedAt)}
+								</span>
+							)}
+						</button>
+					);
+				})}
 			</div>
 		</div>
 	);
