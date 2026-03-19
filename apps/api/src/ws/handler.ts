@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { jwtVerify } from 'jose';
 import type { WebSocket } from 'ws';
-import { isRecording, recordStep } from '../agent/recorder.js';
 import { db } from '../db/index.js';
 import { sites } from '../db/schema.js';
 import { searchElements } from '../db/vector-search.js';
