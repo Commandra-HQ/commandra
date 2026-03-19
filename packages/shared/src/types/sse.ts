@@ -17,7 +17,6 @@ export type SSEEvent =
 			screenshot?: string;
 	  }
 	| { type: 'blocked'; toolName: string; reason: string }
-	| { type: 'plan'; steps: string[]; description?: string }
 	| {
 			type: 'plan_submitted';
 			planId: string;

@@ -21,7 +21,6 @@ import {
 	MousePointer,
 	MoveVertical,
 	Pilcrow,
-	Play,
 	Send,
 	Settings2,
 	Square,
@@ -181,48 +180,6 @@ function formatToolArgs(toolName: string, args?: Record<string, unknown>): strin
 	if (toolName === 'type_text' && args.text) return `"${String(args.text).slice(0, 60)}"`;
 	if (toolName === 'select_option' && args.value) return String(args.value);
 	return null;
-}
-
-function parsePlan(text: string): Plan | null {
-	const match = text.match(/<!--plan:(.*?)-->/s);
-	if (!match) return null;
-	try {
-		const plan = JSON.parse(match[1]) as Plan;
-		if (!plan.steps || !Array.isArray(plan.steps) || plan.steps.length === 0) return null;
-		return plan;
-	} catch {
-		return null;
-	}
-}
-
-function stripPlanBlock(text: string): string {
-	return text.replace(/<!--plan:.*?-->/s, '').trim();
-}
-
-/** Find the active plan block and advance the next pending step to the given status */
-function advancePlanStep(blocks: MessageBlock[], status: 'running' | 'done' | 'error') {
-	for (const b of blocks) {
-		if (b.type === 'plan' && b.plan.stepStatus) {
-			const idx = b.plan.stepStatus.indexOf('pending');
-			if (idx !== -1) {
-				b.plan.stepStatus[idx] = status;
-				return;
-			}
-		}
-	}
-}
-
-/** Update the currently running plan step to done/error */
-function updatePlanStepStatus(blocks: MessageBlock[], status: 'done' | 'error') {
-	for (const b of blocks) {
-		if (b.type === 'plan' && b.plan.stepStatus) {
-			const idx = b.plan.stepStatus.lastIndexOf('running');
-			if (idx !== -1) {
-				b.plan.stepStatus[idx] = status;
-				return;
-			}
-		}
-	}
 }
 
 /**
@@ -585,8 +542,6 @@ export function ChatTab() {
 									args: event.args,
 									status: 'running',
 								});
-								// Advance plan step tracking
-								advancePlanStep(blocks, 'running');
 								scheduleFlush();
 								break;
 							}
@@ -608,8 +563,6 @@ export function ChatTab() {
 										break;
 									}
 								}
-								// Mark current running plan step as done/error
-								updatePlanStepStatus(blocks, event.success ? 'done' : 'error');
 								scheduleFlush();
 								break;
 							}
@@ -622,17 +575,6 @@ export function ChatTab() {
 								});
 								scheduleFlush();
 								break;
-
-							case 'plan': {
-								const planData: Plan = {
-									steps: event.steps,
-									description: event.description,
-									stepStatus: event.steps.map(() => 'pending' as const),
-								};
-								blocksRef.current.push({ type: 'plan', plan: planData });
-								scheduleFlush();
-								break;
-							}
 
 							case 'plan_step_updated': {
 								// Update the plan block's step status
@@ -751,18 +693,9 @@ export function ChatTab() {
 				.map((b) => (b as { content: string }).content)
 				.join('\n');
 
-			// Check for plan in text
-			const plan = parsePlan(finalText);
-			if (plan) {
-				const cleanText = stripPlanBlock(finalText);
-				setChatMessages((prev) =>
-					prev.map((m) => (m.id === assistantMsgIdRef.current ? { ...m, content: cleanText } : m)),
-				);
-			} else {
-				setChatMessages((prev) =>
-					prev.map((m) => (m.id === assistantMsgIdRef.current ? { ...m, content: finalText } : m)),
-				);
-			}
+			setChatMessages((prev) =>
+				prev.map((m) => (m.id === assistantMsgIdRef.current ? { ...m, content: finalText } : m)),
+			);
 
 			setIsActive(false);
 			abortRef.current = null;
@@ -849,16 +782,6 @@ export function ChatTab() {
 		setSelectedElements([]);
 
 		await sendMessage(text, { pageIndex, selectedElements: els });
-	}
-
-	function handlePlanApproval() {
-		const userMsg: ChatMessage = {
-			id: crypto.randomUUID(),
-			role: 'user',
-			content: 'go ahead',
-		};
-		setChatMessages((prev) => [...prev, userMsg]);
-		sendMessage('go ahead');
 	}
 
 	function handleStop() {
@@ -1171,8 +1094,6 @@ export function ChatTab() {
 							<AssistantMessage
 								msg={msg}
 								isActive={isActive}
-								onPlanApproval={handlePlanApproval}
-								onEditPlan={() => setInput('I want to change the plan: ')}
 							/>
 						)}
 					</div>
@@ -1333,13 +1254,9 @@ function UserMessage({ msg }: { msg: ChatMessage }) {
 function AssistantMessage({
 	msg,
 	isActive,
-	onPlanApproval,
-	onEditPlan,
 }: {
 	msg: ChatMessage;
 	isActive: boolean;
-	onPlanApproval: () => void;
-	onEditPlan: () => void;
 }) {
 	const rawBlocks = msg.blocks;
 
@@ -1382,9 +1299,6 @@ function AssistantMessage({
 								<PlanBlock
 									key={i}
 									plan={block.plan}
-									isActive={isActive}
-									onApprove={onPlanApproval}
-									onEdit={onEditPlan}
 								/>
 							);
 						default:
@@ -1436,12 +1350,10 @@ function ThinkingBlock({ content, isLast }: { content: string; isLast: boolean }
 }
 
 function TextBlock({ content }: { content: string }) {
-	// Strip plan blocks from displayed text — they render as PlanBlock instead
-	const cleaned = stripPlanBlock(content);
-	if (!cleaned.trim()) return null;
+	if (!content.trim()) return null;
 	return (
 		<div className="rounded-lg px-3 py-2 text-sm bg-secondary text-foreground prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-1 prose-code:text-xs">
-			<ReactMarkdown>{cleaned}</ReactMarkdown>
+			<ReactMarkdown>{content}</ReactMarkdown>
 		</div>
 	);
 }
@@ -1665,17 +1577,7 @@ function PlanStepIcon({ status }: { status: 'pending' | 'running' | 'done' | 'er
 	}
 }
 
-function PlanBlock({
-	plan,
-	isActive,
-	onApprove,
-	onEdit,
-}: {
-	plan: Plan;
-	isActive: boolean;
-	onApprove: () => void;
-	onEdit: () => void;
-}) {
+function PlanBlock({ plan }: { plan: Plan }) {
 	const statuses = plan.stepStatus || plan.steps.map(() => 'pending' as const);
 	const doneCount = statuses.filter((s) => s === 'done').length;
 	const hasStarted = statuses.some((s) => s !== 'pending');
@@ -1689,11 +1591,9 @@ function PlanBlock({
 				<span className="text-xs font-medium text-foreground flex-1">
 					{plan.description || 'Execution Plan'}
 				</span>
-				{hasStarted && (
-					<span className="text-[10px] text-muted-foreground tabular-nums">
-						{doneCount}/{plan.steps.length}
-					</span>
-				)}
+				<span className="text-[10px] text-muted-foreground tabular-nums">
+					{doneCount}/{plan.steps.length}
+				</span>
 			</div>
 
 			{/* Progress bar */}
@@ -1728,25 +1628,6 @@ function PlanBlock({
 					);
 				})}
 			</div>
-
-			{/* Action buttons — before execution starts */}
-			{!isActive && !hasStarted && (
-				<div className="flex gap-2 px-3 pb-2.5">
-					<button
-						onClick={onApprove}
-						className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors"
-					>
-						<Play size={12} />
-						Execute Plan
-					</button>
-					<button
-						onClick={onEdit}
-						className="px-3 py-1.5 text-xs font-medium text-muted-foreground border border-border rounded-md hover:bg-secondary hover:text-foreground transition-colors"
-					>
-						Edit
-					</button>
-				</div>
-			)}
 
 			{/* Completion */}
 			{allDone && (

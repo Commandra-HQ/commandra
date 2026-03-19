@@ -25,7 +25,6 @@ import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
 import { createAgent, loadAgentBySlug } from './agent-registry.js';
-import { parsePlan } from './planner.js';
 import { buildSystemPrompt } from './prompts.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { uploadAgentFile } from '../storage/agent-files.js';
@@ -489,20 +488,6 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		);
 
 		if (signal?.aborted) break;
-
-		// Detect plan blocks in accumulated text and emit explicit plan SSE event
-		const textSoFar = content
-			.filter((b) => b.type === 'text')
-			.map((b) => (b as TextBlock).text)
-			.join('');
-		const detectedPlan = parsePlan(textSoFar);
-		if (detectedPlan) {
-			await onEvent({
-				type: 'plan',
-				steps: detectedPlan.steps,
-				description: detectedPlan.description,
-			});
-		}
 
 		const response = { content, stopReason };
 

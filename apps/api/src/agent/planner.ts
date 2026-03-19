@@ -6,11 +6,6 @@
  * Steps are updated via update_plan as the agent executes.
  */
 
-export interface Plan {
-	steps: string[];
-	description?: string;
-}
-
 /**
  * Planning instructions appended to the system prompt.
  */
@@ -69,48 +64,3 @@ For simple tasks (1-2 actions), skip the plan and just execute directly.
 - **Wait for dynamic content:** If you expect a modal, dropdown, or AJAX content, use wait_for_element before interacting.
 - **Identify yourself:** Check the "Logged-in user" in Current Page section. The user is already authenticated — you don't need to log in.
 - **Leverage embeddings:** If a user says "do that thing again" or references past work, check the Prior Context section for related conversations.`;
-
-/**
- * Parse plan blocks from agent response text.
- * @deprecated Use submit_plan tool instead. Kept for backward compatibility.
- */
-export function parsePlan(text: string): Plan | null {
-	const match = text.match(/<!--plan:(.*?)-->/s);
-	if (!match) return null;
-
-	try {
-		const plan = JSON.parse(match[1]) as Plan;
-		if (!plan.steps || !Array.isArray(plan.steps) || plan.steps.length === 0) return null;
-		return plan;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Check if a user message is approving a plan.
- * @deprecated Approval now handled via WS approval gate in submit_plan tool.
- */
-export function isPlanApproval(message: string): boolean {
-	const normalized = message.toLowerCase().trim();
-	const approvalPhrases = [
-		'go',
-		'go ahead',
-		'execute',
-		'yes',
-		'do it',
-		'proceed',
-		'run it',
-		'start',
-		'ok',
-		'okay',
-		'sure',
-		'approved',
-		'lets go',
-		"let's go",
-		'yep',
-		'yeah',
-		'y',
-	];
-	return approvalPhrases.includes(normalized);
-}
