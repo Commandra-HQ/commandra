@@ -18,6 +18,7 @@ import { siteRoutes } from './routes/sites.js';
 import { statsRoutes } from './routes/stats.js';
 import { storageRoutes } from './routes/storage.js';
 import { tokenRoutes } from './routes/token.js';
+import { agentRoutes } from './routes/agents.js';
 import { initLocalStorage } from './storage/local.js';
 import { handleWsConnection } from './ws/handler.js';
 
@@ -54,6 +55,7 @@ app.route('/api/stats', statsRoutes);
 app.route('/api/memory', memoryRoutes);
 app.route('/api/orgs', orgRoutes);
 app.route('/api/storage', storageRoutes);
+app.route('/api/agents', agentRoutes);
 
 // Inngest handler — serve as middleware
 const inngestHandler = inngestServe({ client: inngest, functions: [embedPageElements] });

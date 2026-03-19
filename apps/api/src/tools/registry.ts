@@ -40,14 +40,17 @@ register(readTable);
 register(exportData);
 
 /**
- * Get all tool definitions (for passing to the LLM).
+ * Get tool definitions (for passing to the LLM).
+ * If allowedTools is provided, only return tools whose name is in the list.
  */
-export function getToolDefinitions(): Tool[] {
-	return Array.from(tools.values()).map((t) => ({
+export function getToolDefinitions(allowedTools?: string[]): Tool[] {
+	const allTools = Array.from(tools.values()).map((t) => ({
 		name: t.name,
 		description: t.description,
 		parameters: t.parameters,
 	}));
+	if (!allowedTools) return allTools;
+	return allTools.filter((t) => allowedTools.includes(t.name));
 }
 
 /**

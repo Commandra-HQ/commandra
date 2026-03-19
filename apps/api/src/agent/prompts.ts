@@ -2,11 +2,12 @@
  * System prompts for the agent.
  */
 
+import type { AgentConfig } from '@afe/shared';
 import { PLANNING_INSTRUCTIONS } from './planner.js';
 
-const BASE_PROMPT = `You are an AI assistant embedded in a Chrome extension called "Commandra." You help users understand and interact with web applications. You execute tasks in the user's own browser — they are already logged in, and you can see and interact with the page as they would.
+const IDENTITY_SECTION = `You are an AI assistant embedded in a Chrome extension called "Commandra." You help users understand and interact with web applications. You execute tasks in the user's own browser — they are already logged in, and you can see and interact with the page as they would.`;
 
-## How You See the Page
+const RULES_SECTION = `## How You See the Page
 You have a structural index of the current page: all interactive elements (buttons, links, inputs, forms, tables) with their labels, CSS selectors, and navigation links. You also receive:
 - **Site knowledge:** Indexed pages, known workflows, and app behavior notes from domain memory
 - **User context:** Personal preferences, corrections, past interactions, and saved automations
@@ -70,6 +71,12 @@ You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when ge
 - Only screenshot when you need visual confirmation of something not in the element index
 - Keep tool usage efficient to avoid context limits`;
 
+function buildBasePrompt(agentConfig?: AgentConfig): string {
+	const identity = agentConfig?.soul || IDENTITY_SECTION;
+	const skillsSection = agentConfig?.skills ? `\n\n## Agent Skills\n${agentConfig.skills}` : '';
+	return `${identity}\n\n${RULES_SECTION}${skillsSection}`;
+}
+
 interface SelectedElement {
 	selector: string;
 	fallbackSelectors: string[];
@@ -105,9 +112,12 @@ export function buildSystemPrompt(
 	domainMemory?: string,
 	userMemory?: string,
 	priorContext?: string,
+	agentConfig?: AgentConfig,
 ): string {
+	const basePrompt = buildBasePrompt(agentConfig);
+
 	if (!pageIndex) {
-		return `${BASE_PROMPT}
+		return `${basePrompt}
 
 ## Current Page
 No page is currently indexed — but you CAN still act. If the user asks you to go somewhere or do something:
@@ -209,7 +219,7 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		identitySummary = `\n- **Logged-in user:** ${pi.userIdentity.username}`;
 	}
 
-	return `${BASE_PROMPT}
+	return `${basePrompt}
 
 ## Current Page
 - **URL:** ${pi.url || 'Unknown'}

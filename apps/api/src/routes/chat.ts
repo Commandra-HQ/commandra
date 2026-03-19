@@ -13,6 +13,7 @@ import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 import { searchConversations, searchElements } from '../db/vector-search.js';
+import { resolveAgent } from '../agent/agent-registry.js';
 
 /**
  * Detect if a user message clearly requires PARALLEL work across multiple distinct websites.
@@ -87,10 +88,11 @@ chatRoutes.use('*', requireAuth);
 chatRoutes.post('/', async (c) => {
 	const user = c.get('user');
 	const body = await c.req.json();
-	const { message, pageIndex, conversationId, selectedElements } = body as {
+	const { message, pageIndex, conversationId, selectedElements, agentId } = body as {
 		message: string;
 		pageIndex?: unknown;
 		conversationId?: string;
+		agentId?: string;
 		selectedElements?: {
 			selector: string;
 			fallbackSelectors: string[];
@@ -297,6 +299,9 @@ chatRoutes.post('/', async (c) => {
 		console.log('[Chat] Multi-site parallel intent detected');
 	}
 
+	// Resolve agent — explicit agentId > domain match > default coordinator
+	const agentConfig = await resolveAgent(user.id, agentId, domain);
+
 	// Get the abort signal from the request (fires when client disconnects)
 	const signal = c.req.raw.signal;
 
@@ -324,6 +329,7 @@ chatRoutes.post('/', async (c) => {
 					domain,
 					onEvent,
 					signal,
+					agentConfig: agentConfig.id !== '_coordinator' ? agentConfig : undefined,
 				});
 				fullResponse = result.response;
 				if (result.toolCalls.length > 0) {
@@ -339,6 +345,7 @@ chatRoutes.post('/', async (c) => {
 					priorContext: priorContext || undefined,
 					onEvent,
 					signal,
+					agentConfig: agentConfig.id !== '_coordinator' ? agentConfig : undefined,
 				});
 			}
 

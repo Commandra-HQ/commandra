@@ -173,6 +173,40 @@ export const userMemory = pgTable('user_memory', {
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const agents = pgTable('agents', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	userId: uuid('user_id')
+		.references(() => users.id)
+		.notNull(),
+	orgId: uuid('org_id').references(() => organizations.id),
+	slug: text('slug').notNull(),
+	name: text('name').notNull(),
+	description: text('description').notNull().default(''),
+	model: text('model'),
+	maxIterations: integer('max_iterations'),
+	tools: jsonb('tools').$type<string[]>(),
+	domains: jsonb('domains').$type<string[]>(),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const agentRuns = pgTable('agent_runs', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	agentId: uuid('agent_id')
+		.references(() => agents.id, { onDelete: 'cascade' })
+		.notNull(),
+	conversationId: uuid('conversation_id').references(() => conversations.id),
+	userId: uuid('user_id')
+		.references(() => users.id)
+		.notNull(),
+	status: text('status').notNull(), // 'running' | 'completed' | 'failed'
+	toolCalls: integer('tool_calls').default(0),
+	tokensUsed: integer('tokens_used').default(0),
+	durationMs: integer('duration_ms'),
+	error: text('error'),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const auditLogs = pgTable('audit_logs', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	userId: uuid('user_id')

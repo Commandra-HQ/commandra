@@ -6,7 +6,7 @@
  * Emits structured SSE events instead of raw text.
  */
 
-import type { SSEEvent } from '@afe/shared';
+import type { AgentConfig, SSEEvent } from '@afe/shared';
 import { searchUserMemories } from '../db/vector-search.js';
 import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import type {
@@ -50,6 +50,7 @@ export interface OrchestratorParams {
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 	maxIterations?: number;
+	agentConfig?: AgentConfig;
 }
 
 export interface ToolCallRecord {
@@ -81,15 +82,17 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		domain,
 		onEvent,
 		signal,
-		maxIterations = 15,
+		maxIterations: maxIter,
+		agentConfig,
 	} = params;
 
+	const maxIterations = agentConfig?.maxIterations ?? maxIter ?? 15;
 	const provider = getProvider();
-	const model = getStrongModel();
-	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext);
+	const model = agentConfig?.model === 'fast' ? getFastModel() : getStrongModel();
+	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext, agentConfig);
 
 	// Add save_memory internal tool alongside browser tools
-	const browserTools = getToolDefinitions();
+	const browserTools = getToolDefinitions(agentConfig?.tools);
 	const saveMemoryTool = {
 		name: 'save_memory',
 		description:
@@ -509,15 +512,17 @@ export async function runSimpleChat(params: {
 	priorContext?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
+	agentConfig?: AgentConfig;
 }): Promise<string> {
 	const provider = getProvider();
-	const model = getStrongModel();
+	const model = params.agentConfig?.model === 'fast' ? getFastModel() : getStrongModel();
 	const systemPrompt = buildSystemPrompt(
 		params.pageIndex,
 		params.selectedElements,
 		params.domainMemory,
 		params.userMemory,
 		params.priorContext,
+		params.agentConfig,
 	);
 
 	await params.onEvent({ type: 'thinking' });

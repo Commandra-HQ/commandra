@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { SSEEvent } from '@afe/shared';
+import type { AgentConfig, SSEEvent } from '@afe/shared';
 import { getProvider, getStrongModel } from '../llm/index.js';
 import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { logAction } from '../safety/audit.js';
@@ -68,6 +68,7 @@ export async function spawnSubAgent(params: {
 	timeout?: number;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
+	agentConfig?: AgentConfig;
 }): Promise<{ agentId: string; error?: string }> {
 	const { userId, connectionId, task, targetUrl, onEvent } = params;
 	const timeout = params.timeout ?? DEFAULT_SUBAGENT_TIMEOUT;
@@ -228,6 +229,7 @@ async function runSubAgent(params: {
 	timeout: number;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
+	agentConfig?: AgentConfig;
 }): Promise<void> {
 	const {
 		agentId,
