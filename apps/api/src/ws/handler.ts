@@ -109,41 +109,6 @@ export function handleWsConnection(ws: WebSocket) {
 					break;
 				}
 
-				case 'manual_action': {
-					// Manual recording — user performed an action in the browser
-					if (isRecording(connectionId)) {
-						const { action, args, url } = message as {
-							action: string;
-							args: Record<string, unknown>;
-							url: string;
-						};
-						let urlPattern = '';
-						try {
-							urlPattern = new URL(url).pathname.replace(/\/\d+/g, '/:id');
-						} catch {}
-
-						recordStep(connectionId, action, args, { success: true }, urlPattern, '')
-							.then((step) => {
-								// Send the recorded step back to the extension so the UI updates
-								if (step) {
-									const conn = connections.get(connectionId);
-									if (conn && conn.ws.readyState === conn.ws.OPEN) {
-										conn.ws.send(
-											JSON.stringify({
-												type: 'flow_step_recorded',
-												step,
-												stepCount: step.index + 1,
-												timestamp: Date.now(),
-											}),
-										);
-									}
-								}
-							})
-							.catch((err) => console.warn('[WS] Failed to record manual step:', err));
-					}
-					break;
-				}
-
 				case 'page_indexed': {
 					// Extension pushed a page index — store in Postgres
 					const conn = connections.get(connectionId);
