@@ -312,9 +312,13 @@ export function ChatTab() {
 
 	// Load conversation when parent passes a conversationId
 	useEffect(() => {
+		console.log('[ChatTab] externalConvId changed:', externalConvId, 'mode:', mode);
 		if (externalConvId) {
+			// Opening an existing conversation — skip onboarding, go straight to chat
+			setMode('chat');
 			loadConversation(externalConvId);
 		} else {
+			console.log('[ChatTab] No convId, clearing state');
 			// New chat — clear state
 			setChatMessages([]);
 			setPendingApprovals([]);
@@ -815,7 +819,7 @@ export function ChatTab() {
 		try {
 			setLoadingHistory(true);
 			const token = await new Promise<string>((resolve) =>
-				chrome.storage.local.get('token', (r) => resolve(r.token || '')),
+				chrome.storage.local.get('authToken', (r) => resolve(r.authToken || '')),
 			);
 			if (!token) return;
 			const res = await fetch(`${API_URL}/api/conversations`, {
@@ -833,16 +837,26 @@ export function ChatTab() {
 	}
 
 	async function loadConversation(convId: string) {
+		console.log('[ChatTab] loadConversation called with:', convId);
 		try {
 			const token = await new Promise<string>((resolve) =>
-				chrome.storage.local.get('token', (r) => resolve(r.token || '')),
+				chrome.storage.local.get('authToken', (r) => {
+					console.log('[ChatTab] storage result:', { hasToken: !!r.authToken });
+					resolve(r.authToken || '');
+				}),
 			);
-			if (!token) return;
+			if (!token) {
+				console.log('[ChatTab] No token, aborting loadConversation');
+				return;
+			}
+			console.log('[ChatTab] Fetching conversation:', `${API_URL}/api/conversations/${convId}`);
 			const res = await fetch(`${API_URL}/api/conversations/${convId}`, {
 				headers: { Authorization: `Bearer ${token}` },
 			});
+			console.log('[ChatTab] Fetch response:', res.status, res.ok);
 			if (res.ok) {
 				const data = await res.json();
+				console.log('[ChatTab] Loaded messages:', data.messages?.length);
 				navigate(`/chat/${convId}`, { replace: true });
 				const loaded: ChatMessage[] = (data.messages || []).map(
 					(m: { id: string; role: string; content: string; toolData?: { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } }) => {

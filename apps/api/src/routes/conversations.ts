@@ -49,9 +49,13 @@ conversationRoutes.get('/:id', async (c) => {
 	const user = c.get('user');
 	const convId = c.req.param('id');
 
-	const [conv] = await db.select().from(conversations).where(eq(conversations.id, convId)).limit(1);
+	const [conv] = await db
+		.select()
+		.from(conversations)
+		.where(and(eq(conversations.id, convId), getOrgOrUserScope(user, conversations)))
+		.limit(1);
 
-	if (!conv || (user.orgId ? conv.orgId !== user.orgId : conv.userId !== user.id)) {
+	if (!conv) {
 		return c.json({ error: 'Not found' }, 404);
 	}
 
@@ -89,10 +93,10 @@ conversationRoutes.post('/:id/outcome', async (c) => {
 			createdAt: conversations.createdAt,
 		})
 		.from(conversations)
-		.where(eq(conversations.id, convId))
+		.where(and(eq(conversations.id, convId), getOrgOrUserScope(user, conversations)))
 		.limit(1);
 
-	if (!conv || (user.orgId ? conv.orgId !== user.orgId : conv.userId !== user.id)) {
+	if (!conv) {
 		return c.json({ error: 'Not found' }, 404);
 	}
 
