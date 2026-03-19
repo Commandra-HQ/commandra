@@ -91,7 +91,8 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - **Per-agent config**: orchestrator accepts `AgentConfig` — respects agent's model, tool allowlist, safety overrides, max iterations
 - **Parallel tool calling**: safe tools execute in parallel via `Promise.allSettled`, review tools sequential with approval gates, blocked tools rejected immediately
 - **Token budget management**: strips old screenshots, truncates long results, catches context_length_exceeded and retries with aggressive trimming
-- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`, `save_to_local`
+- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`, `save_to_local`, `create_agent`, `update_agent_files`
+- **Agent creation from chat**: `create_agent` tool lets the LLM create agents mid-conversation when it detects repeatable workflows, scheduled tasks, or explicit user requests. `update_agent_files` writes SOUL.md/SKILLS.md for the new agent. Agents emerge from usage — users don't need to visit the dashboard.
 - **Multi-agent swarm**: coordinator spawns sub-agents (with target agent identity) in separate browser tabs via `open_tab` WS action. Max 3 concurrent, 10 iterations each, 2min timeout. Sub-agents use the target agent's model, tool allowlist, and SOUL.md. Tabs persist after completion (user can inspect). `recordAgentRun()` called for non-coordinator sub-agents.
 - **Auto page state refresh**: after `click_element`, `navigate`, `type_text`, `select_option` — orchestrator auto-calls `get_page_state` and merges updated DOM into the tool result (500ms delay for SPA transitions)
 - **Embedding-powered context enrichment**: before orchestrator runs, `chat.ts` searches `conversation_embeddings` and `element_embeddings` in parallel; results injected as "Prior Context" in system prompt

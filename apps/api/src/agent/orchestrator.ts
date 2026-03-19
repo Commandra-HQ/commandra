@@ -24,10 +24,11 @@ import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
-import { loadAgentBySlug } from './agent-registry.js';
+import { createAgent, loadAgentBySlug } from './agent-registry.js';
 import { parsePlan } from './planner.js';
 import { buildSystemPrompt } from './prompts.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
+import { uploadAgentFile } from '../storage/agent-files.js';
 import { saveLocalFile } from '../storage/local.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
 
@@ -199,6 +200,66 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			required: ['filename', 'content', 'category'],
 		},
 	};
+	const createAgentTool = {
+		name: 'create_agent',
+		description:
+			'Create a new persistent agent that specializes in a task or domain. Use when the user describes a repeatable workflow, asks you to "remember how to do this", wants a scheduled task, or explicitly asks for an agent. The agent will retain its personality and skills across sessions.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				slug: {
+					type: 'string',
+					description: 'URL-safe identifier (lowercase, hyphens, underscores). e.g. "gmail-summarizer", "jira-triager"',
+				},
+				name: {
+					type: 'string',
+					description: 'Human-readable name. e.g. "Gmail Morning Summarizer"',
+				},
+				description: {
+					type: 'string',
+					description: 'What this agent does — one sentence. e.g. "Summarizes unread emails from key contacts every morning"',
+				},
+				soul: {
+					type: 'string',
+					description: 'The agent\'s personality and behavioral instructions (becomes SOUL.md). Write in second person: "You are a..."',
+				},
+				domains: {
+					type: 'array',
+					items: { type: 'string' },
+					description: 'Domains this agent works on. e.g. ["mail.google.com", "*.github.com"]',
+				},
+				cron: {
+					type: 'string',
+					description: 'Optional cron schedule (5-field). e.g. "0 9 * * 1-5" for weekdays at 9am. Only if the user wants it to run automatically.',
+				},
+			},
+			required: ['slug', 'name', 'description', 'soul'],
+		},
+	};
+	const updateAgentFilesTool = {
+		name: 'update_agent_files',
+		description:
+			'Write or update a file for an existing agent (SOUL.md, SKILLS.md, LEARNINGS.md, ERRORS.md). Use after create_agent to add initial skills, or to update an agent\'s personality/capabilities.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				agentSlug: {
+					type: 'string',
+					description: 'Slug of the agent to update',
+				},
+				filename: {
+					type: 'string',
+					enum: ['SOUL.md', 'SKILLS.md', 'LEARNINGS.md', 'ERRORS.md'],
+					description: 'Which file to write',
+				},
+				content: {
+					type: 'string',
+					description: 'Full file content (replaces existing)',
+				},
+			},
+			required: ['agentSlug', 'filename', 'content'],
+		},
+	};
 	const currentDepth = params.depth ?? 0;
 	const tools = [
 		...browserTools,
@@ -207,6 +268,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		// Exclude spawn/wait tools at depth >= 2 to prevent deep nesting
 		...(currentDepth >= 2 ? [] : [spawnAgentTool, waitForAgentsTool]),
 		saveToLocalTool,
+		createAgentTool,
+		updateAgentFilesTool,
 	];
 	const context = { connectionId, userId };
 
@@ -581,7 +644,7 @@ function partitionToolsBySafety(
 
 	for (const block of toolBlocks) {
 		// Internal tools are always safe (no WS routing)
-		if (['save_memory', 'recall_memory', 'spawn_agent', 'wait_for_agents', 'save_to_local'].includes(block.name)) {
+		if (['save_memory', 'recall_memory', 'spawn_agent', 'wait_for_agents', 'save_to_local', 'create_agent', 'update_agent_files'].includes(block.name)) {
 			safe.push(block);
 			continue;
 		}
@@ -788,6 +851,87 @@ async function executeToolBlock(
 					message: `File saved to ~/.commandra/${saved.path}`,
 					sizeBytes: saved.sizeBytes,
 				}),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// create_agent — create a new persistent agent from conversation context
+	if (block.name === 'create_agent') {
+		const args = block.input as { slug: string; name: string; description: string; soul: string; domains?: string[]; cron?: string };
+		try {
+			const agent = await createAgent(userId, {
+				slug: args.slug,
+				name: args.name,
+				description: args.description,
+				domains: args.domains,
+				trigger: args.cron ? { cron: args.cron, enabled: true } : undefined,
+			});
+			// Write SOUL.md immediately
+			await uploadAgentFile(userId, args.slug, 'SOUL.md', args.soul);
+			await onEvent({
+				type: 'tool_start',
+				toolName: 'create_agent',
+				label: `Created agent: ${args.name}`,
+				args: block.input,
+			});
+			await onEvent({
+				type: 'tool_end',
+				toolName: 'create_agent',
+				success: true,
+				result: { success: true, agentId: agent.id, slug: agent.slug },
+			});
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({
+					success: true,
+					agentId: agent.id,
+					slug: agent.slug,
+					message: `Agent "${args.name}" created with slug "${args.slug}". It has a SOUL.md. You can use update_agent_files to add SKILLS.md if needed.${args.cron ? ` Scheduled: ${args.cron}` : ''}${args.domains?.length ? ` Domains: ${args.domains.join(', ')}` : ''}`,
+				}),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// update_agent_files — write/update agent files (SOUL.md, SKILLS.md, etc.)
+	if (block.name === 'update_agent_files') {
+		const args = block.input as { agentSlug: string; filename: string; content: string };
+		try {
+			await uploadAgentFile(userId, args.agentSlug, args.filename, args.content);
+			await onEvent({
+				type: 'tool_start',
+				toolName: 'update_agent_files',
+				label: `${args.agentSlug}/${args.filename}`,
+				args: block.input,
+			});
+			await onEvent({
+				type: 'tool_end',
+				toolName: 'update_agent_files',
+				success: true,
+				result: { success: true, file: args.filename },
+			});
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: true, message: `Updated ${args.filename} for agent "${args.agentSlug}"` }),
 				isError: false,
 			};
 		} catch (err) {
