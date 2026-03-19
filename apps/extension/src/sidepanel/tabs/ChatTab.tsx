@@ -208,7 +208,7 @@ function parseSSEBuffer(buffer: string): [SSEEvent[], string] {
 export function ChatTab() {
 	const { conversationId: externalConvId } = useParams<{ conversationId?: string }>();
 	const navigate = useNavigate();
-	const { markActive, markDone } = useActiveChats();
+	const { activeChats, markActive, markDone } = useActiveChats();
 	const [mode, setMode] = useState<ViewMode>('onboarding');
 	const [domain, setDomain] = useState('');
 	const [pathScope, setPathScope] = useState('');
@@ -845,12 +845,34 @@ export function ChatTab() {
 				const data = await res.json();
 				navigate(`/chat/${convId}`, { replace: true });
 				const loaded: ChatMessage[] = (data.messages || []).map(
-					(m: { id: string; role: string; content: string }) => ({
-						id: m.id,
-						role: m.role as 'user' | 'assistant',
-						content: m.content,
-						blocks: [{ type: 'text' as const, content: m.content }],
-					}),
+					(m: { id: string; role: string; content: string; toolData?: { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } }) => {
+						// Reconstruct blocks from stored tool data
+						const blocks: MessageBlock[] = [];
+
+						if (m.role === 'assistant' && m.toolData?.tools?.length) {
+							for (const tool of m.toolData.tools) {
+								blocks.push({
+									type: 'tool_call',
+									toolName: tool.name,
+									label: formatToolLabel(tool.name),
+									args: tool.args as Record<string, unknown>,
+									status: tool.success ? 'success' : 'error',
+									result: tool.result,
+								});
+							}
+						}
+
+						if (m.content?.trim()) {
+							blocks.push({ type: 'text' as const, content: m.content });
+						}
+
+						return {
+							id: m.id,
+							role: m.role as 'user' | 'assistant',
+							content: m.content,
+							blocks: blocks.length > 0 ? blocks : [{ type: 'text' as const, content: m.content }],
+						};
+					},
 				);
 				setChatMessages(loaded);
 			}
