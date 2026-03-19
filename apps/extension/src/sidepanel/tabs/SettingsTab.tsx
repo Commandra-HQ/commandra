@@ -198,7 +198,7 @@ export function SettingsTab() {
 				</h3>
 				<div className="flex items-center gap-2 text-sm text-foreground">
 					<Laptop size={14} className="text-muted-foreground" />
-					<span>{user.email}</span>
+					<span>{user?.email}</span>
 				</div>
 			</section>
 

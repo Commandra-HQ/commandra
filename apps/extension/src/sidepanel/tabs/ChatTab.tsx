@@ -30,7 +30,9 @@ import {
 	RefreshCw,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
+import { useActiveChats } from '../contexts/active-chats.js';
 
 /** Site data shapes returned by backend API (via background script) */
 interface StoredSite {
@@ -239,21 +241,10 @@ function parseSSEBuffer(buffer: string): [SSEEvent[], string] {
 	return [events, remaining];
 }
 
-interface ChatTabProps {
-	conversationId: string | null;
-	onConversationChange: (id: string | null) => void;
-	onBack: () => void;
-	onStreamStart: (conversationId: string, agentName: string, task: string) => void;
-	onStreamEnd: (conversationId: string) => void;
-}
-
-export function ChatTab({
-	conversationId: externalConvId,
-	onConversationChange,
-	onBack,
-	onStreamStart,
-	onStreamEnd,
-}: ChatTabProps) {
+export function ChatTab() {
+	const { conversationId: externalConvId } = useParams<{ conversationId?: string }>();
+	const navigate = useNavigate();
+	const { markActive, markDone } = useActiveChats();
 	const [mode, setMode] = useState<ViewMode>('onboarding');
 	const [domain, setDomain] = useState('');
 	const [pathScope, setPathScope] = useState('');
@@ -497,7 +488,7 @@ export function ChatTab({
 
 		// Notify parent of active stream
 		if (externalConvId) {
-			onStreamStart(externalConvId, 'Chat', text.slice(0, 60));
+			markActive(externalConvId, 'Chat', text.slice(0, 60));
 		}
 
 		const controller = new AbortController();
@@ -686,9 +677,9 @@ export function ChatTab({
 							}
 
 							case 'done':
-								onConversationChange(event.conversationId);
 								if (event.conversationId) {
-									onStreamEnd(event.conversationId);
+									navigate(`/chat/${event.conversationId}`, { replace: true });
+									markDone(event.conversationId);
 								}
 								break;
 
@@ -854,9 +845,8 @@ export function ChatTab({
 
 	function handleNewConversation() {
 		setChatMessages([]);
-		onConversationChange(null);
 		setPendingApprovals([]);
-		onBack();
+		navigate('/');
 	}
 
 	async function loadConversationHistory() {
@@ -891,7 +881,7 @@ export function ChatTab({
 			});
 			if (res.ok) {
 				const data = await res.json();
-				onConversationChange(convId);
+				navigate(`/chat/${convId}`, { replace: true });
 				const loaded: ChatMessage[] = (data.messages || []).map(
 					(m: { id: string; role: string; content: string }) => ({
 						id: m.id,
@@ -955,7 +945,7 @@ export function ChatTab({
 			{/* Context bar */}
 			<div className="px-4 py-2 border-b border-border flex items-center justify-between">
 				<button
-					onClick={onBack}
+					onClick={() => navigate('/')}
 					className="p-1 mr-2 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
 					title="Back to Hub"
 				>
