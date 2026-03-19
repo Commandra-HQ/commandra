@@ -10,4 +10,7 @@ export interface AgentConfig {
 	domains?: string[];
 	soul?: string;
 	skills?: string;
+	learnings?: string;
+	errors?: string;
+	trigger?: { cron?: string; enabled?: boolean };
 }

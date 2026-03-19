@@ -19,6 +19,7 @@ import { statsRoutes } from './routes/stats.js';
 import { storageRoutes } from './routes/storage.js';
 import { tokenRoutes } from './routes/token.js';
 import { agentRoutes } from './routes/agents.js';
+import { startScheduler, stopScheduler } from './agent/scheduler.js';
 import { initLocalStorage } from './storage/local.js';
 import { handleWsConnection } from './ws/handler.js';
 
@@ -64,6 +65,19 @@ app.all('/api/inngest/*', (c) => inngestHandler(c));
 
 // Initialize local storage directories
 initLocalStorage();
+
+// Start agent scheduler
+startScheduler();
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+	stopScheduler();
+	process.exit(0);
+});
+process.on('SIGINT', () => {
+	stopScheduler();
+	process.exit(0);
+});
 
 const PORT = Number(process.env.PORT) || 3001;
 const WS_PORT = Number(process.env.WS_PORT) || 3002;

@@ -54,13 +54,27 @@ export async function resolveAgent(
 }
 
 /**
- * Load a single agent by ID — DB row + Supabase Storage files (SOUL.md, SKILLS.md).
+ * Load a single agent by ID — DB row + Supabase Storage files (SOUL.md, SKILLS.md, LEARNINGS.md, ERRORS.md).
  */
 export async function loadAgent(agentId: string, userId: string): Promise<AgentConfig | null> {
 	const [row] = await db
 		.select()
 		.from(agents)
 		.where(and(eq(agents.id, agentId), eq(agents.userId, userId)))
+		.limit(1);
+
+	if (!row) return null;
+	return hydrateAgent(row);
+}
+
+/**
+ * Load a single agent by slug — DB row + Supabase Storage files.
+ */
+export async function loadAgentBySlug(slug: string, userId: string): Promise<AgentConfig | null> {
+	const [row] = await db
+		.select()
+		.from(agents)
+		.where(and(eq(agents.slug, slug), eq(agents.userId, userId)))
 		.limit(1);
 
 	if (!row) return null;
@@ -86,6 +100,7 @@ export async function listAgents(userId: string): Promise<AgentConfig[]> {
 		maxIterations: row.maxIterations ?? undefined,
 		tools: (row.tools as string[] | null) ?? undefined,
 		domains: (row.domains as string[] | null) ?? undefined,
+		trigger: (row.trigger as { cron?: string; enabled?: boolean } | null) ?? undefined,
 	}));
 }
 
@@ -94,7 +109,7 @@ export async function listAgents(userId: string): Promise<AgentConfig[]> {
  */
 export async function createAgent(
 	userId: string,
-	config: { slug: string; name: string; description?: string; model?: string; maxIterations?: number; tools?: string[]; domains?: string[]; orgId?: string },
+	config: { slug: string; name: string; description?: string; model?: string; maxIterations?: number; tools?: string[]; domains?: string[]; orgId?: string; trigger?: { cron?: string; enabled?: boolean } },
 ): Promise<AgentConfig> {
 	const [row] = await db
 		.insert(agents)
@@ -108,6 +123,7 @@ export async function createAgent(
 			maxIterations: config.maxIterations,
 			tools: config.tools,
 			domains: config.domains,
+			trigger: config.trigger,
 		})
 		.returning();
 
@@ -121,6 +137,7 @@ export async function createAgent(
 		maxIterations: row.maxIterations ?? undefined,
 		tools: (row.tools as string[] | null) ?? undefined,
 		domains: (row.domains as string[] | null) ?? undefined,
+		trigger: (row.trigger as { cron?: string; enabled?: boolean } | null) ?? undefined,
 	};
 }
 
@@ -130,7 +147,7 @@ export async function createAgent(
 export async function updateAgent(
 	agentId: string,
 	userId: string,
-	partial: Partial<{ name: string; description: string; model: string; maxIterations: number; tools: string[]; domains: string[] }>,
+	partial: Partial<{ name: string; description: string; model: string; maxIterations: number; tools: string[]; domains: string[]; trigger: { cron?: string; enabled?: boolean } }>,
 ): Promise<AgentConfig | null> {
 	const [row] = await db
 		.update(agents)
@@ -149,6 +166,7 @@ export async function updateAgent(
 		maxIterations: row.maxIterations ?? undefined,
 		tools: (row.tools as string[] | null) ?? undefined,
 		domains: (row.domains as string[] | null) ?? undefined,
+		trigger: (row.trigger as { cron?: string; enabled?: boolean } | null) ?? undefined,
 	};
 }
 
@@ -199,16 +217,21 @@ async function hydrateAgent(row: typeof agents.$inferSelect): Promise<AgentConfi
 		maxIterations: row.maxIterations ?? undefined,
 		tools: (row.tools as string[] | null) ?? undefined,
 		domains: (row.domains as string[] | null) ?? undefined,
+		trigger: (row.trigger as { cron?: string; enabled?: boolean } | null) ?? undefined,
 	};
 
-	// Load SOUL.md and SKILLS.md from Supabase Storage
+	// Load agent files from Supabase Storage
 	try {
-		const [soul, skills] = await Promise.all([
+		const [soul, skills, learnings, errors] = await Promise.all([
 			downloadAgentFile(row.userId, row.slug, 'SOUL.md'),
 			downloadAgentFile(row.userId, row.slug, 'SKILLS.md'),
+			downloadAgentFile(row.userId, row.slug, 'LEARNINGS.md'),
+			downloadAgentFile(row.userId, row.slug, 'ERRORS.md'),
 		]);
 		if (soul) config.soul = soul;
 		if (skills) config.skills = skills;
+		if (learnings) config.learnings = learnings;
+		if (errors) config.errors = errors;
 	} catch {
 		// Storage not configured or files don't exist — agent works without them
 	}

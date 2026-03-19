@@ -9,6 +9,7 @@ import {
 	Bot,
 	ChevronDown,
 	ChevronRight,
+	Clock,
 	FileText,
 	Plus,
 	Save,
@@ -29,6 +30,7 @@ interface Agent {
 	domains?: string[];
 	soul?: string;
 	skills?: string;
+	trigger?: { cron?: string; enabled?: boolean };
 }
 
 interface AgentFile {
@@ -57,6 +59,7 @@ export default function AgentsPage() {
 		maxIterations: '',
 		domains: '',
 		tools: '',
+		cron: '',
 	});
 
 	useEffect(() => {
@@ -89,6 +92,7 @@ export default function AgentsPage() {
 			if (newAgent.maxIterations) body.maxIterations = Number(newAgent.maxIterations);
 			if (newAgent.domains.trim()) body.domains = newAgent.domains.split(',').map((d) => d.trim()).filter(Boolean);
 			if (newAgent.tools.trim()) body.tools = newAgent.tools.split(',').map((t) => t.trim()).filter(Boolean);
+			if (newAgent.cron.trim()) body.trigger = { cron: newAgent.cron.trim(), enabled: true };
 
 			const res = await apiFetch('/api/agents', {
 				method: 'POST',
@@ -97,7 +101,7 @@ export default function AgentsPage() {
 			});
 			if (res.ok) {
 				setShowCreate(false);
-				setNewAgent({ slug: '', name: '', description: '', model: '', maxIterations: '', domains: '', tools: '' });
+				setNewAgent({ slug: '', name: '', description: '', model: '', maxIterations: '', domains: '', tools: '', cron: '' });
 				fetchAgents();
 			}
 		} catch (err) {
@@ -192,6 +196,23 @@ export default function AgentsPage() {
 			console.error('Failed to save file:', err);
 		} finally {
 			setSaving(false);
+		}
+	}
+
+	async function handleToggleSchedule(agent: Agent) {
+		const newEnabled = agent.trigger?.enabled === false;
+		try {
+			const res = await apiFetch(`/api/agents/${agent.id}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ trigger: { ...agent.trigger, enabled: newEnabled } }),
+			});
+			if (res.ok) {
+				const data = await res.json();
+				setAgents((prev) => prev.map((a) => (a.id === agent.id ? data.agent : a)));
+			}
+		} catch (err) {
+			console.error('Failed to toggle schedule:', err);
 		}
 	}
 
@@ -320,6 +341,19 @@ export default function AgentsPage() {
 								onChange={(e) => setNewAgent({ ...newAgent, tools: e.target.value })}
 							/>
 						</div>
+						<div>
+							<label className="text-xs font-medium text-muted-foreground mb-1 block">
+								Schedule (cron expression, optional)
+							</label>
+							<Input
+								placeholder="0 9 * * 1-5 (weekdays at 9am)"
+								value={newAgent.cron}
+								onChange={(e) => setNewAgent({ ...newAgent, cron: e.target.value })}
+							/>
+							<p className="text-[10px] text-muted-foreground mt-0.5">
+								5-field cron: minute hour day month weekday. Requires active browser connection.
+							</p>
+						</div>
 						<Button size="sm" onClick={handleCreate}>
 							Create Agent
 						</Button>
@@ -363,6 +397,15 @@ export default function AgentsPage() {
 													{agent.model}
 												</Badge>
 											)}
+											{agent.trigger?.cron && (
+												<Badge
+													variant={agent.trigger.enabled !== false ? 'default' : 'outline'}
+													className="text-[10px] gap-0.5"
+												>
+													<Clock size={10} />
+													{agent.trigger.cron}
+												</Badge>
+											)}
 										</button>
 										<div className="flex items-center gap-1 ml-2">
 											<Button
@@ -401,6 +444,22 @@ export default function AgentsPage() {
 									{/* Expanded: Files */}
 									{isExpanded && (
 										<div className="mt-4 ml-8 space-y-3">
+											{agent.trigger?.cron && (
+												<div className="flex items-center justify-between p-2 rounded border border-border bg-muted/30">
+													<div className="flex items-center gap-2 text-xs">
+														<Clock size={14} className="text-muted-foreground" />
+														<span>Schedule: <code className="bg-muted px-1 rounded">{agent.trigger.cron}</code></span>
+													</div>
+													<Button
+														size="sm"
+														variant={agent.trigger.enabled !== false ? 'default' : 'outline'}
+														className="h-7 text-xs"
+														onClick={() => handleToggleSchedule(agent)}
+													>
+														{agent.trigger.enabled !== false ? 'Enabled' : 'Disabled'}
+													</Button>
+												</div>
+											)}
 											<div className="flex items-center justify-between">
 												<h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
 													Agent Files

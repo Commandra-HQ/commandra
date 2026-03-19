@@ -15,12 +15,13 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AgentConfig, SSEEvent } from '@afe/shared';
-import { getProvider, getStrongModel } from '../llm/index.js';
+import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendActionRequest, sendApprovalRequest } from '../ws/handler.js';
+import { recordAgentRun } from './self-improve.js';
 
 const MAX_CONCURRENT_SUBAGENTS = 3;
 const MAX_SUBAGENT_ITERATIONS = 10;
@@ -69,6 +70,7 @@ export async function spawnSubAgent(params: {
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 	agentConfig?: AgentConfig;
+	depth?: number;
 }): Promise<{ agentId: string; error?: string }> {
 	const { userId, connectionId, task, targetUrl, onEvent } = params;
 	const timeout = params.timeout ?? DEFAULT_SUBAGENT_TIMEOUT;
@@ -230,6 +232,7 @@ async function runSubAgent(params: {
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 	agentConfig?: AgentConfig;
+	depth?: number;
 }): Promise<void> {
 	const {
 		agentId,
@@ -243,15 +246,19 @@ async function runSubAgent(params: {
 		timeout,
 		onEvent,
 		signal,
+		agentConfig,
 	} = params;
+	const currentDepth = params.depth ?? 0;
 
 	const userAgents = getUserSubAgents(userId);
 	const subAgent = userAgents.get(agentId);
 	if (!subAgent) return;
 
 	const provider = getProvider();
-	const model = getStrongModel(); // Sub-agents need the strong model for reliable multi-step tasks
-	const tools = getToolDefinitions();
+	// Use agent's model preference, fallback to strong model
+	const model = agentConfig?.model === 'fast' ? getFastModel() : getStrongModel();
+	// Use agent's tool allowlist if specified
+	const tools = getToolDefinitions(agentConfig?.tools);
 	const context = { connectionId, userId };
 	const actionsPerformed: string[] = [];
 
@@ -301,6 +308,8 @@ async function runSubAgent(params: {
 		domainMemory,
 		userMemory,
 		initialPageState,
+		agentConfig,
+		currentDepth,
 	);
 
 	let currentMessages: Message[] = [
@@ -534,6 +543,18 @@ async function runSubAgent(params: {
 		// Tabs persist until the user closes them or requests cleanup.
 	}
 
+	// Record run for non-coordinator agents
+	if (agentConfig && agentConfig.id !== '_coordinator') {
+		recordAgentRun({
+			agentId: agentConfig.id,
+			userId,
+			status: subAgent.status === 'completed' ? 'completed' : 'failed',
+			toolCalls: actionsPerformed.length,
+			durationMs: Date.now() - subAgent.startedAt,
+			error: subAgent.result?.error,
+		}).catch((err) => console.warn('[Swarm] recordAgentRun failed:', err));
+	}
+
 	await onEvent({
 		type: 'sub_agent_end',
 		agentId,
@@ -549,8 +570,15 @@ function buildSubAgentPrompt(
 	domainMemory?: string,
 	userMemory?: string,
 	initialPageState?: string,
+	agentConfig?: AgentConfig,
+	depth?: number,
 ): string {
-	let prompt = `You are a sub-agent performing a specific task in your own browser tab. You have the same browser tools as the main agent: click_element, type_text, select_option, navigate, scroll, screenshot, get_page_state, refresh_page_state, read_text, read_table, wait_for_element, go_back.
+	// Use agent's SOUL.md as identity if available
+	const identity = agentConfig?.soul
+		? agentConfig.soul
+		: `You are a sub-agent performing a specific task in your own browser tab. You have the same browser tools as the main agent: click_element, type_text, select_option, navigate, scroll, screenshot, get_page_state, refresh_page_state, read_text, read_table, wait_for_element, go_back.`;
+
+	let prompt = `${identity}
 
 Your task: ${task}
 Your tab URL: ${targetUrl}
@@ -565,13 +593,28 @@ Instructions:
 - For GitHub: click on folder/file links directly using their selectors
 - Be thorough — complete ALL parts of the task
 - Do NOT ask for clarification — work with what you have
-- Do NOT try to spawn sub-agents
+${(depth ?? 0) >= 2 ? '- Do NOT try to spawn sub-agents' : ''}
 
 After completing the task, provide a clear summary of:
 1. What you did (actions taken)
 2. What you found (data extracted, results observed)
 3. Whether the task was successful`;
 
+	if (agentConfig?.skills) {
+		prompt += `\n\n## Agent Skills\n${agentConfig.skills}`;
+	}
+	if (agentConfig?.learnings) {
+		const lines = agentConfig.learnings.split('\n').filter((l) => l.trim().startsWith('- '));
+		if (lines.length > 0) {
+			prompt += `\n\n## Past Learnings\n${lines.slice(-20).join('\n')}`;
+		}
+	}
+	if (agentConfig?.errors) {
+		const lines = agentConfig.errors.split('\n').filter((l) => l.trim().startsWith('- '));
+		if (lines.length > 0) {
+			prompt += `\n\n## Known Failure Patterns\n${lines.slice(-10).join('\n')}`;
+		}
+	}
 	if (domainMemory) {
 		prompt += `\n\n## App Knowledge\n${domainMemory}`;
 	}

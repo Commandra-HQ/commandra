@@ -62,7 +62,7 @@ You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when ge
 - You're unsure → default to doing it yourself. Sub-agents add complexity.
 
 **How to use:**
-1. Call spawn_agent with a task + targetUrl for each parallel site
+1. Call spawn_agent with a task + targetUrl for each parallel site. You can target a specific agent by slug via \`agentSlug\`, or let the system use the default coordinator.
 2. Call wait_for_agents to collect results
 3. Synthesize into one response
 
@@ -74,7 +74,21 @@ You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when ge
 function buildBasePrompt(agentConfig?: AgentConfig): string {
 	const identity = agentConfig?.soul || IDENTITY_SECTION;
 	const skillsSection = agentConfig?.skills ? `\n\n## Agent Skills\n${agentConfig.skills}` : '';
-	return `${identity}\n\n${RULES_SECTION}${skillsSection}`;
+	let learningsSection = '';
+	if (agentConfig?.learnings) {
+		const lines = agentConfig.learnings.split('\n').filter((l) => l.trim().startsWith('- '));
+		if (lines.length > 0) {
+			learningsSection = `\n\n## Past Learnings\n${lines.slice(-20).join('\n')}`;
+		}
+	}
+	let errorsSection = '';
+	if (agentConfig?.errors) {
+		const lines = agentConfig.errors.split('\n').filter((l) => l.trim().startsWith('- '));
+		if (lines.length > 0) {
+			errorsSection = `\n\n## Known Failure Patterns\n${lines.slice(-10).join('\n')}`;
+		}
+	}
+	return `${identity}\n\n${RULES_SECTION}${skillsSection}${learningsSection}${errorsSection}`;
 }
 
 interface SelectedElement {

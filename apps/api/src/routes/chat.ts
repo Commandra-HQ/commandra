@@ -14,6 +14,7 @@ import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 import { searchConversations, searchElements } from '../db/vector-search.js';
 import { resolveAgent } from '../agent/agent-registry.js';
+import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
 
 /**
  * Detect if a user message clearly requires PARALLEL work across multiple distinct websites.
@@ -316,6 +317,7 @@ chatRoutes.post('/', async (c) => {
 
 		try {
 			let toolData: { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } | undefined;
+			const startTime = Date.now();
 			if (canAct) {
 				const result = await runOrchestrator({
 					userId: user.id,
@@ -334,6 +336,31 @@ chatRoutes.post('/', async (c) => {
 				fullResponse = result.response;
 				if (result.toolCalls.length > 0) {
 					toolData = { tools: result.toolCalls };
+				}
+
+				// Self-improvement: record run + analyze for non-coordinator agents
+				if (agentConfig.id !== '_coordinator') {
+					const durationMs = Date.now() - startTime;
+					recordAgentRun({
+						agentId: agentConfig.id,
+						userId: user.id,
+						conversationId: convId,
+						status: 'completed',
+						toolCalls: result.toolCalls.length,
+						durationMs,
+					}).catch((err) => console.warn('[SelfImprove] recordAgentRun failed:', err));
+
+					const transcript = [
+						...chatMessages.slice(-10).map((m) => `${m.role}: ${m.content}`),
+						`assistant: ${fullResponse}`,
+					].join('\n\n');
+					analyzeAndImprove({
+						userId: user.id,
+						agentConfig,
+						toolCalls: result.toolCalls,
+						transcript,
+						duration: durationMs,
+					}).catch((err) => console.warn('[SelfImprove] analyzeAndImprove failed:', err));
 				}
 			} else {
 				fullResponse = await runSimpleChat({

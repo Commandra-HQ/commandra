@@ -32,7 +32,7 @@ agentRoutes.get('/', async (c) => {
 agentRoutes.post('/', async (c) => {
 	const user = c.get('user');
 	const body = await c.req.json();
-	const { slug, name, description, model, maxIterations, tools, domains } = body as {
+	const { slug, name, description, model, maxIterations, tools, domains, trigger } = body as {
 		slug: string;
 		name: string;
 		description?: string;
@@ -40,6 +40,7 @@ agentRoutes.post('/', async (c) => {
 		maxIterations?: number;
 		tools?: string[];
 		domains?: string[];
+		trigger?: { cron?: string; enabled?: boolean };
 	};
 
 	if (!slug?.trim() || !name?.trim()) {
@@ -58,6 +59,7 @@ agentRoutes.post('/', async (c) => {
 		maxIterations,
 		tools,
 		domains,
+		trigger,
 		orgId: user.orgId,
 	});
 
@@ -79,13 +81,14 @@ agentRoutes.put('/:id', async (c) => {
 	const user = c.get('user');
 	const agentId = c.req.param('id');
 	const body = await c.req.json();
-	const { name, description, model, maxIterations, tools, domains } = body as {
+	const { name, description, model, maxIterations, tools, domains, trigger } = body as {
 		name?: string;
 		description?: string;
 		model?: string;
 		maxIterations?: number;
 		tools?: string[];
 		domains?: string[];
+		trigger?: { cron?: string; enabled?: boolean };
 	};
 
 	const agent = await updateAgent(agentId, user.id, {
@@ -95,6 +98,7 @@ agentRoutes.put('/:id', async (c) => {
 		maxIterations,
 		tools,
 		domains,
+		trigger,
 	});
 
 	if (!agent) return c.json({ error: 'Agent not found' }, 404);
