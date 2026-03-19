@@ -58,19 +58,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			return true; // async
 		}
 
-		case 'PAGE_INDEXED': {
-			// Content script re-indexed a page (SPA nav or DOM change) — forward to backend
-			const { domain: pageDomain, pageIndex: pi } = message as {
-				domain: string;
-				pageIndex: unknown;
-			};
-			if (pageDomain && pi) {
-				sendPageIndexed(pageDomain, pi);
-			}
-			sendResponse({ ok: true });
-			break;
-		}
-
 		case 'GET_WS_STATUS': {
 			sendResponse({ connected: isConnected() });
 			break;
