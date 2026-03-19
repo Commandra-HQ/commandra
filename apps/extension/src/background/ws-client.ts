@@ -72,6 +72,22 @@ export function connectWebSocket() {
 							})
 							.catch(() => {});
 						break;
+					case 'scheduled_agent_start':
+						chrome.runtime
+							.sendMessage({
+								type: 'SCHEDULED_AGENT_START',
+								payload: message.payload,
+							})
+							.catch(() => {});
+						break;
+					case 'scheduled_agent_end':
+						chrome.runtime
+							.sendMessage({
+								type: 'SCHEDULED_AGENT_END',
+								payload: message.payload,
+							})
+							.catch(() => {});
+						break;
 					case 'find_element_result': {
 						const cb = vectorSearchCallbacks.get(message.requestId);
 						if (cb) cb(message.result);

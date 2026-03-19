@@ -1,10 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTheme } from './theme.js';
 import { LoginScreen } from './screens/LoginScreen.js';
 import { ChatTab } from './tabs/ChatTab.js';
+import { HubTab } from './tabs/HubTab.js';
 import { SettingsTab } from './tabs/SettingsTab.js';
 
-type Tab = 'chat' | 'settings';
+type Tab = 'hub' | 'chat' | 'settings';
+
+export interface ActiveChat {
+	conversationId: string;
+	agentName: string;
+	task: string;
+	startedAt: number;
+}
 
 interface StoredUser {
 	id: string;
@@ -12,9 +20,77 @@ interface StoredUser {
 }
 
 function AuthenticatedApp({ user }: { user: StoredUser }) {
-	const [activeTab, setActiveTab] = useState<Tab>('chat');
+	const [activeTab, setActiveTab] = useState<Tab>('hub');
+	const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+	const [activeChats, setActiveChats] = useState<Map<string, ActiveChat>>(new Map());
+
+	// Listen for WS events forwarded from background (scheduled agent runs)
+	useEffect(() => {
+		function handleMessage(message: { type: string; payload?: Record<string, unknown> }) {
+			if (message.type === 'SCHEDULED_AGENT_START' && message.payload) {
+				const { conversationId, agentName, task } = message.payload as {
+					conversationId: string;
+					agentName: string;
+					task: string;
+				};
+				setActiveChats((prev) => {
+					const next = new Map(prev);
+					next.set(conversationId, {
+						conversationId,
+						agentName: agentName || 'Scheduled Agent',
+						task: task || 'Scheduled run',
+						startedAt: Date.now(),
+					});
+					return next;
+				});
+			} else if (message.type === 'SCHEDULED_AGENT_END' && message.payload) {
+				const { conversationId } = message.payload as { conversationId: string };
+				setActiveChats((prev) => {
+					const next = new Map(prev);
+					next.delete(conversationId);
+					return next;
+				});
+			}
+		}
+		chrome.runtime.onMessage.addListener(handleMessage);
+		return () => chrome.runtime.onMessage.removeListener(handleMessage);
+	}, []);
+
+	const markChatActive = useCallback(
+		(conversationId: string, agentName: string, task: string) => {
+			setActiveChats((prev) => {
+				const next = new Map(prev);
+				next.set(conversationId, {
+					conversationId,
+					agentName,
+					task,
+					startedAt: Date.now(),
+				});
+				return next;
+			});
+		},
+		[],
+	);
+
+	const markChatDone = useCallback((conversationId: string) => {
+		setActiveChats((prev) => {
+			const next = new Map(prev);
+			next.delete(conversationId);
+			return next;
+		});
+	}, []);
+
+	function openConversation(convId: string | null) {
+		setActiveConversationId(convId);
+		setActiveTab('chat');
+	}
+
+	function goToHub() {
+		setActiveTab('hub');
+	}
 
 	const tabs: { id: Tab; label: string }[] = [
+		{ id: 'hub', label: 'Hub' },
 		{ id: 'chat', label: 'Chat' },
 		{ id: 'settings', label: 'Settings' },
 	];
@@ -42,7 +118,21 @@ function AuthenticatedApp({ user }: { user: StoredUser }) {
 			</nav>
 
 			<div className="flex-1 overflow-y-auto">
-				{activeTab === 'chat' && <ChatTab />}
+				{activeTab === 'hub' && (
+					<HubTab
+						activeChats={activeChats}
+						onOpenConversation={openConversation}
+					/>
+				)}
+				{activeTab === 'chat' && (
+					<ChatTab
+						conversationId={activeConversationId}
+						onConversationChange={setActiveConversationId}
+						onBack={goToHub}
+						onStreamStart={markChatActive}
+						onStreamEnd={markChatDone}
+					/>
+				)}
 				{activeTab === 'settings' && <SettingsTab user={user} />}
 			</div>
 		</>

@@ -1,6 +1,7 @@
 import type { CrawlProgress, SSEEvent, SelectedElement } from '@afe/shared';
 import {
 	AlertCircle,
+	ArrowLeft,
 	ArrowRight,
 	Camera,
 	Check,
@@ -238,7 +239,21 @@ function parseSSEBuffer(buffer: string): [SSEEvent[], string] {
 	return [events, remaining];
 }
 
-export function ChatTab() {
+interface ChatTabProps {
+	conversationId: string | null;
+	onConversationChange: (id: string | null) => void;
+	onBack: () => void;
+	onStreamStart: (conversationId: string, agentName: string, task: string) => void;
+	onStreamEnd: (conversationId: string) => void;
+}
+
+export function ChatTab({
+	conversationId: externalConvId,
+	onConversationChange,
+	onBack,
+	onStreamStart,
+	onStreamEnd,
+}: ChatTabProps) {
 	const [mode, setMode] = useState<ViewMode>('onboarding');
 	const [domain, setDomain] = useState('');
 	const [pathScope, setPathScope] = useState('');
@@ -246,11 +261,10 @@ export function ChatTab() {
 	const [siteData, setSiteData] = useState<SiteData>({ site: null, pages: [] });
 	const [crawlProgress, setCrawlProgress] = useState<CrawlProgress | null>(null);
 
-	// Chat state
+	// Chat state — conversationId is now lifted to parent
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 	const [input, setInput] = useState('');
 	const [isActive, setIsActive] = useState(false);
-	const [conversationId, setConversationId] = useState<string | null>(null);
 	const [showContext, setShowContext] = useState(false);
 	const [wsConnected, setWsConnected] = useState(false);
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
@@ -258,7 +272,7 @@ export function ChatTab() {
 	const [selectorActive, setSelectorActive] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
-	// Conversation history state
+	// Conversation history state (for empty chat view)
 	const [pastConversations, setPastConversations] = useState<
 		{ id: string; title: string; messageCount: number; updatedAt: string }[]
 	>([]);
@@ -339,6 +353,18 @@ export function ChatTab() {
 			chrome.tabs.onUpdated.removeListener(onActivated);
 		};
 	}, [updateCurrentTab]);
+
+	// Load conversation when parent passes a conversationId
+	useEffect(() => {
+		if (externalConvId) {
+			loadConversation(externalConvId);
+		} else {
+			// New chat — clear state
+			setChatMessages([]);
+			setPendingApprovals([]);
+			loadConversationHistory();
+		}
+	}, [externalConvId]);
 
 	useEffect(() => {
 		chrome.runtime.sendMessage({ type: 'GET_WS_STATUS' }, (res) => {
@@ -469,6 +495,11 @@ export function ChatTab() {
 		setChatMessages((prev) => [...prev, assistantMsg]);
 		setIsActive(true);
 
+		// Notify parent of active stream
+		if (externalConvId) {
+			onStreamStart(externalConvId, 'Chat', text.slice(0, 60));
+		}
+
 		const controller = new AbortController();
 		abortRef.current = controller;
 
@@ -481,7 +512,7 @@ export function ChatTab() {
 				},
 				body: JSON.stringify({
 					message: text,
-					conversationId,
+					conversationId: externalConvId,
 					...extraBody,
 				}),
 				signal: controller.signal,
@@ -655,7 +686,10 @@ export function ChatTab() {
 							}
 
 							case 'done':
-								setConversationId(event.conversationId);
+								onConversationChange(event.conversationId);
+								if (event.conversationId) {
+									onStreamEnd(event.conversationId);
+								}
 								break;
 
 							case 'error':
@@ -820,9 +854,9 @@ export function ChatTab() {
 
 	function handleNewConversation() {
 		setChatMessages([]);
-		setConversationId(null);
+		onConversationChange(null);
 		setPendingApprovals([]);
-		loadConversationHistory();
+		onBack();
 	}
 
 	async function loadConversationHistory() {
@@ -857,7 +891,7 @@ export function ChatTab() {
 			});
 			if (res.ok) {
 				const data = await res.json();
-				setConversationId(convId);
+				onConversationChange(convId);
 				const loaded: ChatMessage[] = (data.messages || []).map(
 					(m: { id: string; role: string; content: string }) => ({
 						id: m.id,
@@ -920,6 +954,13 @@ export function ChatTab() {
 		<div className="flex flex-col h-full">
 			{/* Context bar */}
 			<div className="px-4 py-2 border-b border-border flex items-center justify-between">
+				<button
+					onClick={onBack}
+					className="p-1 mr-2 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
+					title="Back to Hub"
+				>
+					<ArrowLeft size={14} />
+				</button>
 				<button
 					onClick={() => setShowContext(!showContext)}
 					className="flex-1 text-left hover:opacity-80"

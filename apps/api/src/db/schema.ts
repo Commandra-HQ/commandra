@@ -98,6 +98,7 @@ export const conversations = pgTable('conversations', {
 		.notNull(),
 	orgId: uuid('org_id').references(() => organizations.id),
 	siteId: uuid('site_id').references(() => sites.id),
+	agentId: uuid('agent_id').references(() => agents.id),
 	title: text('title'),
 	outcome: text('outcome'), // 'success' | 'failure' | 'partial' | null
 	createdAt: timestamp('created_at').defaultNow().notNull(),
