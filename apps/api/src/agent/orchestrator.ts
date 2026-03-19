@@ -536,6 +536,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 							domainMemory,
 							userMemory,
 							currentDepth,
+							conversationId,
 						),
 					),
 				);
@@ -1001,7 +1002,7 @@ async function executeToolBlock(
 	}
 
 	// submit_plan — save plan + send for approval (blocks until user responds)
-	if (block.name === 'submit_plan' && params.conversationId) {
+	if (block.name === 'submit_plan' && conversationId) {
 		const args = block.input as { description: string; steps: string[] };
 		try {
 			const plan: StoredPlan = {
@@ -1009,7 +1010,7 @@ async function executeToolBlock(
 				steps: args.steps.map((label) => ({ label, status: 'pending' as const })),
 			};
 			// Persist plan to storage
-			await savePlan(userId, params.conversationId, plan);
+			await savePlan(userId, conversationId, plan);
 
 			// Update conversation planStatus
 			db.update(conversations)
@@ -1021,10 +1022,10 @@ async function executeToolBlock(
 					},
 					updatedAt: new Date(),
 				})
-				.where(eq(conversations.id, params.conversationId))
+				.where(eq(conversations.id, conversationId))
 				.catch(() => {});
 
-			const planId = params.conversationId; // use convId as planId
+			const planId = conversationId; // use convId as planId
 
 			// Send plan to extension for approval (blocks here)
 			const approval = await sendApprovalRequest(connectionId, {
@@ -1040,7 +1041,7 @@ async function executeToolBlock(
 					...plan,
 					steps: plan.steps.map((s) => ({ ...s })),
 				};
-				await savePlan(userId, params.conversationId, approvedPlan);
+				await savePlan(userId, conversationId, approvedPlan);
 				db.update(conversations)
 					.set({
 						planStatus: {
@@ -1050,7 +1051,7 @@ async function executeToolBlock(
 						},
 						updatedAt: new Date(),
 					})
-					.where(eq(conversations.id, params.conversationId))
+					.where(eq(conversations.id, conversationId))
 					.catch(() => {});
 
 				await onEvent({
@@ -1098,12 +1099,12 @@ async function executeToolBlock(
 	}
 
 	// update_plan — mark step status + persist
-	if (block.name === 'update_plan' && params.conversationId) {
+	if (block.name === 'update_plan' && conversationId) {
 		const args = block.input as { stepIndex: number; status: 'in_progress' | 'completed' | 'failed'; error?: string };
 		try {
 			const updated = await updatePlanStep(
 				userId,
-				params.conversationId,
+				conversationId,
 				args.stepIndex,
 				args.status,
 				args.error,
@@ -1136,13 +1137,13 @@ async function executeToolBlock(
 					},
 					updatedAt: new Date(),
 				})
-				.where(eq(conversations.id, params.conversationId))
+				.where(eq(conversations.id, conversationId))
 				.catch(() => {});
 
 			// Emit SSE event
 			await onEvent({
 				type: 'plan_step_updated',
-				planId: params.conversationId,
+				planId: conversationId,
 				stepIndex: args.stepIndex,
 				status: args.status,
 				error: args.error,
