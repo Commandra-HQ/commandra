@@ -29,7 +29,6 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | 12    | Backend Indexing + Search | Kill IndexedDB, sync pages to Postgres, selector resilience, incremental re-indexing           | ✅ Done |
 | 12b   | Vector Embeddings         | Provider-agnostic embeddings, background Inngest jobs, vector search for elements/memory       | ✅ Done |
 | 10c   | Adaptive Memory           | Per-user learning from corrections/preferences, memory management UI, save_memory tool         | ✅ Done |
-| 11    | Task Triggers             | Dashboard-triggered tasks, Inngest scheduled runs, task queue, execute in browser              |         |
 
 ## Scale
 
@@ -37,6 +36,12 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | ----- | ----------------- | ---------------------------------------------------------------- | ------ |
 | 13    | Agentic System Overhaul | Parallel tool calling, intelligent memory, multi-agent swarm, embedding improvements, learning loops, speed optimizations | ✅ Done  |
 | 14    | Teams + Sharing   | Org schema + API, member management, org-scoped data, dashboard org UI | ✅ Done |
+
+## Autonomous Agents (Next)
+
+| Phase | Name              | What Ships                                                       | Status |
+| ----- | ----------------- | ---------------------------------------------------------------- | ------ |
+| 15    | [Autonomous Agent System](phase15-autonomous-agents.md) | Agents as persistent, self-improving entities. Agent definitions in Supabase Storage (AGENT.yaml, SOUL.md, SKILLS.md). Agent registry with capability-based resolution. Agent-to-agent invocation. Self-improvement loop (learnings, errors, skill promotion). Agent scheduler (heartbeat/cron). Dashboard agent management UI. |  |
 
 ---
 

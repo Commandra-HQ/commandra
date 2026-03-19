@@ -189,3 +189,96 @@ Manage everything from the extension side panel
 ```
 
 The key insight: **indexing at setup time is what makes everything else work.** Without the index, the agent is just another generic browser AI guessing at the UI. With it, the agent already knows every page, form, table, and button — it just needs the user to say what to do.
+
+---
+
+## Creating Agents
+
+### From Dashboard
+
+```
+User navigates to /agents in the dashboard
+    → Clicks "Create Agent"
+    → Wizard walks through:
+
+Step 1: Identity
+    Name: "Inbox Manager"
+    Description: "Triages email across Gmail and Outlook"
+    Domains: [mail.google.com, outlook.office.com]
+
+Step 2: Capabilities & Model
+    Capabilities: [email_triage, draft_replies, inbox_zero]
+    Model: Strong (for reasoning about email content)
+
+Step 3: Tools & Safety
+    Allowed: all browser tools
+    Blocked: [export_data]
+    Safety: review by default
+
+Step 4: Triggers
+    ☑ User invocation
+    ☑ Other agents can invoke me
+    ☑ Schedule: weekdays at 9am — "Check for urgent emails"
+
+Step 5: Personality (SOUL.md editor)
+    "You are a focused email triage agent.
+     Never delete emails — archive or label instead.
+     Summarize long threads in 2-3 sentences."
+
+    → [Create Agent]
+```
+
+### Agent at Work
+
+```
+User opens Gmail → extension side panel
+    → Agent auto-resolved: inbox-manager (domain match)
+
+User: "Triage my inbox"
+Agent (inbox-manager):
+    → Uses learned skills (SKILLS.md) for Gmail-specific selectors
+    → Remembers past corrections (LEARNINGS.md): "always archive, never delete"
+    → Avoids known errors (ERRORS.md): "thread view has different selectors"
+    → Categorizes emails, applies labels, archives read items
+    → After completion: writes new learnings to SKILLS.md
+
+Next run: inbox-manager is smarter. It knows the user's labeling preferences,
+which senders are urgent, and which UI patterns work.
+```
+
+### Agent Invoking Agent
+
+```
+User: "Do the monthly close — pull finance data, headcount, and utilization"
+
+Coordinator agent:
+    → Detects multi-domain task
+    → resolveAgent("finance data") → data-extractor
+    → resolveAgent("headcount") → hr-agent
+    → resolveAgent("utilization") → project-tracker
+
+    spawn_agent(agent: "data-extractor", task: "Export Q1 financials from ERP")
+    spawn_agent(agent: "hr-agent", task: "Get current headcount by department")
+    spawn_agent(agent: "project-tracker", task: "Pull utilization rates for March")
+
+    → Each agent opens its own tab, runs with its own skills and memory
+    → wait_for_agents() collects all results
+    → Coordinator synthesizes into final summary
+```
+
+### Scheduled Agent
+
+```
+9:00 AM Monday — Agent scheduler fires
+
+    inbox-manager (cron: "0 9 * * 1-5"):
+    1. Check: is user's extension connected? YES
+    2. Cheap check: navigate to mail.google.com, get_page_state
+       → Unread count: 12. Proceed with full run.
+    3. Run agent with task: "Check for urgent emails and summarize"
+    4. Agent triages inbox, flags 3 urgent items
+    5. Result stored in agent_runs
+    6. Notification sent to user: "3 urgent emails flagged"
+
+    User sees notification in dashboard or extension side panel.
+```

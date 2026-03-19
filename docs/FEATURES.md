@@ -112,16 +112,19 @@ Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent.
 | **Contextual awareness** | Agent uses domain and user memory to improve over time |
 | **Conversation continuity** | Resume past conversations with full context recall |
 
-### Tier 3: Automation
+### Tier 3: Autonomous Agents
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **Scheduled agents** | Cron triggers (daily, weekly, monthly) | |
+| **Agent definitions** | User-created agents with AGENT.yaml + SOUL.md in Supabase Storage | |
+| **Agent registry** | Load, list, resolve agents by capability or domain | |
+| **Agent-to-agent invocation** | Agents invoke other agents by slug or capability match | |
+| **Self-improvement loop** | Agents write SKILLS.md, LEARNINGS.md, ERRORS.md after each run | |
+| **Agent scheduler** | Cron triggers — agents wake up, do work, go back to sleep | |
 | **Webhook triggers** | External systems can trigger agent runs | |
-| **Notifications** | Slack/email/webhook on agent completion | |
 | **Multi-agent swarm** | Parallel sub-agents in separate browser tabs, coordinated by lead agent | ✅ |
 | **Cross-app workflows** | Chain actions across different web apps via swarm | ✅ |
-| **Agent sessions** | Resume interrupted agent runs | |
+| **Agent dashboard** | Create, configure, monitor, and manage agents via web UI | |
 
 ### Tier 4: Teams & Enterprise
 
