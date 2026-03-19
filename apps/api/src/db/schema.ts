@@ -98,8 +98,14 @@ export const conversations = pgTable('conversations', {
 		.notNull(),
 	orgId: uuid('org_id').references(() => organizations.id),
 	siteId: uuid('site_id').references(() => sites.id),
+	agentId: uuid('agent_id').references(() => agents.id),
 	title: text('title'),
 	outcome: text('outcome'), // 'success' | 'failure' | 'partial' | null
+	planStatus: jsonb('plan_status').$type<{
+		totalSteps: number;
+		completedSteps: number;
+		status: 'pending' | 'approved' | 'in_progress' | 'completed' | 'failed';
+	}>(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

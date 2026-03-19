@@ -303,6 +303,14 @@ chatRoutes.post('/', async (c) => {
 	// Resolve agent — explicit agentId > domain match > default coordinator
 	const agentConfig = await resolveAgent(user.id, agentId, domain);
 
+	// Set agentId on conversation if this is a non-coordinator agent
+	if (agentConfig.id !== '_coordinator' && convId) {
+		db.update(conversations)
+			.set({ agentId: agentConfig.id })
+			.where(eq(conversations.id, convId))
+			.catch(() => {}); // fire-and-forget
+	}
+
 	// Get the abort signal from the request (fires when client disconnects)
 	const signal = c.req.raw.signal;
 
@@ -329,6 +337,7 @@ chatRoutes.post('/', async (c) => {
 					userMemory: userMem,
 					priorContext: priorContext || undefined,
 					domain,
+					conversationId: convId,
 					onEvent,
 					signal,
 					agentConfig,

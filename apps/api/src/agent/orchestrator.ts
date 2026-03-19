@@ -24,12 +24,16 @@ import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
-import { loadAgentBySlug } from './agent-registry.js';
-import { parsePlan } from './planner.js';
+import { createAgent, loadAgentBySlug } from './agent-registry.js';
 import { buildSystemPrompt } from './prompts.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
+import { uploadAgentFile } from '../storage/agent-files.js';
 import { saveLocalFile } from '../storage/local.js';
+import { type StoredPlan, loadPlan, savePlan, updatePlanStep } from '../storage/plan-files.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
+import { db } from '../db/index.js';
+import { conversations } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
 
 export interface OrchestratorParams {
 	userId: string;
@@ -48,6 +52,7 @@ export interface OrchestratorParams {
 	userMemory?: string;
 	priorContext?: string;
 	domain?: string;
+	conversationId?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 	maxIterations?: number;
@@ -82,6 +87,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		userMemory,
 		priorContext,
 		domain,
+		conversationId,
 		onEvent,
 		signal,
 		maxIterations: maxIter,
@@ -199,6 +205,112 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			required: ['filename', 'content', 'category'],
 		},
 	};
+	const createAgentTool = {
+		name: 'create_agent',
+		description:
+			'Create a new persistent agent that specializes in a task or domain. Use when the user describes a repeatable workflow, asks you to "remember how to do this", wants a scheduled task, or explicitly asks for an agent. The agent will retain its personality and skills across sessions.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				slug: {
+					type: 'string',
+					description: 'URL-safe identifier (lowercase, hyphens, underscores). e.g. "gmail-summarizer", "jira-triager"',
+				},
+				name: {
+					type: 'string',
+					description: 'Human-readable name. e.g. "Gmail Morning Summarizer"',
+				},
+				description: {
+					type: 'string',
+					description: 'What this agent does — one sentence. e.g. "Summarizes unread emails from key contacts every morning"',
+				},
+				soul: {
+					type: 'string',
+					description: 'The agent\'s personality and behavioral instructions (becomes SOUL.md). Write in second person: "You are a..."',
+				},
+				domains: {
+					type: 'array',
+					items: { type: 'string' },
+					description: 'Domains this agent works on. e.g. ["mail.google.com", "*.github.com"]',
+				},
+				cron: {
+					type: 'string',
+					description: 'Optional cron schedule (5-field). e.g. "0 9 * * 1-5" for weekdays at 9am. Only if the user wants it to run automatically.',
+				},
+			},
+			required: ['slug', 'name', 'description', 'soul'],
+		},
+	};
+	const updateAgentFilesTool = {
+		name: 'update_agent_files',
+		description:
+			'Write or update a file for an existing agent (SOUL.md, SKILLS.md, LEARNINGS.md, ERRORS.md). Use after create_agent to add initial skills, or to update an agent\'s personality/capabilities.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				agentSlug: {
+					type: 'string',
+					description: 'Slug of the agent to update',
+				},
+				filename: {
+					type: 'string',
+					enum: ['SOUL.md', 'SKILLS.md', 'LEARNINGS.md', 'ERRORS.md'],
+					description: 'Which file to write',
+				},
+				content: {
+					type: 'string',
+					description: 'Full file content (replaces existing)',
+				},
+			},
+			required: ['agentSlug', 'filename', 'content'],
+		},
+	};
+	const submitPlanTool = {
+		name: 'submit_plan',
+		description:
+			'Submit an execution plan for user approval BEFORE executing any multi-step task (3+ steps). This is MANDATORY — you must NOT execute a plan until the user approves it. The plan will be shown to the user and you must wait for their approval or rejection.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				description: {
+					type: 'string',
+					description: 'Brief summary of what this plan accomplishes',
+				},
+				steps: {
+					type: 'array',
+					items: { type: 'string' },
+					description: 'Ordered list of steps to execute. Each should be a clear, actionable description.',
+				},
+			},
+			required: ['description', 'steps'],
+		},
+	};
+
+	const updatePlanTool = {
+		name: 'update_plan',
+		description:
+			'Update the status of a plan step after executing it. Call this after each step completes (success or failure) to keep the plan up to date.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				stepIndex: {
+					type: 'number',
+					description: 'Zero-based index of the step to update',
+				},
+				status: {
+					type: 'string',
+					enum: ['in_progress', 'completed', 'failed'],
+					description: 'New status for the step',
+				},
+				error: {
+					type: 'string',
+					description: 'Error message if step failed',
+				},
+			},
+			required: ['stepIndex', 'status'],
+		},
+	};
+
 	const currentDepth = params.depth ?? 0;
 	const tools = [
 		...browserTools,
@@ -207,6 +319,10 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		// Exclude spawn/wait tools at depth >= 2 to prevent deep nesting
 		...(currentDepth >= 2 ? [] : [spawnAgentTool, waitForAgentsTool]),
 		saveToLocalTool,
+		createAgentTool,
+		updateAgentFilesTool,
+		submitPlanTool,
+		updatePlanTool,
 	];
 	const context = { connectionId, userId };
 
@@ -373,20 +489,6 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
 		if (signal?.aborted) break;
 
-		// Detect plan blocks in accumulated text and emit explicit plan SSE event
-		const textSoFar = content
-			.filter((b) => b.type === 'text')
-			.map((b) => (b as TextBlock).text)
-			.join('');
-		const detectedPlan = parsePlan(textSoFar);
-		if (detectedPlan) {
-			await onEvent({
-				type: 'plan',
-				steps: detectedPlan.steps,
-				description: detectedPlan.description,
-			});
-		}
-
 		const response = { content, stopReason };
 
 		// Process tool calls — parallel for safe tools, sequential for review/blocked
@@ -419,6 +521,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 							domainMemory,
 							userMemory,
 							currentDepth,
+							conversationId,
 						),
 					),
 				);
@@ -581,7 +684,7 @@ function partitionToolsBySafety(
 
 	for (const block of toolBlocks) {
 		// Internal tools are always safe (no WS routing)
-		if (['save_memory', 'recall_memory', 'spawn_agent', 'wait_for_agents', 'save_to_local'].includes(block.name)) {
+		if (['save_memory', 'recall_memory', 'spawn_agent', 'wait_for_agents', 'save_to_local', 'create_agent', 'update_agent_files'].includes(block.name)) {
 			safe.push(block);
 			continue;
 		}
@@ -621,6 +724,7 @@ async function executeToolBlock(
 	domainMemoryStr?: string,
 	userMemoryStr?: string,
 	depth?: number,
+	conversationId?: string,
 ): Promise<ToolResultBlock> {
 	// Handle internal tools (no WS routing)
 
@@ -787,6 +891,267 @@ async function executeToolBlock(
 					success: true,
 					message: `File saved to ~/.commandra/${saved.path}`,
 					sizeBytes: saved.sizeBytes,
+				}),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// create_agent — create a new persistent agent from conversation context
+	if (block.name === 'create_agent') {
+		const args = block.input as { slug: string; name: string; description: string; soul: string; domains?: string[]; cron?: string };
+		try {
+			const agent = await createAgent(userId, {
+				slug: args.slug,
+				name: args.name,
+				description: args.description,
+				domains: args.domains,
+				trigger: args.cron ? { cron: args.cron, enabled: true } : undefined,
+			});
+			// Write SOUL.md immediately
+			await uploadAgentFile(userId, args.slug, 'SOUL.md', args.soul);
+			await onEvent({
+				type: 'tool_start',
+				toolName: 'create_agent',
+				label: `Created agent: ${args.name}`,
+				args: block.input,
+			});
+			await onEvent({
+				type: 'tool_end',
+				toolName: 'create_agent',
+				success: true,
+				result: { success: true, agentId: agent.id, slug: agent.slug },
+			});
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({
+					success: true,
+					agentId: agent.id,
+					slug: agent.slug,
+					message: `Agent "${args.name}" created with slug "${args.slug}". It has a SOUL.md. You can use update_agent_files to add SKILLS.md if needed.${args.cron ? ` Scheduled: ${args.cron}` : ''}${args.domains?.length ? ` Domains: ${args.domains.join(', ')}` : ''}`,
+				}),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// update_agent_files — write/update agent files (SOUL.md, SKILLS.md, etc.)
+	if (block.name === 'update_agent_files') {
+		const args = block.input as { agentSlug: string; filename: string; content: string };
+		try {
+			await uploadAgentFile(userId, args.agentSlug, args.filename, args.content);
+			await onEvent({
+				type: 'tool_start',
+				toolName: 'update_agent_files',
+				label: `${args.agentSlug}/${args.filename}`,
+				args: block.input,
+			});
+			await onEvent({
+				type: 'tool_end',
+				toolName: 'update_agent_files',
+				success: true,
+				result: { success: true, file: args.filename },
+			});
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: true, message: `Updated ${args.filename} for agent "${args.agentSlug}"` }),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// submit_plan — save plan + send for approval (blocks until user responds)
+	if (block.name === 'submit_plan') {
+		const args = block.input as { description: string; steps: string[] };
+		try {
+			const plan: StoredPlan = {
+				description: args.description,
+				steps: args.steps.map((label) => ({ label, status: 'pending' as const })),
+			};
+			// Persist plan to storage (if we have a conversation)
+			if (conversationId) {
+				await savePlan(userId, conversationId, plan);
+				db.update(conversations)
+					.set({
+						planStatus: {
+							totalSteps: plan.steps.length,
+							completedSteps: 0,
+							status: 'pending' as const,
+						},
+						updatedAt: new Date(),
+					})
+					.where(eq(conversations.id, conversationId))
+					.catch(() => {});
+			}
+
+			const planId = conversationId || 'plan'; // use convId as planId
+
+			// Send plan to extension for approval (blocks here)
+			const approval = await sendApprovalRequest(connectionId, {
+				type: 'plan_approval',
+				planId,
+				description: args.description,
+				steps: args.steps,
+			});
+
+			if (approval.approved) {
+				// Mark plan as approved
+				if (conversationId) {
+					const approvedPlan: StoredPlan = {
+						...plan,
+						steps: plan.steps.map((s) => ({ ...s })),
+					};
+					await savePlan(userId, conversationId, approvedPlan);
+					db.update(conversations)
+						.set({
+							planStatus: {
+								totalSteps: plan.steps.length,
+								completedSteps: 0,
+								status: 'approved' as const,
+							},
+							updatedAt: new Date(),
+						})
+						.where(eq(conversations.id, conversationId))
+						.catch(() => {});
+				}
+
+				await onEvent({
+					type: 'plan_approved',
+					planId,
+				});
+
+				return {
+					type: 'tool_result',
+					toolUseId: block.id,
+					content: JSON.stringify({
+						success: true,
+						approved: true,
+						message: 'Plan approved by user. Proceed with execution. Call update_plan with stepIndex and status as you complete each step.',
+					}),
+					isError: false,
+				};
+			} else {
+				await onEvent({
+					type: 'plan_rejected',
+					planId,
+					reason: approval.reason,
+				});
+				return {
+					type: 'tool_result',
+					toolUseId: block.id,
+					content: JSON.stringify({
+						success: true,
+						approved: false,
+						reason: approval.reason || 'User rejected the plan',
+						message: 'Plan rejected. Ask the user what they would like to change.',
+					}),
+					isError: false,
+				};
+			}
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// update_plan — mark step status + persist
+	if (block.name === 'update_plan') {
+		const args = block.input as { stepIndex: number; status: 'in_progress' | 'completed' | 'failed'; error?: string };
+		if (!conversationId) {
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: 'No conversation context for plan updates' }),
+				isError: true,
+			};
+		}
+		try {
+			const updated = await updatePlanStep(
+				userId,
+				conversationId,
+				args.stepIndex,
+				args.status,
+				args.error,
+			);
+
+			if (!updated) {
+				return {
+					type: 'tool_result',
+					toolUseId: block.id,
+					content: JSON.stringify({ success: false, error: 'Plan not found or invalid step index' }),
+					isError: true,
+				};
+			}
+
+			const completedSteps = updated.steps.filter((s) => s.status === 'completed').length;
+			const failedSteps = updated.steps.filter((s) => s.status === 'failed').length;
+			const allDone = completedSteps + failedSteps === updated.steps.length;
+
+			// Update conversation planStatus
+			db.update(conversations)
+				.set({
+					planStatus: {
+						totalSteps: updated.steps.length,
+						completedSteps,
+						status: allDone
+							? failedSteps > 0
+								? ('failed' as const)
+								: ('completed' as const)
+							: ('in_progress' as const),
+					},
+					updatedAt: new Date(),
+				})
+				.where(eq(conversations.id, conversationId))
+				.catch(() => {});
+
+			// Emit SSE event
+			await onEvent({
+				type: 'plan_step_updated',
+				planId: conversationId,
+				stepIndex: args.stepIndex,
+				status: args.status,
+				error: args.error,
+			});
+
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({
+					success: true,
+					completedSteps,
+					totalSteps: updated.steps.length,
+					allDone,
 				}),
 				isError: false,
 			};

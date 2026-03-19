@@ -74,13 +74,13 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Never bypass the safety classification system
 
 ### Agent System (Phase 15 — Active)
-- **Agents are files**: each agent is a folder in Supabase Storage with `AGENT.yaml` (config), `SOUL.md` (personality), `SKILLS.md` (learned capabilities), `LEARNINGS.md` (corrections/discoveries), `ERRORS.md` (failure patterns), and `workspace/` (scratch files)
-- **Agent registry**: `apps/api/src/agent/agent-registry.ts` — loads, lists, resolves agents by capability or domain match
-- **Default agent**: every user gets a `_coordinator` agent that behaves like the current orchestrator. Users who never create agents get this automatically.
-- **Agent-to-agent invocation**: `spawn_agent` can target a specific agent by slug or match by capability. Max invocation depth: 2. Agents have `can_invoke` lists.
-- **Self-improvement**: after every run, post-execution analysis writes to SKILLS.md (new patterns), LEARNINGS.md (corrections), ERRORS.md (failures). Skills are selectively injected into prompts (not full dump).
-- **Agent scheduler**: agents with cron triggers run on schedule (requires active browser connection). Cheap check first, full LLM run only if needed.
-- **Supabase Storage**: `@supabase/supabase-js` client at `apps/api/src/storage/supabase.ts`. Agent files in `agent-files` bucket, path: `{userId}/agents/{agentSlug}/`. RLS enforces per-user isolation.
+- **Agents are files**: each agent is a folder in Supabase Storage with `SOUL.md` (personality/identity), `SKILLS.md` (learned capabilities), `LEARNINGS.md` (corrections/discoveries), `ERRORS.md` (failure patterns). Metadata (slug, name, model, tools, domains, trigger) lives in Postgres `agents` table.
+- **Agent registry**: `apps/api/src/agent/agent-registry.ts` — CRUD, domain-match resolution, hydration (DB row + Storage files). `loadAgentBySlug()` for slug-based lookup.
+- **Default agent**: every user gets a `_coordinator` agent (hardcoded, not in DB). Users who never create agents get this automatically. Coordinator does NOT trigger self-improvement.
+- **Agent-to-agent invocation**: `spawn_agent` tool accepts optional `agentSlug` parameter to target a specific agent. Sub-agents inherit the target agent's identity (SOUL.md), model, tool allowlist, and learned files. Max invocation depth: 2 — at depth >= 2, spawn_agent/wait_for_agents are excluded from tool list.
+- **Self-improvement**: after every non-coordinator agent run, `analyzeAndImprove()` calls the fast model to extract new skills/learnings/errors and appends timestamped entries to the agent's files in Supabase Storage. `recordAgentRun()` inserts a row into `agent_runs` for tracking. Both are fire-and-forget (never block the response).
+- **Agent scheduler**: agents with `trigger: { cron, enabled }` run on a 60-second interval. Flow: query scheduled agents → cron match → check active WS connection → cheap LLM check (YES/NO) → full orchestrator run with no-op SSE handler. `startScheduler()` called at server startup, `stopScheduler()` on SIGTERM/SIGINT.
+- **Supabase Storage**: `@supabase/supabase-js` client at `apps/api/src/storage/supabase.ts`. Agent files in `agents` bucket, path: `{userId}/{agentSlug}/{filename}`.
 
 ### Agent Orchestration
 - Provider-agnostic: all LLM calls go through the provider layer (`apps/api/src/llm/`)
@@ -91,8 +91,9 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - **Per-agent config**: orchestrator accepts `AgentConfig` — respects agent's model, tool allowlist, safety overrides, max iterations
 - **Parallel tool calling**: safe tools execute in parallel via `Promise.allSettled`, review tools sequential with approval gates, blocked tools rejected immediately
 - **Token budget management**: strips old screenshots, truncates long results, catches context_length_exceeded and retries with aggressive trimming
-- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`, `save_to_workspace`, `read_from_workspace`, `list_workspace`
-- **Multi-agent swarm**: coordinator spawns sub-agents (with agent identity) in separate browser tabs via `open_tab`/`close_tab` WS actions. Max 3 concurrent, 10 iterations each, 2min timeout.
+- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`, `save_to_local`, `create_agent`, `update_agent_files`
+- **Agent creation from chat**: `create_agent` tool lets the LLM create agents mid-conversation when it detects repeatable workflows, scheduled tasks, or explicit user requests. `update_agent_files` writes SOUL.md/SKILLS.md for the new agent. Agents emerge from usage — users don't need to visit the dashboard.
+- **Multi-agent swarm**: coordinator spawns sub-agents (with target agent identity) in separate browser tabs via `open_tab` WS action. Max 3 concurrent, 10 iterations each, 2min timeout. Sub-agents use the target agent's model, tool allowlist, and SOUL.md. Tabs persist after completion (user can inspect). `recordAgentRun()` called for non-coordinator sub-agents.
 - **Auto page state refresh**: after `click_element`, `navigate`, `type_text`, `select_option` — orchestrator auto-calls `get_page_state` and merges updated DOM into the tool result (500ms delay for SPA transitions)
 - **Embedding-powered context enrichment**: before orchestrator runs, `chat.ts` searches `conversation_embeddings` and `element_embeddings` in parallel; results injected as "Prior Context" in system prompt
 - **Structured tool call history**: assistant messages stored with `toolData` jsonb (tool names, args, results, success). On conversation resume, tool summaries appended to history for multi-turn action context
@@ -122,10 +123,9 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Org-scoped tables have nullable `orgId` — use `getOrgOrUserScope()` for queries
 - `messages.tool_data` (jsonb): stores structured tool call records (name, args, result, success) alongside assistant text for multi-turn context
 - Three embedding tables actively used: `element_embeddings`, `conversation_embeddings` (both searched during context enrichment), `memory_embeddings` (reserved)
-- `agents` table: metadata + stats (slug, name, status, capabilities, domains, run counts). Config lives in Supabase Storage, not DB.
-- `agent_runs` table: run history (trigger, status, result, tools_used, tokens, learnings_generated)
-- `agent_embeddings` table: capability embeddings for semantic agent resolution
-- Agent files (AGENT.yaml, SOUL.md, SKILLS.md, etc.) live in Supabase Storage bucket `agent-files`, path: `{userId}/agents/{agentSlug}/`
+- `agents` table: metadata (slug, name, description, model, maxIterations, tools, domains, trigger). Personality/skills live in Supabase Storage, not DB.
+- `agent_runs` table: run history (agentId, userId, conversationId, status, toolCalls, tokensUsed, durationMs, error)
+- Agent files (SOUL.md, SKILLS.md, LEARNINGS.md, ERRORS.md) live in Supabase Storage bucket `agents`, path: `{userId}/{agentSlug}/{filename}`
 
 ### File Structure
 - Monorepo with Turborepo: `apps/extension`, `apps/api`, `apps/web`, `packages/shared`

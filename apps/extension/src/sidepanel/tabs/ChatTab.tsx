@@ -1,6 +1,7 @@
 import type { CrawlProgress, SSEEvent, SelectedElement } from '@afe/shared';
 import {
 	AlertCircle,
+	ArrowLeft,
 	ArrowRight,
 	Camera,
 	Check,
@@ -20,7 +21,6 @@ import {
 	MousePointer,
 	MoveVertical,
 	Pilcrow,
-	Play,
 	Send,
 	Settings2,
 	Square,
@@ -29,7 +29,9 @@ import {
 	RefreshCw,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
+import { useActiveChats } from '../contexts/active-chats.js';
 
 /** Site data shapes returned by backend API (via background script) */
 interface StoredSite {
@@ -123,6 +125,13 @@ interface ApprovalRequest {
 	reason: string;
 }
 
+interface PlanApprovalRequest {
+	requestId: string;
+	planId: string;
+	description: string;
+	steps: string[];
+}
+
 interface SiteData {
 	site: StoredSite | null;
 	pages: StoredPage[];
@@ -173,48 +182,6 @@ function formatToolArgs(toolName: string, args?: Record<string, unknown>): strin
 	return null;
 }
 
-function parsePlan(text: string): Plan | null {
-	const match = text.match(/<!--plan:(.*?)-->/s);
-	if (!match) return null;
-	try {
-		const plan = JSON.parse(match[1]) as Plan;
-		if (!plan.steps || !Array.isArray(plan.steps) || plan.steps.length === 0) return null;
-		return plan;
-	} catch {
-		return null;
-	}
-}
-
-function stripPlanBlock(text: string): string {
-	return text.replace(/<!--plan:.*?-->/s, '').trim();
-}
-
-/** Find the active plan block and advance the next pending step to the given status */
-function advancePlanStep(blocks: MessageBlock[], status: 'running' | 'done' | 'error') {
-	for (const b of blocks) {
-		if (b.type === 'plan' && b.plan.stepStatus) {
-			const idx = b.plan.stepStatus.indexOf('pending');
-			if (idx !== -1) {
-				b.plan.stepStatus[idx] = status;
-				return;
-			}
-		}
-	}
-}
-
-/** Update the currently running plan step to done/error */
-function updatePlanStepStatus(blocks: MessageBlock[], status: 'done' | 'error') {
-	for (const b of blocks) {
-		if (b.type === 'plan' && b.plan.stepStatus) {
-			const idx = b.plan.stepStatus.lastIndexOf('running');
-			if (idx !== -1) {
-				b.plan.stepStatus[idx] = status;
-				return;
-			}
-		}
-	}
-}
-
 /**
  * Parse SSE frames from a buffer. Returns [parsedEvents, remainingBuffer].
  */
@@ -239,6 +206,9 @@ function parseSSEBuffer(buffer: string): [SSEEvent[], string] {
 }
 
 export function ChatTab() {
+	const { conversationId: externalConvId } = useParams<{ conversationId?: string }>();
+	const navigate = useNavigate();
+	const { activeChats, markActive, markDone } = useActiveChats();
 	const [mode, setMode] = useState<ViewMode>('onboarding');
 	const [domain, setDomain] = useState('');
 	const [pathScope, setPathScope] = useState('');
@@ -246,19 +216,19 @@ export function ChatTab() {
 	const [siteData, setSiteData] = useState<SiteData>({ site: null, pages: [] });
 	const [crawlProgress, setCrawlProgress] = useState<CrawlProgress | null>(null);
 
-	// Chat state
+	// Chat state — conversationId is now lifted to parent
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 	const [input, setInput] = useState('');
 	const [isActive, setIsActive] = useState(false);
-	const [conversationId, setConversationId] = useState<string | null>(null);
 	const [showContext, setShowContext] = useState(false);
 	const [wsConnected, setWsConnected] = useState(false);
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
+	const [pendingPlanApproval, setPendingPlanApproval] = useState<PlanApprovalRequest | null>(null);
 	const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
 	const [selectorActive, setSelectorActive] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
-	// Conversation history state
+	// Conversation history state (for empty chat view)
 	const [pastConversations, setPastConversations] = useState<
 		{ id: string; title: string; messageCount: number; updatedAt: string }[]
 	>([]);
@@ -340,6 +310,22 @@ export function ChatTab() {
 		};
 	}, [updateCurrentTab]);
 
+	// Load conversation when parent passes a conversationId
+	useEffect(() => {
+		console.log('[ChatTab] externalConvId changed:', externalConvId, 'mode:', mode);
+		if (externalConvId) {
+			// Opening an existing conversation — skip onboarding, go straight to chat
+			setMode('chat');
+			loadConversation(externalConvId);
+		} else {
+			console.log('[ChatTab] No convId, clearing state');
+			// New chat — clear state
+			setChatMessages([]);
+			setPendingApprovals([]);
+			loadConversationHistory();
+		}
+	}, [externalConvId]);
+
 	useEffect(() => {
 		chrome.runtime.sendMessage({ type: 'GET_WS_STATUS' }, (res) => {
 			if (res) setWsConnected(res.connected);
@@ -356,8 +342,17 @@ export function ChatTab() {
 					setMode('crawling');
 				}
 			} else if (message.type === 'APPROVAL_REQUEST') {
-				const req = message as unknown as { requestId: string; payload: ApprovalRequest };
-				setPendingApprovals((prev) => [...prev, { ...req.payload, requestId: req.requestId }]);
+				const req = message as unknown as { requestId: string; payload: Record<string, unknown> };
+				if (req.payload.type === 'plan_approval') {
+					setPendingPlanApproval({
+						requestId: req.requestId,
+						planId: req.payload.planId as string,
+						description: req.payload.description as string,
+						steps: req.payload.steps as string[],
+					});
+				} else {
+					setPendingApprovals((prev) => [...prev, { ...(req.payload as unknown as ApprovalRequest), requestId: req.requestId }]);
+				}
 			} else if (message.type === 'ELEMENT_SELECTED') {
 				const els = message.payload as SelectedElement[];
 				setSelectedElements(els);
@@ -469,6 +464,11 @@ export function ChatTab() {
 		setChatMessages((prev) => [...prev, assistantMsg]);
 		setIsActive(true);
 
+		// Notify parent of active stream
+		if (externalConvId) {
+			markActive(externalConvId, 'Chat', text.slice(0, 60));
+		}
+
 		const controller = new AbortController();
 		abortRef.current = controller;
 
@@ -481,7 +481,7 @@ export function ChatTab() {
 				},
 				body: JSON.stringify({
 					message: text,
-					conversationId,
+					conversationId: externalConvId,
 					...extraBody,
 				}),
 				signal: controller.signal,
@@ -546,8 +546,6 @@ export function ChatTab() {
 									args: event.args,
 									status: 'running',
 								});
-								// Advance plan step tracking
-								advancePlanStep(blocks, 'running');
 								scheduleFlush();
 								break;
 							}
@@ -569,8 +567,6 @@ export function ChatTab() {
 										break;
 									}
 								}
-								// Mark current running plan step as done/error
-								updatePlanStepStatus(blocks, event.success ? 'done' : 'error');
 								scheduleFlush();
 								break;
 							}
@@ -584,16 +580,27 @@ export function ChatTab() {
 								scheduleFlush();
 								break;
 
-							case 'plan': {
-								const planData: Plan = {
-									steps: event.steps,
-									description: event.description,
-									stepStatus: event.steps.map(() => 'pending' as const),
-								};
-								blocksRef.current.push({ type: 'plan', plan: planData });
+							case 'plan_step_updated': {
+								// Update the plan block's step status
+								const blocks = blocksRef.current;
+								for (const b of blocks) {
+									if (b.type === 'plan' && b.plan.stepStatus) {
+										const statusMap: Record<string, 'pending' | 'running' | 'done' | 'error'> = {
+											in_progress: 'running',
+											completed: 'done',
+											failed: 'error',
+										};
+										b.plan.stepStatus[event.stepIndex] = statusMap[event.status] || 'pending';
+									}
+								}
 								scheduleFlush();
 								break;
 							}
+
+							case 'plan_approved':
+							case 'plan_rejected':
+								// These are informational — the plan block already renders
+								break;
 
 							case 'sub_agent_start': {
 								const blocks = blocksRef.current;
@@ -655,7 +662,10 @@ export function ChatTab() {
 							}
 
 							case 'done':
-								setConversationId(event.conversationId);
+								if (event.conversationId) {
+									navigate(`/chat/${event.conversationId}`, { replace: true });
+									markDone(event.conversationId);
+								}
 								break;
 
 							case 'error':
@@ -687,18 +697,9 @@ export function ChatTab() {
 				.map((b) => (b as { content: string }).content)
 				.join('\n');
 
-			// Check for plan in text
-			const plan = parsePlan(finalText);
-			if (plan) {
-				const cleanText = stripPlanBlock(finalText);
-				setChatMessages((prev) =>
-					prev.map((m) => (m.id === assistantMsgIdRef.current ? { ...m, content: cleanText } : m)),
-				);
-			} else {
-				setChatMessages((prev) =>
-					prev.map((m) => (m.id === assistantMsgIdRef.current ? { ...m, content: finalText } : m)),
-				);
-			}
+			setChatMessages((prev) =>
+				prev.map((m) => (m.id === assistantMsgIdRef.current ? { ...m, content: finalText } : m)),
+			);
 
 			setIsActive(false);
 			abortRef.current = null;
@@ -787,16 +788,6 @@ export function ChatTab() {
 		await sendMessage(text, { pageIndex, selectedElements: els });
 	}
 
-	function handlePlanApproval() {
-		const userMsg: ChatMessage = {
-			id: crypto.randomUUID(),
-			role: 'user',
-			content: 'go ahead',
-		};
-		setChatMessages((prev) => [...prev, userMsg]);
-		sendMessage('go ahead');
-	}
-
 	function handleStop() {
 		abortRef.current?.abort();
 		setIsActive(false);
@@ -820,16 +811,15 @@ export function ChatTab() {
 
 	function handleNewConversation() {
 		setChatMessages([]);
-		setConversationId(null);
 		setPendingApprovals([]);
-		loadConversationHistory();
+		navigate('/');
 	}
 
 	async function loadConversationHistory() {
 		try {
 			setLoadingHistory(true);
 			const token = await new Promise<string>((resolve) =>
-				chrome.storage.local.get('token', (r) => resolve(r.token || '')),
+				chrome.storage.local.get('authToken', (r) => resolve(r.authToken || '')),
 			);
 			if (!token) return;
 			const res = await fetch(`${API_URL}/api/conversations`, {
@@ -847,24 +837,56 @@ export function ChatTab() {
 	}
 
 	async function loadConversation(convId: string) {
+		console.log('[ChatTab] loadConversation called with:', convId);
 		try {
 			const token = await new Promise<string>((resolve) =>
-				chrome.storage.local.get('token', (r) => resolve(r.token || '')),
+				chrome.storage.local.get('authToken', (r) => {
+					console.log('[ChatTab] storage result:', { hasToken: !!r.authToken });
+					resolve(r.authToken || '');
+				}),
 			);
-			if (!token) return;
+			if (!token) {
+				console.log('[ChatTab] No token, aborting loadConversation');
+				return;
+			}
+			console.log('[ChatTab] Fetching conversation:', `${API_URL}/api/conversations/${convId}`);
 			const res = await fetch(`${API_URL}/api/conversations/${convId}`, {
 				headers: { Authorization: `Bearer ${token}` },
 			});
+			console.log('[ChatTab] Fetch response:', res.status, res.ok);
 			if (res.ok) {
 				const data = await res.json();
-				setConversationId(convId);
+				console.log('[ChatTab] Loaded messages:', data.messages?.length);
+				navigate(`/chat/${convId}`, { replace: true });
 				const loaded: ChatMessage[] = (data.messages || []).map(
-					(m: { id: string; role: string; content: string }) => ({
-						id: m.id,
-						role: m.role as 'user' | 'assistant',
-						content: m.content,
-						blocks: [{ type: 'text' as const, content: m.content }],
-					}),
+					(m: { id: string; role: string; content: string; toolData?: { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } }) => {
+						// Reconstruct blocks from stored tool data
+						const blocks: MessageBlock[] = [];
+
+						if (m.role === 'assistant' && m.toolData?.tools?.length) {
+							for (const tool of m.toolData.tools) {
+								blocks.push({
+									type: 'tool_call',
+									toolName: tool.name,
+									label: formatToolLabel(tool.name),
+									args: tool.args as Record<string, unknown>,
+									status: tool.success ? 'success' : 'error',
+									result: tool.result,
+								});
+							}
+						}
+
+						if (m.content?.trim()) {
+							blocks.push({ type: 'text' as const, content: m.content });
+						}
+
+						return {
+							id: m.id,
+							role: m.role as 'user' | 'assistant',
+							content: m.content,
+							blocks: blocks.length > 0 ? blocks : [{ type: 'text' as const, content: m.content }],
+						};
+					},
 				);
 				setChatMessages(loaded);
 			}
@@ -920,6 +942,13 @@ export function ChatTab() {
 		<div className="flex flex-col h-full">
 			{/* Context bar */}
 			<div className="px-4 py-2 border-b border-border flex items-center justify-between">
+				<button
+					onClick={() => navigate('/')}
+					className="p-1 mr-2 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
+					title="Back to Hub"
+				>
+					<ArrowLeft size={14} />
+				</button>
 				<button
 					onClick={() => setShowContext(!showContext)}
 					className="flex-1 text-left hover:opacity-80"
@@ -1016,6 +1045,41 @@ export function ChatTab() {
 				</div>
 			))}
 
+			{/* Plan Approval */}
+			{pendingPlanApproval && (
+				<div className="border-b border-blue-500/30 bg-blue-500/5 px-4 py-3 space-y-2">
+					<p className="text-xs font-semibold text-foreground">
+						Plan requires approval
+					</p>
+					<p className="text-xs text-muted-foreground">{pendingPlanApproval.description}</p>
+					<ol className="list-decimal list-inside space-y-0.5 pl-1">
+						{pendingPlanApproval.steps.map((step, i) => (
+							<li key={i} className="text-xs text-foreground">{step}</li>
+						))}
+					</ol>
+					<div className="flex gap-2 pt-1">
+						<button
+							onClick={() => {
+								handleApproval(pendingPlanApproval.requestId, true);
+								setPendingPlanApproval(null);
+							}}
+							className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
+						>
+							Approve Plan
+						</button>
+						<button
+							onClick={() => {
+								handleApproval(pendingPlanApproval.requestId, false);
+								setPendingPlanApproval(null);
+							}}
+							className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700"
+						>
+							Reject
+						</button>
+					</div>
+				</div>
+			)}
+
 			{/* Messages */}
 			<div className="flex-1 overflow-y-auto p-4 space-y-4">
 				{chatMessages.length === 0 && (
@@ -1066,8 +1130,6 @@ export function ChatTab() {
 							<AssistantMessage
 								msg={msg}
 								isActive={isActive}
-								onPlanApproval={handlePlanApproval}
-								onEditPlan={() => setInput('I want to change the plan: ')}
 							/>
 						)}
 					</div>
@@ -1228,13 +1290,9 @@ function UserMessage({ msg }: { msg: ChatMessage }) {
 function AssistantMessage({
 	msg,
 	isActive,
-	onPlanApproval,
-	onEditPlan,
 }: {
 	msg: ChatMessage;
 	isActive: boolean;
-	onPlanApproval: () => void;
-	onEditPlan: () => void;
 }) {
 	const rawBlocks = msg.blocks;
 
@@ -1277,9 +1335,6 @@ function AssistantMessage({
 								<PlanBlock
 									key={i}
 									plan={block.plan}
-									isActive={isActive}
-									onApprove={onPlanApproval}
-									onEdit={onEditPlan}
 								/>
 							);
 						default:
@@ -1331,12 +1386,10 @@ function ThinkingBlock({ content, isLast }: { content: string; isLast: boolean }
 }
 
 function TextBlock({ content }: { content: string }) {
-	// Strip plan blocks from displayed text — they render as PlanBlock instead
-	const cleaned = stripPlanBlock(content);
-	if (!cleaned.trim()) return null;
+	if (!content.trim()) return null;
 	return (
 		<div className="rounded-lg px-3 py-2 text-sm bg-secondary text-foreground prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-1 prose-code:text-xs">
-			<ReactMarkdown>{cleaned}</ReactMarkdown>
+			<ReactMarkdown>{content}</ReactMarkdown>
 		</div>
 	);
 }
@@ -1560,17 +1613,7 @@ function PlanStepIcon({ status }: { status: 'pending' | 'running' | 'done' | 'er
 	}
 }
 
-function PlanBlock({
-	plan,
-	isActive,
-	onApprove,
-	onEdit,
-}: {
-	plan: Plan;
-	isActive: boolean;
-	onApprove: () => void;
-	onEdit: () => void;
-}) {
+function PlanBlock({ plan }: { plan: Plan }) {
 	const statuses = plan.stepStatus || plan.steps.map(() => 'pending' as const);
 	const doneCount = statuses.filter((s) => s === 'done').length;
 	const hasStarted = statuses.some((s) => s !== 'pending');
@@ -1584,11 +1627,9 @@ function PlanBlock({
 				<span className="text-xs font-medium text-foreground flex-1">
 					{plan.description || 'Execution Plan'}
 				</span>
-				{hasStarted && (
-					<span className="text-[10px] text-muted-foreground tabular-nums">
-						{doneCount}/{plan.steps.length}
-					</span>
-				)}
+				<span className="text-[10px] text-muted-foreground tabular-nums">
+					{doneCount}/{plan.steps.length}
+				</span>
 			</div>
 
 			{/* Progress bar */}
@@ -1623,25 +1664,6 @@ function PlanBlock({
 					);
 				})}
 			</div>
-
-			{/* Action buttons — before execution starts */}
-			{!isActive && !hasStarted && (
-				<div className="flex gap-2 px-3 pb-2.5">
-					<button
-						onClick={onApprove}
-						className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors"
-					>
-						<Play size={12} />
-						Execute Plan
-					</button>
-					<button
-						onClick={onEdit}
-						className="px-3 py-1.5 text-xs font-medium text-muted-foreground border border-border rounded-md hover:bg-secondary hover:text-foreground transition-colors"
-					>
-						Edit
-					</button>
-				</div>
-			)}
 
 			{/* Completion */}
 			{allDone && (

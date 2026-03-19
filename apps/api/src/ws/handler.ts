@@ -334,7 +334,7 @@ function broadcastStatus(connectionId: string, update: unknown) {
  */
 export function sendApprovalRequest(
 	connectionId: string,
-	details: { action: string; selector?: string; label?: string; reason: string },
+	details: Record<string, unknown> & { action?: string; type?: string; reason?: string },
 	timeoutMs = 60000,
 ): Promise<{ approved: boolean; reason?: string }> {
 	const conn = connections.get(connectionId);
@@ -343,7 +343,7 @@ export function sendApprovalRequest(
 	}
 
 	const requestId = randomUUID();
-	console.log(`[WS] Sending approval request: ${details.action} "${details.label}" (${requestId})`);
+	console.log(`[WS] Sending approval request: ${details.action || details.type} "${details.label || ''}" (${requestId})`);
 
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {
