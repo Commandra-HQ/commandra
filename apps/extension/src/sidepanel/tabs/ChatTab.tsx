@@ -21,6 +21,7 @@ import {
 	MousePointer,
 	MoveVertical,
 	Pilcrow,
+	Plus,
 	Send,
 	Settings2,
 	Square,
@@ -228,11 +229,6 @@ export function ChatTab() {
 	const [selectorActive, setSelectorActive] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
-	// Conversation history state (for empty chat view)
-	const [pastConversations, setPastConversations] = useState<
-		{ id: string; title: string; messageCount: number; updatedAt: string }[]
-	>([]);
-	const [loadingHistory, setLoadingHistory] = useState(false);
 
 	// Re-index state
 	const [isReindexing, setIsReindexing] = useState(false);
@@ -300,7 +296,6 @@ export function ChatTab() {
 
 	useEffect(() => {
 		updateCurrentTab();
-		loadConversationHistory();
 		const onActivated = () => updateCurrentTab();
 		chrome.tabs.onActivated.addListener(onActivated);
 		chrome.tabs.onUpdated.addListener(onActivated);
@@ -322,7 +317,6 @@ export function ChatTab() {
 			// New chat — clear state
 			setChatMessages([]);
 			setPendingApprovals([]);
-			loadConversationHistory();
 		}
 	}, [externalConvId]);
 
@@ -815,27 +809,6 @@ export function ChatTab() {
 		navigate('/');
 	}
 
-	async function loadConversationHistory() {
-		try {
-			setLoadingHistory(true);
-			const token = await new Promise<string>((resolve) =>
-				chrome.storage.local.get('authToken', (r) => resolve(r.authToken || '')),
-			);
-			if (!token) return;
-			const res = await fetch(`${API_URL}/api/conversations`, {
-				headers: { Authorization: `Bearer ${token}` },
-			});
-			if (res.ok) {
-				const data = await res.json();
-				setPastConversations(data.conversations || []);
-			}
-		} catch (err) {
-			console.error('Failed to load conversation history:', err);
-		} finally {
-			setLoadingHistory(false);
-		}
-	}
-
 	async function loadConversation(convId: string) {
 		console.log('[ChatTab] loadConversation called with:', convId);
 		try {
@@ -1083,43 +1056,16 @@ export function ChatTab() {
 			{/* Messages */}
 			<div className="flex-1 overflow-y-auto p-4 space-y-4">
 				{chatMessages.length === 0 && (
-					<div className="py-4">
-						<div className="text-center mb-4">
-							<p className="text-sm text-muted-foreground">Ask anything about this page or site.</p>
-							<p className="text-xs text-muted-foreground mt-1">
-								"What can I do here?" · "Click the login button" · "Type hello in the search box"
-							</p>
+					<div className="flex flex-col items-center justify-center py-12 px-4">
+						<div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center mb-3">
+							<MessageSquare size={18} className="text-muted-foreground" />
 						</div>
-						{loadingHistory && (
-							<p className="text-xs text-muted-foreground text-center">Loading history...</p>
-						)}
-						{pastConversations.length > 0 && (
-							<div className="mt-4 space-y-1">
-								<p className="text-xs font-medium text-muted-foreground px-1 mb-2">
-									Recent conversations
-								</p>
-								{pastConversations.slice(0, 10).map((conv) => (
-									<button
-										key={conv.id}
-										onClick={() => loadConversation(conv.id)}
-										className="w-full text-left px-3 py-2 rounded-md hover:bg-secondary/50 transition-colors"
-									>
-										<p className="text-xs text-foreground truncate">
-											{conv.title || 'Untitled'}
-										</p>
-										<div className="flex items-center gap-2 mt-0.5">
-											<span className="text-[10px] text-muted-foreground flex items-center gap-1">
-												<MessageSquare size={10} />
-												{conv.messageCount}
-											</span>
-											<span className="text-[10px] text-muted-foreground">
-												{formatRelativeTime(new Date(conv.updatedAt).getTime())}
-											</span>
-										</div>
-									</button>
-								))}
-							</div>
-						)}
+						<p className="text-sm text-foreground font-medium">
+							{domain ? `Chat about ${domain}` : 'New conversation'}
+						</p>
+						<p className="text-xs text-muted-foreground mt-1 text-center">
+							Ask anything — navigate, click, type, or extract data.
+						</p>
 					</div>
 				)}
 				{chatMessages.map((msg) => (
@@ -1144,9 +1090,10 @@ export function ChatTab() {
 					<div className="flex justify-end mb-2">
 						<button
 							onClick={handleNewConversation}
-							className="text-xs text-muted-foreground hover:text-foreground"
+							className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-secondary/50"
 						>
-							New conversation
+							<Plus size={12} />
+							New chat
 						</button>
 					</div>
 				)}
