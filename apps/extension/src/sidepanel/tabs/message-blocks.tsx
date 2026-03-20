@@ -474,72 +474,119 @@ export function BlockedBlock({ toolName, reason }: { toolName: string; reason: s
 	);
 }
 
-function PlanStepIcon({ status }: { status: 'pending' | 'running' | 'done' | 'error' }) {
-	switch (status) {
-		case 'pending':
-			return <Circle size={14} className="text-muted-foreground/50" />;
-		case 'running':
-			return <Loader2 size={14} className="text-blue-400 animate-spin" />;
-		case 'done':
-			return <CheckCircle2 size={14} className="text-green-400" />;
-		case 'error':
-			return <AlertCircle size={14} className="text-red-400" />;
-	}
-}
-
 export function PlanBlock({ plan }: { plan: Plan }) {
 	const statuses = plan.stepStatus || plan.steps.map(() => 'pending' as const);
 	const doneCount = statuses.filter((s) => s === 'done').length;
+	const errorCount = statuses.filter((s) => s === 'error').length;
 	const hasStarted = statuses.some((s) => s !== 'pending');
-	const allDone = doneCount === plan.steps.length && plan.steps.length > 0;
+	const allDone = doneCount + errorCount === plan.steps.length && plan.steps.length > 0;
+	const pct = plan.steps.length > 0 ? Math.round((doneCount / plan.steps.length) * 100) : 0;
 
 	return (
-		<div className="rounded-lg border border-border bg-secondary/50 overflow-hidden">
-			<div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
-				<ListChecks size={14} className="text-muted-foreground" />
-				<span className="text-xs font-medium text-foreground flex-1">
+		<div className="rounded-lg border border-border overflow-hidden">
+			{/* Progress bar */}
+			<div className="h-[2px] bg-secondary">
+				<div
+					className={`h-full transition-all duration-500 ease-out ${
+						allDone
+							? errorCount > 0
+								? 'bg-red-500'
+								: 'bg-green-500'
+							: 'bg-blue-500'
+					}`}
+					style={{ width: `${pct}%` }}
+				/>
+			</div>
+
+			{/* Header */}
+			<div className="flex items-center gap-2 px-3 py-2 bg-secondary/30">
+				<ListChecks size={13} className="text-muted-foreground flex-shrink-0" />
+				<span className="text-[11px] font-medium text-foreground flex-1 truncate">
 					{plan.description || 'Execution Plan'}
 				</span>
-				<span className="text-[10px] text-muted-foreground tabular-nums">
+				<span className={`text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-full ${
+					allDone && !errorCount
+						? 'bg-green-500/15 text-green-400'
+						: allDone && errorCount > 0
+							? 'bg-red-500/15 text-red-400'
+							: 'bg-blue-500/15 text-blue-400'
+				}`}>
 					{doneCount}/{plan.steps.length}
 				</span>
 			</div>
 
-			{hasStarted && !allDone && (
-				<div className="h-0.5 bg-secondary">
-					<div
-						className="h-full bg-blue-500 transition-all duration-500"
-						style={{ width: `${(doneCount / plan.steps.length) * 100}%` }}
-					/>
-				</div>
-			)}
-			{allDone && <div className="h-0.5 bg-green-500" />}
-
-			<div className="px-3 py-2 space-y-1.5">
+			{/* Steps */}
+			<div className="px-3 py-2 space-y-0.5">
 				{plan.steps.map((step, i) => {
 					const status = statuses[i] || 'pending';
+					const isCompleted = status === 'done';
+					const isRunning = status === 'running';
+					const isFailed = status === 'error';
+					const isPending = status === 'pending';
+
 					return (
 						<div
 							key={i}
-							className={`flex items-start gap-2 text-xs transition-opacity ${
-								status === 'pending' && hasStarted ? 'opacity-50' : ''
+							className={`flex items-center gap-2 px-2 py-1 rounded-md text-[11px] transition-all ${
+								isRunning
+									? 'bg-blue-500/8'
+									: isFailed
+										? 'bg-red-500/8'
+										: ''
 							}`}
 						>
-							<span className="shrink-0 mt-px">
-								<PlanStepIcon status={status} />
+							<span className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+								{isCompleted ? (
+									<CheckCircle2 size={13} className="text-green-400" />
+								) : isRunning ? (
+									<Loader2 size={13} className="text-blue-400 animate-spin" />
+								) : isFailed ? (
+									<AlertCircle size={13} className="text-red-400" />
+								) : (
+									<div className="w-[7px] h-[7px] rounded-full border-[1.5px] border-muted-foreground/30" />
+								)}
 							</span>
-							<span className={status === 'done' ? 'text-muted-foreground' : 'text-foreground'}>
+							<span
+								className={`flex-1 leading-tight ${
+									isCompleted
+										? 'text-muted-foreground/60 line-through decoration-muted-foreground/30'
+										: isRunning
+											? 'text-foreground font-medium'
+											: isFailed
+												? 'text-red-400'
+												: isPending && hasStarted
+													? 'text-muted-foreground'
+													: 'text-foreground'
+								}`}
+							>
 								{step}
 							</span>
+							{isRunning && (
+								<span className="text-[9px] text-blue-400 font-medium flex-shrink-0">
+									running
+								</span>
+							)}
 						</div>
 					);
 				})}
 			</div>
 
+			{/* Completion footer */}
 			{allDone && (
-				<div className="flex items-center gap-1.5 px-3 pb-2.5 text-xs text-green-400">
-					<CheckCircle2 size={12} />
-					<span>All steps completed</span>
+				<div className={`flex items-center gap-1.5 px-3 py-2 border-t border-border/50 text-[10px] font-medium ${
+					errorCount > 0 ? 'text-red-400' : 'text-green-400'
+				}`}>
+					{errorCount > 0 ? (
+						<>
+							<AlertCircle size={11} />
+							<span>{doneCount} completed, {errorCount} failed</span>
+						</>
+					) : (
+						<>
+							<CheckCircle2 size={11} />
+							<span>All {plan.steps.length} steps completed</span>
+						</>
+					)}
 				</div>
 			)}
 		</div>

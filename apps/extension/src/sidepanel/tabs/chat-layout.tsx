@@ -7,6 +7,8 @@ import {
 	AlertCircle,
 	ArrowLeft,
 	Check,
+	CheckCircle2,
+	ChevronDown,
 	ChevronRight,
 	Circle,
 	Globe,
@@ -19,6 +21,7 @@ import {
 	Square,
 	X,
 } from 'lucide-react';
+import { useState } from 'react';
 import type { ChatMessage, SiteData } from './chat-types.js';
 
 export function ContextBar({
@@ -99,17 +102,11 @@ export function ContextBar({
 					</span>
 				)}
 				{planState && (
-					<button
-						type="button"
-						onClick={() => setShowPlanPanel(!showPlanPanel)}
-						className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-secondary/50 relative"
-						title="View plan"
-					>
-						<ListChecks size={12} />
-						<span className="absolute -top-0.5 -right-0.5 text-[8px] font-bold bg-primary text-primary-foreground rounded-full w-3.5 h-3.5 flex items-center justify-center">
-							{planState.steps.filter((s) => s.status === 'completed').length}/{planState.steps.length}
-						</span>
-					</button>
+					<PlanHeaderButton
+						planState={planState}
+						showPlanPanel={showPlanPanel}
+						onToggle={() => setShowPlanPanel(!showPlanPanel)}
+					/>
 				)}
 				<button
 					type="button"
@@ -141,6 +138,77 @@ export function ContextBar({
 	);
 }
 
+function PlanHeaderButton({
+	planState,
+	showPlanPanel,
+	onToggle,
+}: {
+	planState: { description: string; steps: { label: string; status: string }[] };
+	showPlanPanel: boolean;
+	onToggle: () => void;
+}) {
+	const completed = planState.steps.filter((s) => s.status === 'completed').length;
+	const failed = planState.steps.filter((s) => s.status === 'failed').length;
+	const running = planState.steps.some((s) => s.status === 'in_progress');
+	const total = planState.steps.length;
+	const allDone = completed + failed === total && total > 0;
+	const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+	const ringColor = allDone
+		? failed > 0
+			? 'text-red-400'
+			: 'text-green-400'
+		: running
+			? 'text-blue-400'
+			: 'text-muted-foreground';
+
+	return (
+		<button
+			type="button"
+			onClick={onToggle}
+			className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ${
+				showPlanPanel
+					? 'bg-secondary text-foreground'
+					: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+			}`}
+			title={`Plan: ${completed}/${total} steps done`}
+		>
+			<div className="relative w-4 h-4 flex-shrink-0">
+				<svg viewBox="0 0 20 20" className="w-4 h-4 -rotate-90">
+					<circle
+						cx="10" cy="10" r="8"
+						fill="none" stroke="currentColor" strokeWidth="2"
+						className="text-secondary"
+					/>
+					<circle
+						cx="10" cy="10" r="8"
+						fill="none" strokeWidth="2.5"
+						strokeDasharray={`${pct * 0.502} 50.2`}
+						strokeLinecap="round"
+						className={`${ringColor} transition-all duration-500`}
+					/>
+				</svg>
+				{allDone && !failed && (
+					<CheckCircle2 size={8} className="absolute inset-0 m-auto text-green-400" />
+				)}
+				{allDone && failed > 0 && (
+					<AlertCircle size={8} className="absolute inset-0 m-auto text-red-400" />
+				)}
+				{running && (
+					<Loader2 size={7} className="absolute inset-0 m-auto text-blue-400 animate-spin" />
+				)}
+			</div>
+			<span className="tabular-nums font-medium">
+				{completed}/{total}
+			</span>
+			<ChevronDown
+				size={10}
+				className={`transition-transform ${showPlanPanel ? 'rotate-180' : ''}`}
+			/>
+		</button>
+	);
+}
+
 export function PlanPanel({
 	planState,
 	onClose,
@@ -148,31 +216,126 @@ export function PlanPanel({
 	planState: { description: string; steps: { label: string; status: string }[] };
 	onClose: () => void;
 }) {
+	const completed = planState.steps.filter((s) => s.status === 'completed').length;
+	const failed = planState.steps.filter((s) => s.status === 'failed').length;
+	const total = planState.steps.length;
+	const allDone = completed + failed === total && total > 0;
+	const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
 	return (
-		<div className="border-b border-border bg-secondary/20 px-4 py-3 space-y-2 max-h-48 overflow-y-auto">
-			<div className="flex items-center justify-between">
-				<p className="text-xs font-medium text-foreground">{planState.description}</p>
-				<button type="button" onClick={onClose} className="p-0.5 text-muted-foreground hover:text-foreground">
-					<X size={10} />
-				</button>
+		<div className="border-b border-border overflow-hidden">
+			{/* Progress bar */}
+			<div className="h-[2px] bg-secondary">
+				<div
+					className={`h-full transition-all duration-500 ease-out ${
+						allDone
+							? failed > 0
+								? 'bg-red-500'
+								: 'bg-green-500'
+							: 'bg-blue-500'
+					}`}
+					style={{ width: `${pct}%` }}
+				/>
 			</div>
-			<div className="space-y-1">
-				{planState.steps.map((step, i) => (
-					<div key={`plan-step-${i}`} className="flex items-center gap-2 text-xs">
-						{step.status === 'completed' ? (
-							<Check size={12} className="text-green-500 flex-shrink-0" />
-						) : step.status === 'in_progress' ? (
-							<Loader2 size={12} className="text-blue-500 animate-spin flex-shrink-0" />
-						) : step.status === 'failed' ? (
-							<AlertCircle size={12} className="text-red-500 flex-shrink-0" />
+
+			<div className="px-3.5 py-2.5">
+				{/* Header row */}
+				<div className="flex items-center gap-2 mb-2">
+					<ListChecks size={13} className="text-muted-foreground flex-shrink-0" />
+					<p className="text-[11px] font-medium text-foreground flex-1 truncate leading-tight">
+						{planState.description}
+					</p>
+					<span className={`text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-full ${
+						allDone && !failed
+							? 'bg-green-500/15 text-green-400'
+							: allDone && failed > 0
+								? 'bg-red-500/15 text-red-400'
+								: 'bg-blue-500/15 text-blue-400'
+					}`}>
+						{completed}/{total}
+					</span>
+					<button
+						type="button"
+						onClick={onClose}
+						className="p-0.5 text-muted-foreground/50 hover:text-muted-foreground rounded transition-colors"
+					>
+						<X size={11} />
+					</button>
+				</div>
+
+				{/* Steps */}
+				<div className="space-y-0.5 max-h-36 overflow-y-auto">
+					{planState.steps.map((step, i) => {
+						const isCompleted = step.status === 'completed';
+						const isRunning = step.status === 'in_progress';
+						const isFailed = step.status === 'failed';
+						const isPending = !isCompleted && !isRunning && !isFailed;
+
+						return (
+							<div
+								key={`plan-step-${i}`}
+								className={`flex items-center gap-2 px-2 py-1 rounded-md text-[11px] transition-all ${
+									isRunning
+										? 'bg-blue-500/8'
+										: isFailed
+											? 'bg-red-500/8'
+											: ''
+								}`}
+							>
+								<span className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+									{isCompleted ? (
+										<CheckCircle2 size={13} className="text-green-400" />
+									) : isRunning ? (
+										<Loader2 size={13} className="text-blue-400 animate-spin" />
+									) : isFailed ? (
+										<AlertCircle size={13} className="text-red-400" />
+									) : (
+										<div className="w-[7px] h-[7px] rounded-full border-[1.5px] border-muted-foreground/30" />
+									)}
+								</span>
+								<span
+									className={`flex-1 leading-tight ${
+										isCompleted
+											? 'text-muted-foreground/60 line-through decoration-muted-foreground/30'
+											: isRunning
+												? 'text-foreground font-medium'
+												: isFailed
+													? 'text-red-400'
+													: isPending
+														? 'text-muted-foreground'
+														: 'text-foreground'
+									}`}
+								>
+									{step.label}
+								</span>
+								{isRunning && (
+									<span className="text-[9px] text-blue-400 font-medium flex-shrink-0">
+										running
+									</span>
+								)}
+							</div>
+						);
+					})}
+				</div>
+
+				{/* Completion footer */}
+				{allDone && (
+					<div className={`flex items-center gap-1.5 mt-2 pt-2 border-t border-border/50 text-[10px] font-medium ${
+						failed > 0 ? 'text-red-400' : 'text-green-400'
+					}`}>
+						{failed > 0 ? (
+							<>
+								<AlertCircle size={11} />
+								<span>{completed} completed, {failed} failed</span>
+							</>
 						) : (
-							<Circle size={12} className="text-muted-foreground flex-shrink-0" />
+							<>
+								<CheckCircle2 size={11} />
+								<span>All {total} steps completed</span>
+							</>
 						)}
-						<span className={step.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'}>
-							{step.label}
-						</span>
 					</div>
-				))}
+				)}
 			</div>
 		</div>
 	);
