@@ -1,15 +1,13 @@
 import type { SSEEvent } from '@afe/shared';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { resolveAgent } from '../agent/agent-registry.js';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
 import { db } from '../db/index.js';
-import { conversationEmbeddings, conversations, messages, pages, sites } from '../db/schema.js';
+import { conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
-import { searchConversations, searchElements } from '../db/vector-search.js';
-import { embedText, getEmbeddingProvider } from '../llm/embeddings.js';
 import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import {
 	loadDomainKnowledgeFromS3,
@@ -66,30 +64,6 @@ function detectMultiSiteIntent(message: string): boolean {
 	return false;
 }
 
-async function embedUserMessage(conversationId: string, messageText: string): Promise<void> {
-	// Get the message ID we just inserted
-	const [msg] = await db
-		.select({ id: messages.id })
-		.from(messages)
-		.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
-		.orderBy(desc(messages.createdAt))
-		.limit(1);
-	if (!msg) return;
-
-	try {
-		const vector = await embedText(messageText);
-		await db.insert(conversationEmbeddings).values({
-			conversationId,
-			messageId: msg.id,
-			messageText: messageText.slice(0, 500), // Cap stored text
-			embeddingModel: getEmbeddingProvider().id,
-			embedding: vector,
-		});
-	} catch {
-		// Embedding may not be configured — that's fine, skip silently
-	}
-}
-
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
 chatRoutes.use('*', requireAuth);
@@ -130,11 +104,6 @@ chatRoutes.post('/', async (c) => {
 		role: 'user',
 		content: message,
 	});
-
-	// Background: embed user message for conversational recall
-	embedUserMessage(convId!, message).catch((err) =>
-		console.warn('[Embeddings] User message embed failed:', err),
-	);
 
 	// Load conversation history
 	const history = await db
@@ -250,61 +219,6 @@ chatRoutes.post('/', async (c) => {
 		}
 	}
 
-	// --- Embedding-powered context enrichment ---
-	// Search past conversations and elements for relevant context
-	let priorContext = '';
-	if (domain) {
-		try {
-			const [site] = pi?.sitePages
-				? [] // Already have site info
-				: await db
-						.select({ id: sites.id })
-						.from(sites)
-						.where(and(eq(sites.domain, domain), getOrgOrUserScope(user, sites)))
-						.limit(1);
-
-			const siteId = site?.id;
-
-			// Run all embedding searches in parallel (non-blocking — skip if embeddings not configured)
-			const [pastConvos, relevantElements] = await Promise.allSettled([
-				searchConversations(message, user.id, 3),
-				siteId ? searchElements(message, siteId, 8) : Promise.resolve([]),
-			]);
-
-			const contextParts: string[] = [];
-
-			// Past conversations — "have we done this before?"
-			if (pastConvos.status === 'fulfilled' && pastConvos.value.length > 0) {
-				const relevant = pastConvos.value.filter((c) => c.score > 0.3);
-				if (relevant.length > 0) {
-					contextParts.push('### Past Related Conversations');
-					for (const c of relevant) {
-						contextParts.push(`- "${c.messageText}" (similarity: ${(c.score * 100).toFixed(0)}%)`);
-					}
-				}
-			}
-
-			// Relevant elements across the site — semantic element lookup
-			if (relevantElements.status === 'fulfilled' && relevantElements.value.length > 0) {
-				const relevant = relevantElements.value.filter((e) => e.score > 0.3);
-				if (relevant.length > 0) {
-					contextParts.push('### Relevant Elements on This Site');
-					for (const e of relevant) {
-						contextParts.push(
-							`- ${e.elementType}: "${e.elementLabel}" [${e.selector}] (match: ${(e.score * 100).toFixed(0)}%)`,
-						);
-					}
-				}
-			}
-
-			if (contextParts.length > 0) {
-				priorContext = contextParts.join('\n');
-			}
-		} catch (err) {
-			console.warn('[Chat] Embedding context enrichment failed:', err);
-		}
-	}
-
 	// Detect multi-site intent — only for genuinely parallel cross-domain tasks
 	const multiSiteDetected = detectMultiSiteIntent(message);
 	if (multiSiteDetected) {
@@ -348,7 +262,6 @@ chatRoutes.post('/', async (c) => {
 					selectedElements,
 					domainMemory: domainMem,
 					userMemory: userMem,
-					priorContext: priorContext || undefined,
 					domain,
 					conversationId: convId,
 					onEvent,
@@ -394,7 +307,6 @@ chatRoutes.post('/', async (c) => {
 					selectedElements,
 					domainMemory: domainMem,
 					userMemory: userMem,
-					priorContext: priorContext || undefined,
 					onEvent,
 					signal,
 					agentConfig,

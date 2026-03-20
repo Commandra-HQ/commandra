@@ -7,6 +7,9 @@
  */
 
 import type { AgentConfig, SSEEvent } from '@afe/shared';
+import { eq } from 'drizzle-orm';
+import { db } from '../db/index.js';
+import { conversations } from '../db/schema.js';
 import { searchUserMemories } from '../db/vector-search.js';
 import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import type {
@@ -19,22 +22,19 @@ import type {
 	ToolUseBlock,
 } from '../llm/types.js';
 import { compressHistory } from '../memory/conversation.js';
+import { appendDomainWorkflow } from '../memory/domain.js';
 import { type MemoryCategory, saveUserMemory } from '../memory/user.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
+import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
+import { uploadAgentFile } from '../storage/agent-files.js';
+import { saveLocalFile } from '../storage/local.js';
+import { type StoredPlan, savePlan, updatePlanStep } from '../storage/plan-files.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
 import { createAgent, loadAgentBySlug } from './agent-registry.js';
 import { buildSystemPrompt } from './prompts.js';
-import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
-import { uploadAgentFile } from '../storage/agent-files.js';
-import { saveLocalFile } from '../storage/local.js';
-import { type StoredPlan, loadPlan, savePlan, updatePlanStep } from '../storage/plan-files.js';
-import { appendDomainWorkflow } from '../memory/domain.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
-import { db } from '../db/index.js';
-import { conversations } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
 
 export interface OrchestratorParams {
 	userId: string;
@@ -51,7 +51,6 @@ export interface OrchestratorParams {
 	}[];
 	domainMemory?: string;
 	userMemory?: string;
-	priorContext?: string;
 	domain?: string;
 	conversationId?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
@@ -87,7 +86,6 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		selectedElements,
 		domainMemory,
 		userMemory,
-		priorContext,
 		domain,
 		conversationId,
 		onEvent,
@@ -100,7 +98,14 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 15;
 	const provider = getProvider();
 	const model = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
-	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext, agentConfig, domainKnowledge);
+	const systemPrompt = buildSystemPrompt(
+		pageIndex,
+		selectedElements,
+		domainMemory,
+		userMemory,
+		agentConfig,
+		domainKnowledge,
+	);
 
 	// Add save_memory internal tool alongside browser tools
 	const browserTools = getToolDefinitions(agentConfig.tools);
@@ -158,7 +163,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				},
 				agentSlug: {
 					type: 'string',
-					description: 'Optional slug of a specific agent to use for this task (e.g. "email-drafter")',
+					description:
+						'Optional slug of a specific agent to use for this task (e.g. "email-drafter")',
 				},
 				timeout: {
 					type: 'number',
@@ -187,7 +193,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	const saveToLocalTool = {
 		name: 'save_to_local',
 		description:
-			'Save a file to persistent local storage on the user\'s computer (~/.commandra/). Use for exports, extracted data, or context files the user wants to keep.',
+			"Save a file to persistent local storage on the user's computer (~/.commandra/). Use for exports, extracted data, or context files the user wants to keep.",
 		parameters: {
 			type: 'object' as const,
 			properties: {
@@ -217,7 +223,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			properties: {
 				slug: {
 					type: 'string',
-					description: 'URL-safe identifier (lowercase, hyphens, underscores). e.g. "gmail-summarizer", "jira-triager"',
+					description:
+						'URL-safe identifier (lowercase, hyphens, underscores). e.g. "gmail-summarizer", "jira-triager"',
 				},
 				name: {
 					type: 'string',
@@ -225,11 +232,13 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				},
 				description: {
 					type: 'string',
-					description: 'What this agent does — one sentence. e.g. "Summarizes unread emails from key contacts every morning"',
+					description:
+						'What this agent does — one sentence. e.g. "Summarizes unread emails from key contacts every morning"',
 				},
 				soul: {
 					type: 'string',
-					description: 'The agent\'s personality and behavioral instructions (becomes SOUL.md). Write in second person: "You are a..."',
+					description:
+						'The agent\'s personality and behavioral instructions (becomes SOUL.md). Write in second person: "You are a..."',
 				},
 				domains: {
 					type: 'array',
@@ -238,7 +247,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				},
 				cron: {
 					type: 'string',
-					description: 'Optional cron schedule (5-field). e.g. "0 9 * * 1-5" for weekdays at 9am. Only if the user wants it to run automatically.',
+					description:
+						'Optional cron schedule (5-field). e.g. "0 9 * * 1-5" for weekdays at 9am. Only if the user wants it to run automatically.',
 				},
 			},
 			required: ['slug', 'name', 'description', 'soul'],
@@ -247,7 +257,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	const updateAgentFilesTool = {
 		name: 'update_agent_files',
 		description:
-			'Write or update a file for an existing agent (SOUL.md, SKILLS.md, LEARNINGS.md, ERRORS.md). Use after create_agent to add initial skills, or to update an agent\'s personality/capabilities.',
+			"Write or update a file for an existing agent (SOUL.md, SKILLS.md, LEARNINGS.md, ERRORS.md). Use after create_agent to add initial skills, or to update an agent's personality/capabilities.",
 		parameters: {
 			type: 'object' as const,
 			properties: {
@@ -282,7 +292,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				steps: {
 					type: 'array',
 					items: { type: 'string' },
-					description: 'Ordered list of steps to execute. Each should be a clear, actionable description.',
+					description:
+						'Ordered list of steps to execute. Each should be a clear, actionable description.',
 				},
 			},
 			required: ['description', 'steps'],
@@ -589,7 +600,17 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				allToolCalls.push({
 					name: block.name,
 					args: block.input,
-					result: result ? (typeof result.content === 'string' ? (() => { try { return JSON.parse(result.content); } catch { return result.content; } })() : '[structured]') : null,
+					result: result
+						? typeof result.content === 'string'
+							? (() => {
+									try {
+										return JSON.parse(result.content);
+									} catch {
+										return result.content;
+									}
+								})()
+							: '[structured]'
+						: null,
 					success: result ? !result.isError : false,
 				});
 			}
@@ -627,7 +648,6 @@ export async function runSimpleChat(params: {
 	selectedElements?: OrchestratorParams['selectedElements'];
 	domainMemory?: string;
 	userMemory?: string;
-	priorContext?: string;
 	onEvent: (event: SSEEvent) => Promise<void>;
 	signal?: AbortSignal;
 	agentConfig: AgentConfig;
@@ -639,7 +659,6 @@ export async function runSimpleChat(params: {
 		params.selectedElements,
 		params.domainMemory,
 		params.userMemory,
-		params.priorContext,
 		params.agentConfig,
 	);
 
@@ -691,7 +710,17 @@ function partitionToolsBySafety(
 
 	for (const block of toolBlocks) {
 		// Internal tools are always safe (no WS routing)
-		if (['save_memory', 'recall_memory', 'spawn_agent', 'wait_for_agents', 'save_to_local', 'create_agent', 'update_agent_files'].includes(block.name)) {
+		if (
+			[
+				'save_memory',
+				'recall_memory',
+				'spawn_agent',
+				'wait_for_agents',
+				'save_to_local',
+				'create_agent',
+				'update_agent_files',
+			].includes(block.name)
+		) {
 			safe.push(block);
 			continue;
 		}
@@ -780,7 +809,12 @@ async function executeToolBlock(
 
 	// spawn_agent — launch a sub-agent for parallel work
 	if (block.name === 'spawn_agent') {
-		const args = block.input as { task: string; targetUrl: string; agentSlug?: string; timeout?: number };
+		const args = block.input as {
+			task: string;
+			targetUrl: string;
+			agentSlug?: string;
+			timeout?: number;
+		};
 		try {
 			// Load target agent config if slug specified
 			let subAgentConfig: AgentConfig | undefined;
@@ -891,7 +925,11 @@ async function executeToolBlock(
 
 	// save_to_local — persist files to ~/.commandra/
 	if (block.name === 'save_to_local' && domain) {
-		const args = block.input as { filename: string; content: string; category: 'exports' | 'context' };
+		const args = block.input as {
+			filename: string;
+			content: string;
+			category: 'exports' | 'context';
+		};
 		try {
 			const saved = saveLocalFile(args.category, domain, args.filename, args.content);
 			await onEvent({
@@ -929,7 +967,14 @@ async function executeToolBlock(
 
 	// create_agent — create a new persistent agent from conversation context
 	if (block.name === 'create_agent') {
-		const args = block.input as { slug: string; name: string; description: string; soul: string; domains?: string[]; cron?: string };
+		const args = block.input as {
+			slug: string;
+			name: string;
+			description: string;
+			soul: string;
+			domains?: string[];
+			cron?: string;
+		};
 		try {
 			const agent = await createAgent(userId, {
 				slug: args.slug,
@@ -994,7 +1039,10 @@ async function executeToolBlock(
 			return {
 				type: 'tool_result',
 				toolUseId: block.id,
-				content: JSON.stringify({ success: true, message: `Updated ${args.filename} for agent "${args.agentSlug}"` }),
+				content: JSON.stringify({
+					success: true,
+					message: `Updated ${args.filename} for agent "${args.agentSlug}"`,
+				}),
 				isError: false,
 			};
 		} catch (err) {
@@ -1078,7 +1126,8 @@ async function executeToolBlock(
 					content: JSON.stringify({
 						success: true,
 						approved: true,
-						message: 'Plan approved by user. Proceed with execution. Call update_plan with stepIndex and status as you complete each step.',
+						message:
+							'Plan approved by user. Proceed with execution. Call update_plan with stepIndex and status as you complete each step.',
 					}),
 					isError: false,
 				};
@@ -1113,12 +1162,19 @@ async function executeToolBlock(
 
 	// update_plan — mark step status + persist
 	if (block.name === 'update_plan') {
-		const args = block.input as { stepIndex: number; status: 'in_progress' | 'completed' | 'failed'; error?: string };
+		const args = block.input as {
+			stepIndex: number;
+			status: 'in_progress' | 'completed' | 'failed';
+			error?: string;
+		};
 		if (!conversationId) {
 			return {
 				type: 'tool_result',
 				toolUseId: block.id,
-				content: JSON.stringify({ success: false, error: 'No conversation context for plan updates' }),
+				content: JSON.stringify({
+					success: false,
+					error: 'No conversation context for plan updates',
+				}),
 				isError: true,
 			};
 		}
@@ -1135,7 +1191,10 @@ async function executeToolBlock(
 				return {
 					type: 'tool_result',
 					toolUseId: block.id,
-					content: JSON.stringify({ success: false, error: 'Plan not found or invalid step index' }),
+					content: JSON.stringify({
+						success: false,
+						error: 'Plan not found or invalid step index',
+					}),
 					isError: true,
 				};
 			}
@@ -1164,7 +1223,10 @@ async function executeToolBlock(
 			// Extract workflow when plan completes successfully
 			if (allDone && failedSteps === 0 && domain) {
 				appendDomainWorkflow(userId, domain, {
-					name: updated.steps.map((s) => s.label).join(' → ').slice(0, 80),
+					name: updated.steps
+						.map((s) => s.label)
+						.join(' → ')
+						.slice(0, 80),
 					steps: updated.steps.map((s) => s.label),
 					source: `conversation:${conversationId}`,
 				}).catch(() => {});
@@ -1525,7 +1587,11 @@ async function handleToolCall(
 		// Format elements clearly so the LLM knows exactly which selectors to use
 		let enrichedResult: unknown = result;
 		if (pageStateUpdate && resultData?.success) {
-			const ps = pageStateUpdate as { elements?: { type: string; label: string; selector: string; inOverlay?: boolean }[]; url?: string; title?: string };
+			const ps = pageStateUpdate as {
+				elements?: { type: string; label: string; selector: string; inOverlay?: boolean }[];
+				url?: string;
+				title?: string;
+			};
 			if (ps.elements) {
 				// Surface overlay/modal elements first (compose windows, dialogs, etc.)
 				const overlayEls = ps.elements.filter((e) => e.inOverlay);

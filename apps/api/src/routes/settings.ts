@@ -22,9 +22,6 @@ settingsRoutes.get('/', async (c) => {
 			llmApiKey: userSettings.llmApiKey,
 			llmModelStrong: userSettings.llmModelStrong,
 			llmModelFast: userSettings.llmModelFast,
-			embeddingProvider: userSettings.embeddingProvider,
-			embeddingApiKey: userSettings.embeddingApiKey,
-			embeddingModel: userSettings.embeddingModel,
 		})
 		.from(userSettings)
 		.where(eq(userSettings.userId, user.id))
@@ -34,7 +31,6 @@ settingsRoutes.get('/', async (c) => {
 		? {
 				...settings,
 				llmApiKey: maskKey(settings.llmApiKey),
-				embeddingApiKey: maskKey(settings.embeddingApiKey),
 			}
 		: null;
 
@@ -44,22 +40,11 @@ settingsRoutes.get('/', async (c) => {
 settingsRoutes.put('/', async (c) => {
 	const user = c.get('user');
 	const body = await c.req.json();
-	const {
-		llmProvider,
-		llmApiKey,
-		llmModelStrong,
-		llmModelFast,
-		embeddingProvider,
-		embeddingApiKey,
-		embeddingModel,
-	} = body as {
+	const { llmProvider, llmApiKey, llmModelStrong, llmModelFast } = body as {
 		llmProvider?: string;
 		llmApiKey?: string;
 		llmModelStrong?: string;
 		llmModelFast?: string;
-		embeddingProvider?: string;
-		embeddingApiKey?: string;
-		embeddingModel?: string;
 	};
 
 	const values = {
@@ -68,9 +53,6 @@ settingsRoutes.put('/', async (c) => {
 		llmApiKey: llmApiKey || null,
 		llmModelStrong: llmModelStrong || 'sonnet',
 		llmModelFast: llmModelFast || 'haiku',
-		embeddingProvider: embeddingProvider || 'voyage',
-		embeddingApiKey: embeddingApiKey || null,
-		embeddingModel: embeddingModel || 'voyage-3.5',
 		updatedAt: new Date(),
 	};
 
@@ -84,9 +66,6 @@ settingsRoutes.put('/', async (c) => {
 				llmApiKey: values.llmApiKey,
 				llmModelStrong: values.llmModelStrong,
 				llmModelFast: values.llmModelFast,
-				embeddingProvider: values.embeddingProvider,
-				embeddingApiKey: values.embeddingApiKey,
-				embeddingModel: values.embeddingModel,
 				updatedAt: values.updatedAt,
 			},
 		});

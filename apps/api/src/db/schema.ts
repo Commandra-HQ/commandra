@@ -1,13 +1,4 @@
-import {
-	boolean,
-	integer,
-	jsonb,
-	pgTable,
-	text,
-	timestamp,
-	uuid,
-	vector,
-} from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
 	id: uuid('id').primaryKey().defaultRandom(),
@@ -65,32 +56,6 @@ export const pages = pgTable('pages', {
 	lastIndexedAt: timestamp('last_indexed_at').defaultNow(),
 });
 
-export const elementEmbeddings = pgTable('element_embeddings', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	pageId: uuid('page_id')
-		.references(() => pages.id, { onDelete: 'cascade' })
-		.notNull(),
-	elementLabel: text('element_label').notNull(),
-	elementType: text('element_type').notNull(),
-	selector: text('selector').notNull(),
-	labelHash: text('label_hash'),
-	embeddingModel: text('embedding_model'),
-	embedding: vector('embedding', { dimensions: 1024 }),
-	createdAt: timestamp('created_at').defaultNow().notNull(),
-});
-
-export const memoryEmbeddings = pgTable('memory_embeddings', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	siteId: uuid('site_id')
-		.references(() => sites.id, { onDelete: 'cascade' })
-		.notNull(),
-	memoryKey: text('memory_key').notNull(),
-	memoryText: text('memory_text').notNull(),
-	embeddingModel: text('embedding_model'),
-	embedding: vector('embedding', { dimensions: 1024 }),
-	createdAt: timestamp('created_at').defaultNow().notNull(),
-});
-
 export const conversations = pgTable('conversations', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	userId: uuid('user_id')
@@ -118,21 +83,9 @@ export const messages = pgTable('messages', {
 	role: text('role').notNull(), // 'user' | 'assistant' | 'system'
 	content: text('content').notNull(),
 	/** Structured tool call data (tool names, args, results) for multi-turn context */
-	toolData: jsonb('tool_data').$type<{ tools: { name: string; args: unknown; result: unknown; success: boolean }[] }>(),
-	createdAt: timestamp('created_at').defaultNow().notNull(),
-});
-
-export const conversationEmbeddings = pgTable('conversation_embeddings', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	conversationId: uuid('conversation_id')
-		.references(() => conversations.id, { onDelete: 'cascade' })
-		.notNull(),
-	messageId: uuid('message_id')
-		.references(() => messages.id, { onDelete: 'cascade' })
-		.notNull(),
-	messageText: text('message_text').notNull(),
-	embeddingModel: text('embedding_model'),
-	embedding: vector('embedding', { dimensions: 1024 }),
+	toolData: jsonb('tool_data').$type<{
+		tools: { name: string; args: unknown; result: unknown; success: boolean }[];
+	}>(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -157,9 +110,6 @@ export const userSettings = pgTable('user_settings', {
 	llmApiKey: text('llm_api_key'),
 	llmModelStrong: text('llm_model_strong').default('sonnet'),
 	llmModelFast: text('llm_model_fast').default('haiku'),
-	embeddingProvider: text('embedding_provider').default('voyage'),
-	embeddingApiKey: text('embedding_api_key'),
-	embeddingModel: text('embedding_model').default('voyage-3.5'),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 

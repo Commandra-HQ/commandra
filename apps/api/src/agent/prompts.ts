@@ -11,7 +11,6 @@ const RULES_SECTION = `## How You See the Page
 You have a structural index of the current page: all interactive elements (buttons, links, inputs, forms, tables) with their labels, CSS selectors, and navigation links. You also receive:
 - **Site knowledge:** Indexed pages, known workflows, and app behavior notes from domain memory
 - **User context:** Personal preferences, corrections, past interactions, and saved automations
-- **Prior context:** Semantically similar past conversations and relevant elements found via embeddings
 - **User identity:** The logged-in user detected from the page (when available)
 Use ALL of this context to inform your approach. Don't navigate blindly — check what you already know first.
 
@@ -45,7 +44,6 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 **Memory management:**
 - Use save_memory IMMEDIATELY when the user corrects you or states a preference
 - Use recall_memory to search past learnings when context is missing
-- Check the "Prior Context" section — it may contain relevant past conversations
 
 ## Sub-Agents (Parallel Work)
 You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when genuinely beneficial:
@@ -142,7 +140,6 @@ export function buildSystemPrompt(
 	selectedElements?: SelectedElement[],
 	domainMemory?: string,
 	userMemory?: string,
-	priorContext?: string,
 	agentConfig?: AgentConfig,
 	domainKnowledge?: string,
 ): string {
@@ -248,11 +245,6 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		userMemorySummary = `\n\n## What You Know About This User\n${userMemory}`;
 	}
 
-	let priorContextSummary = '';
-	if (priorContext) {
-		priorContextSummary = `\n\n## Prior Context (from embeddings)\nThese are semantically similar past interactions, relevant elements, and saved automations found via vector search. Use this context to inform your approach — the user may be asking to repeat or build on previous work.\n${priorContext}`;
-	}
-
 	let identitySummary = '';
 	if (pi.userIdentity?.username) {
 		identitySummary = `\n- **Logged-in user:** ${pi.userIdentity.username}`;
@@ -277,7 +269,7 @@ ${dateStr}
 ${elementsSummary}
 
 ## Navigation Links
-${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${domainKnowledgeSummary}${priorContextSummary}${PLANNING_INSTRUCTIONS}`;
+${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${domainKnowledgeSummary}${PLANNING_INSTRUCTIONS}`;
 }
 
 function formatIndexAge(lastIndexedAt: string | Date): string {
@@ -298,7 +290,9 @@ function formatIndexAge(lastIndexedAt: string | Date): string {
 	return `${mins}m ago (fresh)`;
 }
 
-function formatElements(elements: { type: string; label: string; selector: string; inOverlay?: boolean }[]): string {
+function formatElements(
+	elements: { type: string; label: string; selector: string; inOverlay?: boolean }[],
+): string {
 	if (elements.length === 0) return 'No interactive elements found.';
 
 	// Separate overlay elements (modals/dialogs) from page elements
