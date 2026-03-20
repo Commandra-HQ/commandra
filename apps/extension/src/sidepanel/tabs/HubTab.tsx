@@ -1,5 +1,5 @@
 import { ListChecks, Loader2, MessageSquare, Plus, Zap } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useActiveChats } from '../contexts/active-chats.js';
 
@@ -54,8 +54,7 @@ export function HubTab() {
 		return () => clearInterval(interval);
 	}, [activeChats.size]);
 
-	useEffect(() => {
-		loadConversations();
+	const updateDomain = useCallback(() => {
 		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
 			const tab = tabs[0];
 			if (tab?.url) {
@@ -65,6 +64,19 @@ export function HubTab() {
 			}
 		});
 	}, []);
+
+	useEffect(() => {
+		loadConversations();
+		updateDomain();
+
+		const onActivated = () => updateDomain();
+		chrome.tabs.onActivated.addListener(onActivated);
+		chrome.tabs.onUpdated.addListener(onActivated);
+		return () => {
+			chrome.tabs.onActivated.removeListener(onActivated);
+			chrome.tabs.onUpdated.removeListener(onActivated);
+		};
+	}, [updateDomain]);
 
 	async function loadConversations() {
 		try {

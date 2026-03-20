@@ -1,6 +1,7 @@
 import {
 	ArrowLeft,
 	Brain,
+	ExternalLink,
 	Globe,
 	Laptop,
 	LogOut,
@@ -15,10 +16,11 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { THEME_OPTIONS, Theme, useTheme } from '../theme.js';
 import { useAuth } from '../contexts/auth.js';
+import { THEME_OPTIONS, type Theme, useTheme } from '../theme.js';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
+const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:3000';
 
 const THEME_ICONS: Record<Theme, typeof Monitor> = {
 	system: Monitor,
@@ -145,182 +147,190 @@ export function SettingsTab() {
 
 	return (
 		<div className="flex flex-col h-full">
-		<header className="px-4 py-3 border-b border-border flex items-center gap-2 flex-shrink-0">
-			<button
-				onClick={() => navigate('/')}
-				className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
-				title="Back"
-			>
-				<ArrowLeft size={14} />
-			</button>
-			<h2 className="text-sm font-semibold text-foreground">Settings</h2>
-		</header>
-		<div className="flex-1 overflow-y-auto p-4 space-y-5">
-			{/* Theme */}
-			<section className="space-y-2">
-				<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-					Theme
-				</h3>
-				<div className="flex gap-1.5 p-1 rounded-lg bg-secondary border border-border">
-					{THEME_OPTIONS.map((opt) => {
-						const Icon = THEME_ICONS[opt.value];
-						const isActive = theme === opt.value;
-						return (
-							<button
-								key={opt.value}
-								type="button"
-								onClick={() => setTheme(opt.value)}
-								className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md text-xs font-medium transition-colors ${
-									isActive
-										? 'bg-background text-foreground shadow-sm border border-border'
-										: 'text-muted-foreground hover:text-foreground'
-								}`}
-							>
-								<Icon size={14} />
-								<span className="hidden sm:inline">{opt.label}</span>
-							</button>
-						);
-					})}
-				</div>
-				<p className="text-[10px] text-muted-foreground">
-					{theme === 'system'
-						? 'Uses your system light/dark preference'
-						: theme === 'light'
-							? 'Always use light mode'
-							: 'Always use dark mode'}
-				</p>
-			</section>
+			<header className="px-4 py-3 border-b border-border flex items-center gap-2 flex-shrink-0">
+				<button
+					onClick={() => navigate('/')}
+					className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
+					title="Back"
+				>
+					<ArrowLeft size={14} />
+				</button>
+				<h2 className="text-sm font-semibold text-foreground">Settings</h2>
+			</header>
+			<div className="flex-1 overflow-y-auto p-4 space-y-5">
+				{/* Theme */}
+				<section className="space-y-2">
+					<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+						Theme
+					</h3>
+					<div className="flex gap-1.5 p-1 rounded-lg bg-secondary border border-border">
+						{THEME_OPTIONS.map((opt) => {
+							const Icon = THEME_ICONS[opt.value];
+							const isActive = theme === opt.value;
+							return (
+								<button
+									key={opt.value}
+									type="button"
+									onClick={() => setTheme(opt.value)}
+									className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md text-xs font-medium transition-colors ${
+										isActive
+											? 'bg-background text-foreground shadow-sm border border-border'
+											: 'text-muted-foreground hover:text-foreground'
+									}`}
+								>
+									<Icon size={14} />
+									<span className="hidden sm:inline">{opt.label}</span>
+								</button>
+							);
+						})}
+					</div>
+					<p className="text-[10px] text-muted-foreground">
+						{theme === 'system'
+							? 'Uses your system light/dark preference'
+							: theme === 'light'
+								? 'Always use light mode'
+								: 'Always use dark mode'}
+					</p>
+				</section>
 
-			{/* Account */}
-			<section className="space-y-1.5">
-				<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-					Account
-				</h3>
-				<div className="flex items-center gap-2 text-sm text-foreground">
-					<Laptop size={14} className="text-muted-foreground" />
-					<span>{user?.email}</span>
-				</div>
-			</section>
+				{/* Account */}
+				<section className="space-y-2">
+					<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+						Account
+					</h3>
+					<div className="flex items-center gap-2 text-sm text-foreground">
+						<Laptop size={14} className="text-muted-foreground" />
+						<span>{user?.email}</span>
+					</div>
+					<button
+						type="button"
+						onClick={() => chrome.tabs.create({ url: DASHBOARD_URL })}
+						className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+					>
+						<ExternalLink size={12} />
+						<span>Open Dashboard</span>
+					</button>
+				</section>
 
-			{/* Connection status */}
-			<section className="space-y-2">
-				<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-					Connections
-				</h3>
-				<div className="space-y-1.5">
-					<div className="flex items-center justify-between text-xs">
-						<div className="flex items-center gap-2 text-foreground">
-							<Server size={13} className="text-muted-foreground" />
-							<span>Backend API</span>
+				{/* Connection status */}
+				<section className="space-y-2">
+					<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+						Connections
+					</h3>
+					<div className="space-y-1.5">
+						<div className="flex items-center justify-between text-xs">
+							<div className="flex items-center gap-2 text-foreground">
+								<Server size={13} className="text-muted-foreground" />
+								<span>Backend API</span>
+							</div>
+							<div className="flex items-center gap-1.5">
+								<StatusDot status={backendStatus} />
+								<span className="text-muted-foreground capitalize">{backendStatus}</span>
+							</div>
 						</div>
-						<div className="flex items-center gap-1.5">
-							<StatusDot status={backendStatus} />
-							<span className="text-muted-foreground capitalize">{backendStatus}</span>
+						<div className="flex items-center justify-between text-xs">
+							<div className="flex items-center gap-2 text-foreground">
+								{wsStatus === 'connected' ? (
+									<Wifi size={13} className="text-muted-foreground" />
+								) : (
+									<WifiOff size={13} className="text-muted-foreground" />
+								)}
+								<span>WebSocket</span>
+							</div>
+							<div className="flex items-center gap-1.5">
+								<StatusDot status={wsStatus} />
+								<span className="text-muted-foreground capitalize">{wsStatus}</span>
+							</div>
 						</div>
 					</div>
-					<div className="flex items-center justify-between text-xs">
-						<div className="flex items-center gap-2 text-foreground">
-							{wsStatus === 'connected' ? (
-								<Wifi size={13} className="text-muted-foreground" />
+				</section>
+
+				{/* Current site info */}
+				<section className="space-y-2">
+					<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+						Current Site
+					</h3>
+					{currentDomain ? (
+						<div className="space-y-2">
+							<div className="flex items-center gap-2 text-sm text-foreground">
+								<Globe size={13} className="text-muted-foreground" />
+								<span className="font-mono text-xs">{currentDomain}</span>
+							</div>
+							{siteInfo ? (
+								<div className="grid grid-cols-2 gap-2">
+									<div className="rounded-md bg-secondary px-2.5 py-1.5">
+										<p className="text-[10px] text-muted-foreground">Pages</p>
+										<p className="text-sm font-medium text-foreground">{siteInfo.totalPages}</p>
+									</div>
+									<div className="rounded-md bg-secondary px-2.5 py-1.5">
+										<p className="text-[10px] text-muted-foreground">Elements</p>
+										<p className="text-sm font-medium text-foreground">{siteInfo.totalElements}</p>
+									</div>
+								</div>
 							) : (
-								<WifiOff size={13} className="text-muted-foreground" />
+								<p className="text-xs text-muted-foreground">Not indexed yet</p>
 							)}
-							<span>WebSocket</span>
+							<button
+								onClick={handleReindex}
+								className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+							>
+								<RefreshCw size={12} />
+								<span>Re-index current page</span>
+							</button>
 						</div>
-						<div className="flex items-center gap-1.5">
-							<StatusDot status={wsStatus} />
-							<span className="text-muted-foreground capitalize">{wsStatus}</span>
-						</div>
-					</div>
-				</div>
-			</section>
+					) : (
+						<p className="text-xs text-muted-foreground">Navigate to a web page to see info</p>
+					)}
+				</section>
 
-			{/* Current site info */}
-			<section className="space-y-2">
-				<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-					Current Site
-				</h3>
-				{currentDomain ? (
-					<div className="space-y-2">
-						<div className="flex items-center gap-2 text-sm text-foreground">
-							<Globe size={13} className="text-muted-foreground" />
-							<span className="font-mono text-xs">{currentDomain}</span>
-						</div>
-						{siteInfo ? (
+				{/* Agent Memory */}
+				<section className="space-y-2">
+					<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+						Agent Memory
+					</h3>
+					{currentDomain ? (
+						<div className="space-y-2">
 							<div className="grid grid-cols-2 gap-2">
 								<div className="rounded-md bg-secondary px-2.5 py-1.5">
-									<p className="text-[10px] text-muted-foreground">Pages</p>
-									<p className="text-sm font-medium text-foreground">{siteInfo.totalPages}</p>
+									<p className="text-[10px] text-muted-foreground">Memories</p>
+									<p className="text-sm font-medium text-foreground">{memoryCount}</p>
 								</div>
 								<div className="rounded-md bg-secondary px-2.5 py-1.5">
-									<p className="text-[10px] text-muted-foreground">Elements</p>
-									<p className="text-sm font-medium text-foreground">{siteInfo.totalElements}</p>
+									<p className="text-[10px] text-muted-foreground">Domain</p>
+									<p className="text-xs font-medium text-foreground truncate">{currentDomain}</p>
 								</div>
 							</div>
-						) : (
-							<p className="text-xs text-muted-foreground">Not indexed yet</p>
-						)}
-						<button
-							onClick={handleReindex}
-							className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-						>
-							<RefreshCw size={12} />
-							<span>Re-index current page</span>
-						</button>
-					</div>
-				) : (
-					<p className="text-xs text-muted-foreground">Navigate to a web page to see info</p>
-				)}
-			</section>
-
-			{/* Agent Memory */}
-			<section className="space-y-2">
-				<h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-					Agent Memory
-				</h3>
-				{currentDomain ? (
-					<div className="space-y-2">
-						<div className="grid grid-cols-2 gap-2">
-							<div className="rounded-md bg-secondary px-2.5 py-1.5">
-								<p className="text-[10px] text-muted-foreground">Memories</p>
-								<p className="text-sm font-medium text-foreground">{memoryCount}</p>
-							</div>
-							<div className="rounded-md bg-secondary px-2.5 py-1.5">
-								<p className="text-[10px] text-muted-foreground">Domain</p>
-								<p className="text-xs font-medium text-foreground truncate">{currentDomain}</p>
-							</div>
+							<p className="text-[10px] text-muted-foreground">
+								The agent learns your preferences and corrections over time.
+							</p>
+							<button
+								onClick={handleClearMemory}
+								disabled={clearingMemory || memoryCount === 0}
+								className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive/80 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+							>
+								<Trash2 size={12} />
+								<span>{clearingMemory ? 'Clearing...' : 'Forget everything about this site'}</span>
+							</button>
 						</div>
-						<p className="text-[10px] text-muted-foreground">
-							The agent learns your preferences and corrections over time.
-						</p>
-						<button
-							onClick={handleClearMemory}
-							disabled={clearingMemory || memoryCount === 0}
-							className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive/80 transition-colors disabled:opacity-40 disabled:pointer-events-none"
-						>
-							<Trash2 size={12} />
-							<span>{clearingMemory ? 'Clearing...' : 'Forget everything about this site'}</span>
-						</button>
-					</div>
-				) : (
-					<div className="flex items-center gap-2 text-xs text-muted-foreground">
-						<Brain size={13} />
-						<span>Navigate to a site to see memory</span>
-					</div>
-				)}
-			</section>
+					) : (
+						<div className="flex items-center gap-2 text-xs text-muted-foreground">
+							<Brain size={13} />
+							<span>Navigate to a site to see memory</span>
+						</div>
+					)}
+				</section>
 
-			{/* Danger zone */}
-			<section className="pt-2 border-t border-border">
-				<button
-					onClick={handleDisconnect}
-					className="flex items-center gap-2 w-full py-2 text-sm text-destructive hover:bg-destructive/5 rounded-md justify-center transition-colors"
-				>
-					<LogOut size={14} />
-					<span>Disconnect</span>
-				</button>
-			</section>
-		</div>
+				{/* Danger zone */}
+				<section className="pt-2 border-t border-border">
+					<button
+						onClick={handleDisconnect}
+						className="flex items-center gap-2 w-full py-2 text-sm text-destructive hover:bg-destructive/5 rounded-md justify-center transition-colors"
+					>
+						<LogOut size={14} />
+						<span>Disconnect</span>
+					</button>
+				</section>
+			</div>
 		</div>
 	);
 }

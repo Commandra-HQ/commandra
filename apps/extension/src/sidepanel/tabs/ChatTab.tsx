@@ -22,16 +22,16 @@ import {
 	MoveVertical,
 	Pilcrow,
 	Plus,
+	RefreshCw,
 	Send,
 	Settings2,
 	Square,
 	Table2,
 	X,
-	RefreshCw,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useActiveChats } from '../contexts/active-chats.js';
 
 /** Site data shapes returned by backend API (via background script) */
@@ -227,8 +227,10 @@ export function ChatTab() {
 	const [pendingPlanApproval, setPendingPlanApproval] = useState<PlanApprovalRequest | null>(null);
 	const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
 	const [selectorActive, setSelectorActive] = useState(false);
+	const [contextStatus, setContextStatus] = useState<{ used: number; limit: number; percent: number } | null>(null);
+	const [planState, setPlanState] = useState<{ description: string; steps: { label: string; status: string }[] } | null>(null);
+	const [showPlanPanel, setShowPlanPanel] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
-
 
 	// Re-index state
 	const [isReindexing, setIsReindexing] = useState(false);
@@ -251,7 +253,10 @@ export function ChatTab() {
 		const ta = chatInputRef.current;
 		if (!ta) return;
 		ta.style.height = 'auto';
-		const h = Math.min(Math.max(ta.scrollHeight, CHAT_INPUT_MIN_HEIGHT_PX), CHAT_INPUT_MAX_HEIGHT_PX);
+		const h = Math.min(
+			Math.max(ta.scrollHeight, CHAT_INPUT_MIN_HEIGHT_PX),
+			CHAT_INPUT_MAX_HEIGHT_PX,
+		);
 		ta.style.height = `${h}px`;
 	}, [input]);
 
@@ -278,7 +283,16 @@ export function ChatTab() {
 			if (tab?.url && tab.id) {
 				try {
 					const parsed = new URL(tab.url);
-					setDomain(parsed.hostname);
+					const newDomain = parsed.hostname;
+					setDomain((prev) => {
+						// If domain changed and this is a new chat (no conversationId), clear messages
+						if (prev && prev !== newDomain && !externalConvId) {
+							setChatMessages([]);
+							setPendingApprovals([]);
+							setSelectedElements([]);
+						}
+						return newDomain;
+					});
 					const segments = parsed.pathname.split('/').filter(Boolean);
 					const scope =
 						segments.length >= 2
@@ -288,11 +302,11 @@ export function ChatTab() {
 								: '/';
 					setPathScope(scope);
 					setTabId(tab.id);
-					loadSiteData(parsed.hostname);
+					loadSiteData(newDomain);
 				} catch {}
 			}
 		});
-	}, [loadSiteData]);
+	}, [loadSiteData, externalConvId]);
 
 	useEffect(() => {
 		updateCurrentTab();
@@ -345,7 +359,10 @@ export function ChatTab() {
 						steps: req.payload.steps as string[],
 					});
 				} else {
-					setPendingApprovals((prev) => [...prev, { ...(req.payload as unknown as ApprovalRequest), requestId: req.requestId }]);
+					setPendingApprovals((prev) => [
+						...prev,
+						{ ...(req.payload as unknown as ApprovalRequest), requestId: req.requestId },
+					]);
 				}
 			} else if (message.type === 'ELEMENT_SELECTED') {
 				const els = message.payload as SelectedElement[];
@@ -596,6 +613,14 @@ export function ChatTab() {
 								// These are informational — the plan block already renders
 								break;
 
+							case 'context_status':
+								setContextStatus({ used: event.used, limit: event.limit, percent: event.percent });
+								break;
+
+							case 'plan_state':
+								setPlanState(event.plan);
+								break;
+
 							case 'sub_agent_start': {
 								const blocks = blocksRef.current;
 								// Remove empty thinking block
@@ -832,7 +857,14 @@ export function ChatTab() {
 				console.log('[ChatTab] Loaded messages:', data.messages?.length);
 				navigate(`/chat/${convId}`, { replace: true });
 				const loaded: ChatMessage[] = (data.messages || []).map(
-					(m: { id: string; role: string; content: string; toolData?: { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } }) => {
+					(m: {
+						id: string;
+						role: string;
+						content: string;
+						toolData?: {
+							tools: { name: string; args: unknown; result: unknown; success: boolean }[];
+						};
+					}) => {
 						// Reconstruct blocks from stored tool data
 						const blocks: MessageBlock[] = [];
 
@@ -914,60 +946,56 @@ export function ChatTab() {
 	return (
 		<div className="flex flex-col h-full">
 			{/* Context bar */}
-			<div className="px-4 py-2 border-b border-border flex items-center justify-between">
+			<div className="px-3 py-2 border-b border-border flex items-center gap-2">
 				<button
+					type="button"
 					onClick={() => navigate('/')}
-					className="p-1 mr-2 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
-					title="Back to Hub"
+					className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50 flex-shrink-0"
+					title="Back"
 				>
 					<ArrowLeft size={14} />
 				</button>
 				<button
+					type="button"
 					onClick={() => setShowContext(!showContext)}
-					className="flex-1 text-left hover:opacity-80"
+					className="flex-1 min-w-0 text-left"
 				>
-					<span className="text-xs text-muted-foreground">
-						{domain} · {siteData.site?.totalElements || siteData.pages.reduce((s, p) => s + p.elements.length, 0)} elements · {siteData.pages.length || siteData.site?.totalPages || 0} pages
-						{siteData.site?.lastIndexedAt
-							? ` · Last: ${formatRelativeTime(siteData.site.lastIndexedAt)}`
-							: ''}
-					</span>
+					<p className="text-xs font-medium text-foreground truncate">{domain}</p>
+					<p className="text-[10px] text-muted-foreground">
+						{siteData.site?.totalElements ||
+							siteData.pages.reduce((s, p) => s + p.elements.length, 0)}{' '}
+						elements · {siteData.pages.length || siteData.site?.totalPages || 0} pages
+					</p>
 				</button>
-				<div className="flex items-center gap-1.5 ml-2">
-					<div className="relative group">
-						<button
-							onClick={handleReindexPage}
-							disabled={isReindexing}
-							className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50 disabled:opacity-50"
-						>
-							<RefreshCw size={12} className={isReindexing ? 'animate-spin' : ''} />
-						</button>
-						<span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
-							Re-index page
-						</span>
-					</div>
-					<div className="relative group">
-						<button
-							onClick={handleIndexSite}
-							className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50"
-						>
-							<Globe size={12} />
-						</button>
-						<span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
-							Deep index site
-						</span>
-					</div>
-					<div className="relative group">
-						<button
-							onClick={() => setShowContext(!showContext)}
-							className="p-1 text-muted-foreground hover:text-foreground"
-						>
-							<span className="text-xs">{showContext ? '▲' : '▼'}</span>
-						</button>
-						<span className="absolute top-full right-0 mt-1.5 px-2 py-1 text-[10px] text-primary-foreground bg-foreground rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
-							{showContext ? 'Hide pages' : 'Show pages'}
-						</span>
-					</div>
+				<div className="flex items-center gap-1 flex-shrink-0">
+					<button
+						type="button"
+						onClick={handleReindexPage}
+						disabled={isReindexing}
+						className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-secondary/50 disabled:opacity-50"
+						title="Re-index page"
+					>
+						<RefreshCw size={12} className={isReindexing ? 'animate-spin' : ''} />
+					</button>
+					<button
+						type="button"
+						onClick={handleIndexSite}
+						className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-secondary/50"
+						title="Deep index site"
+					>
+						<Globe size={12} />
+					</button>
+					<button
+						type="button"
+						onClick={() => setShowContext(!showContext)}
+						className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-secondary/50"
+						title={showContext ? 'Hide pages' : 'Show pages'}
+					>
+						<ChevronRight
+							size={12}
+							className={`transition-transform ${showContext ? 'rotate-90' : ''}`}
+						/>
+					</button>
 				</div>
 			</div>
 
@@ -1021,13 +1049,13 @@ export function ChatTab() {
 			{/* Plan Approval */}
 			{pendingPlanApproval && (
 				<div className="border-b border-blue-500/30 bg-blue-500/5 px-4 py-3 space-y-2">
-					<p className="text-xs font-semibold text-foreground">
-						Plan requires approval
-					</p>
+					<p className="text-xs font-semibold text-foreground">Plan requires approval</p>
 					<p className="text-xs text-muted-foreground">{pendingPlanApproval.description}</p>
 					<ol className="list-decimal list-inside space-y-0.5 pl-1">
 						{pendingPlanApproval.steps.map((step, i) => (
-							<li key={i} className="text-xs text-foreground">{step}</li>
+							<li key={i} className="text-xs text-foreground">
+								{step}
+							</li>
 						))}
 					</ol>
 					<div className="flex gap-2 pt-1">
@@ -1073,10 +1101,7 @@ export function ChatTab() {
 						{msg.role === 'user' ? (
 							<UserMessage msg={msg} />
 						) : (
-							<AssistantMessage
-								msg={msg}
-								isActive={isActive}
-							/>
+							<AssistantMessage msg={msg} isActive={isActive} />
 						)}
 					</div>
 				))}
@@ -1278,12 +1303,7 @@ function AssistantMessage({
 						case 'blocked':
 							return <BlockedBlock key={i} toolName={block.toolName} reason={block.reason} />;
 						case 'plan':
-							return (
-								<PlanBlock
-									key={i}
-									plan={block.plan}
-								/>
-							);
+							return <PlanBlock key={i} plan={block.plan} />;
 						default:
 							return null;
 					}

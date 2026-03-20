@@ -29,7 +29,7 @@ import { classifyAction } from '../safety/classifier.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { uploadAgentFile } from '../storage/agent-files.js';
 import { saveLocalFile } from '../storage/local.js';
-import { type StoredPlan, savePlan, updatePlanStep } from '../storage/plan-files.js';
+import { type StoredPlan, loadPlan, savePlan, updatePlanStep } from '../storage/plan-files.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
 import { createAgent, loadAgentBySlug } from './agent-registry.js';
@@ -360,6 +360,18 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	while (iterations < maxIterations) {
 		// Token budget guard — strip old screenshots and truncate if messages are too large
 		currentMessages = trimMessagesForTokenBudget(currentMessages);
+
+		// Emit context usage so the extension can show a progress indicator
+		const usedChars = estimateMessageChars(currentMessages) + systemPrompt.length;
+		const usedTokens = Math.round(usedChars / CHARS_PER_TOKEN);
+		const contextPercent = Math.round((usedTokens / MAX_INPUT_TOKENS) * 100);
+		await onEvent({
+			type: 'context_status',
+			used: usedTokens,
+			limit: MAX_INPUT_TOKENS,
+			percent: Math.min(contextPercent, 100),
+		});
+
 		// Kill switch / abort check
 		if (isKilled(connectionId) || signal?.aborted) {
 			break;
@@ -1057,14 +1069,36 @@ async function executeToolBlock(
 	}
 
 	// submit_plan — save plan + send for approval (blocks until user responds)
+	// Only one plan per conversation — reject if a plan is already in progress
 	if (block.name === 'submit_plan') {
 		const args = block.input as { description: string; steps: string[] };
 		try {
+			// Check for existing in-progress plan
+			if (conversationId) {
+				const existingPlan = await loadPlan(userId, conversationId);
+				if (existingPlan) {
+					const hasActiveSteps = existingPlan.steps.some(
+						(s: { status: string }) => s.status === 'in_progress',
+					);
+					if (hasActiveSteps) {
+						return {
+							type: 'tool_result',
+							toolUseId: block.id,
+							content: JSON.stringify({
+								success: false,
+								error: 'A plan is already in progress. Use update_plan to track step completion instead of submitting a new plan.',
+							}),
+							isError: true,
+						};
+					}
+				}
+			}
+
 			const plan: StoredPlan = {
 				description: args.description,
 				steps: args.steps.map((label) => ({ label, status: 'pending' as const })),
 			};
-			// Persist plan to storage (if we have a conversation)
+			// Persist plan to storage (if we have a conversation) — overwrites any previous plan
 			if (conversationId) {
 				await savePlan(userId, conversationId, plan);
 				db.update(conversations)
@@ -1118,6 +1152,12 @@ async function executeToolBlock(
 				await onEvent({
 					type: 'plan_approved',
 					planId,
+				});
+
+				// Emit plan state so extension can show persistent plan view
+				await onEvent({
+					type: 'plan_state',
+					plan: { description: plan.description, steps: plan.steps },
 				});
 
 				return {
@@ -1232,13 +1272,17 @@ async function executeToolBlock(
 				}).catch(() => {});
 			}
 
-			// Emit SSE event
+			// Emit SSE events
 			await onEvent({
 				type: 'plan_step_updated',
 				planId: conversationId,
 				stepIndex: args.stepIndex,
 				status: args.status,
 				error: args.error,
+			});
+			await onEvent({
+				type: 'plan_state',
+				plan: { description: updated.description, steps: updated.steps },
 			});
 
 			return {

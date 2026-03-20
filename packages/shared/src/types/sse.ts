@@ -32,6 +32,14 @@ export type SSEEvent =
 			status: 'in_progress' | 'completed' | 'failed';
 			error?: string;
 	  }
+	| { type: 'context_status'; used: number; limit: number; percent: number }
+	| {
+			type: 'plan_state';
+			plan: {
+				description: string;
+				steps: { label: string; status: string }[];
+			} | null;
+	  }
 	| { type: 'done'; conversationId: string }
 	| { type: 'error'; message: string }
 	| { type: 'sub_agent_start'; agentId: string; task: string; targetUrl: string }
