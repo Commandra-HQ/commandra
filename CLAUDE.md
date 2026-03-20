@@ -20,7 +20,7 @@ This monorepo is the product. It's what gets open-sourced. It's what self-hosted
 
 ## Architecture in One Paragraph
 
-Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, user identity detection, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Page state auto-refreshes after state-changing actions (click, navigate, type, select). Domain knowledge accumulates organically per-user in S3 (KNOWLEDGE.md, WORKFLOWS.md) — the agent learns about each app over time from actual usage. Agents always execute in the user's browser (never server-side browsers) — this is the core privacy guarantee. Postgres stores structured data. Supabase Storage stores agent files (AGENT.yaml, SOUL.md, SKILLS.md, LEARNINGS.md, workspace/) and domain knowledge files. The whole thing runs in Docker. Auth is JWT-only in this repo — no Clerk dependency. External auth providers (Clerk, OIDC) can exchange tokens for JWTs via the `/api/token/exchange` endpoint.
+Chrome extension (thin client) handles UI, DOM indexing, element selection, screenshots, user identity detection, and action execution. Backend (Node.js + Hono) runs a custom provider-agnostic orchestrator that handles all reasoning, planning, and agent orchestration — no vendor SDK, just our own agentic loop. Browser actions are exposed through a tool registry — the orchestrator calls tools, they get forwarded to the extension via WebSocket. Page state auto-refreshes after state-changing actions (click, navigate, type, select). Agents manage their own knowledge via `save_knowledge`/`read_knowledge`/`list_knowledge` tools — the agent decides what to save about each app, writing directly to S3 (KNOWLEDGE.md, WORKFLOWS.md) during conversations. Agents always execute in the user's browser (never server-side browsers) — this is the core privacy guarantee. Postgres stores structured data. Supabase Storage stores agent files (AGENT.yaml, SOUL.md, SKILLS.md, LEARNINGS.md, workspace/) and domain knowledge files. The whole thing runs in Docker. Auth is JWT-only in this repo — no Clerk dependency. External auth providers (Clerk, OIDC) can exchange tokens for JWTs via the `/api/token/exchange` endpoint.
 
 ## Rules
 
@@ -91,7 +91,8 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - **Per-agent config**: orchestrator accepts `AgentConfig` — respects agent's model, tool allowlist, safety overrides, max iterations
 - **Parallel tool calling**: safe tools execute in parallel via `Promise.allSettled`, review tools sequential with approval gates, blocked tools rejected immediately
 - **Token budget management**: strips old screenshots, truncates long results, catches context_length_exceeded and retries with aggressive trimming
-- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`, `save_to_local`, `create_agent`, `update_agent_files`
+- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `save_knowledge`, `read_knowledge`, `list_knowledge`, `spawn_agent`, `wait_for_agents`, `save_to_local`, `create_agent`, `update_agent_files`
+- **Agent-driven knowledge**: agents persist domain knowledge during execution via `save_knowledge` (writes to S3), `read_knowledge` (reads from S3), and `list_knowledge` (lists S3 files). No background extraction — the agent decides what to save.
 - **Agent creation from chat**: `create_agent` tool lets the LLM create agents mid-conversation when it detects repeatable workflows, scheduled tasks, or explicit user requests. `update_agent_files` writes SOUL.md/SKILLS.md for the new agent. Agents emerge from usage — users don't need to visit the dashboard.
 - **Multi-agent swarm**: coordinator spawns sub-agents (with target agent identity) in separate browser tabs via `open_tab` WS action. Max 3 concurrent, 10 iterations each, 2min timeout. Sub-agents use the target agent's model, tool allowlist, and SOUL.md. Tabs persist after completion (user can inspect). `recordAgentRun()` called for non-coordinator sub-agents.
 - **Auto page state refresh**: after `click_element`, `navigate`, `type_text`, `select_option` — orchestrator auto-calls `get_page_state` and merges updated DOM into the tool result (500ms delay for SPA transitions)
@@ -99,13 +100,14 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - **Site identity detection**: extension indexer detects logged-in user via avatar alt text, profile elements, aria-labels, meta tags. Injected into system prompt as "Logged-in user"
 
 ### Memory System
-- 3 layers: conversation memory (summarization), domain memory (shared per-domain), user memory (per-user-per-domain)
-- User memory is relevance-scored: confidence × recency × reinforcement × category priority. Top-15 injected into prompt. Corrections always loaded.
-- `recall_memory` tool for on-demand memory search mid-conversation — uses keyword search
+- **Agent-driven knowledge management**: agents manage their own knowledge via tools, no background LLM extraction
+- `save_knowledge` tool writes domain knowledge to S3 (Supabase Storage) — the agent decides what facts, workflows, and preferences to persist
+- `read_knowledge` tool reads domain knowledge files from S3 for a given domain
+- `list_knowledge` tool lists available knowledge files for a domain
+- `recall_memory` tool for on-demand memory search mid-conversation — uses keyword search against Postgres user_memory
 - `save_memory` used in real-time when corrections/preferences detected (not just post-conversation)
-- Domain memory cached in-memory with 5-min TTL, invalidated on updates
-- **Domain knowledge (S3)**: per-user domain knowledge accumulates organically in Supabase Storage (`domains/{userId}/{domain}/KNOWLEDGE.md`, `WORKFLOWS.md`, `MEMORY.md`). The agent learns about each app from actual usage — no pre-seeded knowledge.
-- Smart extraction: strong model used when correction signals detected in conversation
+- **Domain knowledge (S3)**: per-user domain knowledge in Supabase Storage (`domains/{userId}/{domain}/KNOWLEDGE.md`, `WORKFLOWS.md`, `MEMORY.md`). Written by the agent during conversations via `save_knowledge`, read back via `read_knowledge`.
+- Conversation memory: compresses messages >20 into summaries using the fast model
 - Outcome tracking: users rate conversations (success/failure), reinforces/flags memories accordingly
 
 ### Prompt Caching

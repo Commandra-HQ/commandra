@@ -102,7 +102,7 @@
 │  └──────────────────────────────────────────────────────────┘    │
 │                                                                   │
 │  ┌──────────────────┐  ┌───────────────────────────────────┐     │
-│  │  WebSocket Server │  │  TOOL REGISTRY (18 Tools)          │     │
+│  │  WebSocket Server │  │  TOOL REGISTRY (21 Tools)          │     │
 │  │  (ws library)     │  │                                   │     │
 │  │                   │  │  Browser: click, type, select,    │     │
 │  │  Connections map  │  │  navigate, scroll, screenshot,    │     │
@@ -112,6 +112,8 @@
 │  └──────────────────┘  │  Internal: save_memory,            │     │
 │                         │  recall_memory, spawn_agent,       │     │
 │                         │  wait_for_agents,                  │     │
+│                         │  save_knowledge, read_knowledge,   │     │
+│                         │  list_knowledge,                   │     │
 │                         │  save_to_workspace,                │     │
 │                         │  read_from_workspace,              │     │
 │                         │  list_workspace                    │     │
@@ -177,12 +179,12 @@ The brain. We built our own agentic loop — ~300 lines of TypeScript, no framew
    e. Log each to audit table
    f. Feed results back to LLM
 7. Repeat until end_turn or max iterations (15)
-8. Save conversation + trigger background memory extraction
+8. Save conversation (knowledge persistence is agent-driven via save_knowledge tool during execution)
 ```
 
-**Internal tools** (`save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`) execute server-side — they don't route through WebSocket to the extension.
+**Internal tools** (`save_memory`, `recall_memory`, `save_knowledge`, `read_knowledge`, `list_knowledge`, `spawn_agent`, `wait_for_agents`) execute server-side — they don't route through WebSocket to the extension.
 
-**Tool dispatch** happens via WebSocket directly — no MCP layer. The tool registry maps tool names to WS message handlers. Each tool sends an `action_request` to the extension and awaits the response. Internal tools (`save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`) run server-side without WS. Tab management tools (`open_tab`, `close_tab`) route through WS for the swarm.
+**Tool dispatch** happens via WebSocket directly — no MCP layer. The tool registry maps tool names to WS message handlers. Each tool sends an `action_request` to the extension and awaits the response. Internal tools (`save_memory`, `recall_memory`, `save_knowledge`, `read_knowledge`, `list_knowledge`, `spawn_agent`, `wait_for_agents`) run server-side without WS. Tab management tools (`open_tab`, `close_tab`) route through WS for the swarm.
 
 **Anthropic prompt caching:** System prompts use `cache_control: ephemeral` for ~90% input token cost reduction on multi-turn conversations.
 
@@ -202,7 +204,7 @@ The platform is evolving from a single generic agent to a system of **specialize
 - **Create** — user defines agent via dashboard or AGENT.yaml
 - **Invoke** — user, scheduler, or another agent triggers a run
 - **Execute** — agent runs with its own prompt, tools, model, autonomy level
-- **Learn** — post-execution analysis writes to SKILLS.md, LEARNINGS.md, ERRORS.md (with dedup + pruning). Domain knowledge synced to S3 (KNOWLEDGE.md, WORKFLOWS.md).
+- **Learn** — post-execution analysis writes to SKILLS.md, LEARNINGS.md, ERRORS.md (with dedup + pruning). Domain knowledge managed by the agent during execution via `save_knowledge` tool (writes KNOWLEDGE.md, WORKFLOWS.md to S3).
 - **Sleep** — agent is dormant until next trigger
 
 **Autonomy levels** control how much the agent can do without human approval:
@@ -245,15 +247,17 @@ The existing swarm system powers agent-to-agent invocation:
 - 60-second timeout per sub-agent
 - Tab cleanup: `close_tab` is sent when a sub-agent completes, fails, or times out
 
-### 4. Memory System (3 Layers)
+### 4. Memory System (Agent-Driven Knowledge Management)
 
 **Conversation memory:** Compresses messages >20 into summaries using the fast model. Token budget guard strips old screenshots from history before each LLM call.
 
-**Domain memory:** Per-domain shared knowledge — pages, workflows, element notes. Cached in-memory with 5-minute TTL. Background extraction runs after each conversation to capture new learnings about the site.
+**Agent-driven knowledge (S3):** Agents manage their own domain knowledge via tools — no background LLM extraction. The agent decides what to save during conversations:
+- `save_knowledge` — writes facts, workflows, and preferences to S3 (Supabase Storage) at `domains/{userId}/{domain}/`
+- `read_knowledge` — reads domain knowledge files from S3 to recall what the agent knows about a domain
+- `list_knowledge` — lists available knowledge files for a domain
+- Files include KNOWLEDGE.md (facts about the app), WORKFLOWS.md (proven multi-step workflows), AGENTS.md (which agents operate on this domain), and MEMORY.md (domain-specific preferences)
 
-**User memory:** Per-user-per-domain preferences, corrections, terminology, and workflows. Relevance-scored using `confidence × recency × reinforcement`. Top-15 memories injected into the system prompt. Corrections are always loaded regardless of score. The `recall_memory` tool allows on-demand keyword search during a conversation. Smart extraction uses the strong model when corrections are detected.
-
-**Domain knowledge (S3):** Per-user domain knowledge accumulates organically in Supabase Storage (`domains/{userId}/{domain}/`). Files include KNOWLEDGE.md (facts about the app), WORKFLOWS.md (proven multi-step workflows), AGENTS.md (which agents operate on this domain), and MEMORY.md (domain-specific preferences). Knowledge is extracted from conversations and injected into the system prompt.
+**User memory:** Per-user-per-domain preferences, corrections, terminology, and workflows stored in Postgres. The `recall_memory` tool allows on-demand keyword search during a conversation. `save_memory` persists corrections and preferences in real-time when detected.
 
 ### 5. Learning Feedback Loops
 

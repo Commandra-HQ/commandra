@@ -8,14 +8,8 @@ import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
 import { db } from '../db/index.js';
 import { conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
-import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
-import {
-	loadDomainKnowledgeFromS3,
-	loadDomainMemory,
-	syncDomainKnowledgeToS3,
-	updateDomainMemory,
-} from '../memory/domain.js';
-import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
+import { loadDomainKnowledgeFromS3, loadDomainMemory } from '../memory/domain.js';
+import { loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 
@@ -327,8 +321,9 @@ chatRoutes.post('/', async (c) => {
 
 			// Store assistant response with structured tool data
 			// If no text response but tools were used, save a summary so the conversation isn't lost
-			const contentToSave = fullResponse.trim()
-				|| (toolData ? `[Agent executed ${toolData.tools.length} actions]` : '');
+			const contentToSave =
+				fullResponse.trim() ||
+				(toolData ? `[Agent executed ${toolData.tools.length} actions]` : '');
 			if (contentToSave) {
 				await db.insert(messages).values({
 					conversationId: convId!,
@@ -338,28 +333,8 @@ chatRoutes.post('/', async (c) => {
 				});
 			}
 
-			// Update domain memory and user memory in the background
-			if (domain && fullResponse.length > 20) {
-				const transcript = [
-					...chatMessages.slice(-10).map((m) => `${m.role}: ${m.content}`),
-					`assistant: ${fullResponse}`,
-				].join('\n\n');
-				updateDomainMemory(domain, transcript, getProvider(), getFastModel()).catch((err) =>
-					console.warn('[DomainMemory] Update failed:', err),
-				);
-				extractAndSaveUserMemory(
-					user.id,
-					domain,
-					transcript,
-					getProvider(),
-					getFastModel(),
-					getStrongModel(),
-				).catch((err) => console.warn('[UserMemory] Extraction failed:', err));
-				// Sync knowledge to S3
-				syncDomainKnowledgeToS3(user.id, domain, transcript, getProvider(), getFastModel()).catch(
-					(err) => console.warn('[DomainKnowledge] S3 sync failed:', err),
-				);
-			}
+			// Knowledge management is now agent-driven via save_knowledge/save_memory tools.
+			// No background LLM extraction calls — the agent decides what to save.
 
 			// Send done event with conversation ID
 			await onEvent({ type: 'done', conversationId: convId! });

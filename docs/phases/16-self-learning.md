@@ -2,6 +2,18 @@
 
 > Agents that genuinely learn over time, accumulate domain knowledge in S3, and can operate with configurable levels of human oversight.
 
+## Phase 16b Update: Agent-Driven Knowledge Management
+
+The original Phase 16d design used background LLM extraction (`syncDomainKnowledgeToS3`, `updateDomainMemory`, `extractAndSaveUserMemory`) to automatically extract knowledge after each conversation. This approach was replaced in Phase 16b with **agent-driven knowledge tools**:
+
+- **`save_knowledge`** — the agent writes domain knowledge directly to S3 during a conversation when it learns something worth persisting
+- **`read_knowledge`** — the agent reads domain knowledge files from S3 to recall what it knows about a domain
+- **`list_knowledge`** — the agent lists available knowledge files for a domain
+
+This shift means the agent itself decides what to save, when to save it, and how to organize it — rather than relying on a background job to extract knowledge after the fact. Background extraction functions (`syncDomainKnowledgeToS3`, `extractAndSaveUserMemory`) are no longer used. The `recall_memory` tool now uses keyword search only (no vector/embedding search).
+
+---
+
 ## Why
 
 Phase 15 gave agents identity and persistence. But they don't truly learn — self-improvement files grow unbounded with duplicates, domain knowledge starts cold every time, there's no visibility into what agents did, and the LLM doesn't know what day it is. Agents also can't run autonomously because every write action requires human approval, which times out for scheduled runs.

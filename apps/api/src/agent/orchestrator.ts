@@ -28,8 +28,8 @@ import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { downloadAgentFile, listAgentFiles, uploadAgentFile } from '../storage/agent-files.js';
-import { downloadDomainFile, listDomainFiles, uploadDomainFile } from '../storage/domain-files.js';
 import { saveCompaction } from '../storage/compaction-files.js';
+import { downloadDomainFile, listDomainFiles, uploadDomainFile } from '../storage/domain-files.js';
 import { saveLocalFile } from '../storage/local.js';
 import { type StoredPlan, loadPlan, savePlan, updatePlanStep } from '../storage/plan-files.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
@@ -952,7 +952,12 @@ async function executeToolBlock(
 
 	// save_knowledge — write a knowledge file to S3
 	if (block.name === 'save_knowledge') {
-		const args = block.input as { category: string; key: string; filename: string; content: string };
+		const args = block.input as {
+			category: string;
+			key: string;
+			filename: string;
+			content: string;
+		};
 		try {
 			if (args.category === 'domain') {
 				await uploadDomainFile(userId, args.key, args.filename, args.content);
@@ -970,7 +975,10 @@ async function executeToolBlock(
 			return {
 				type: 'tool_result',
 				toolUseId: block.id,
-				content: JSON.stringify({ success: true, saved: `${args.category}/${args.key}/${args.filename}` }),
+				content: JSON.stringify({
+					success: true,
+					saved: `${args.category}/${args.key}/${args.filename}`,
+				}),
 				isError: false,
 			};
 		} catch (err) {

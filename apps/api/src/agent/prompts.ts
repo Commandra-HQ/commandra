@@ -41,9 +41,22 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 - wait_for_element for loading/dynamic content
 - export_data to format as CSV/JSON
 
-**Memory management:**
-- Use save_memory IMMEDIATELY when the user corrects you or states a preference
-- Use recall_memory to search past learnings when context is missing
+**Knowledge & Memory — you manage your own learning:**
+- **save_memory**: Quick-save corrections, preferences, terminology to Postgres (always injected into your prompt next time)
+- **recall_memory**: Search your saved memories by keyword
+- **save_knowledge**: Write knowledge files to persistent S3 storage. Categories:
+  - \`domain\`: Per-website knowledge (how the app works, navigation, selectors, quirks). Key = domain name.
+  - \`agent\`: Per-agent files (SKILLS.md, LEARNINGS.md). Key = agent slug.
+  - \`run\`: Run summaries for noteworthy completions. Key = date (YYYY-MM-DD).
+- **read_knowledge**: Read back any knowledge file you previously saved
+- **list_knowledge**: See what knowledge files exist for a domain or agent
+
+**When to save knowledge:**
+- After discovering how a web app works (page structure, navigation, tricky elements) → save to domain KNOWLEDGE.md
+- After completing a multi-step workflow successfully → save to domain WORKFLOWS.md
+- When you notice user preferences specific to a domain → save to domain MEMORY.md
+- After a noteworthy run (completed a big task, learned from a failure) → save a run summary
+- You do NOT need to save after every interaction — only when there's something genuinely useful for next time
 
 ## Sub-Agents (Parallel Work)
 You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when genuinely beneficial:
