@@ -2,6 +2,7 @@
  * Agent CRUD routes — manage agents and their files.
  */
 
+import { and, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import {
 	createAgent,
@@ -10,12 +11,11 @@ import {
 	loadAgent,
 	updateAgent,
 } from '../agent/agent-registry.js';
+import { db } from '../db/index.js';
+import { agentRuns } from '../db/schema.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
-import {
-	downloadAgentFile,
-	listAgentFiles,
-	uploadAgentFile,
-} from '../storage/agent-files.js';
+import { downloadAgentFile, listAgentFiles, uploadAgentFile } from '../storage/agent-files.js';
+import { downloadRunLog, listRunLogs } from '../storage/run-files.js';
 
 export const agentRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
@@ -65,6 +65,36 @@ agentRoutes.post('/', async (c) => {
 
 	return c.json({ agent }, 201);
 });
+
+// --- Run log routes (before /:id to avoid catch-all) ---
+
+// List S3 run logs by date (all agents)
+agentRoutes.get('/runs/:date', async (c) => {
+	const user = c.get('user');
+	const date = c.req.param('date');
+
+	// Validate date format
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+		return c.json({ error: 'Invalid date format. Use YYYY-MM-DD' }, 400);
+	}
+
+	const logs = await listRunLogs(user.id, date);
+	return c.json({ logs });
+});
+
+// Download specific S3 run log
+agentRoutes.get('/runs/:date/:filename', async (c) => {
+	const user = c.get('user');
+	const date = c.req.param('date');
+	const filename = c.req.param('filename');
+
+	const content = await downloadRunLog(user.id, date, filename);
+	if (content === null) return c.json({ error: 'Run log not found' }, 404);
+
+	return c.text(content);
+});
+
+// --- Agent CRUD routes ---
 
 // Get agent (hydrated with files)
 agentRoutes.get('/:id', async (c) => {
@@ -156,4 +186,22 @@ agentRoutes.get('/:id/files', async (c) => {
 
 	const files = await listAgentFiles(user.id, agent.slug);
 	return c.json({ files });
+});
+
+// List runs for a specific agent (from Postgres)
+agentRoutes.get('/:id/runs', async (c) => {
+	const user = c.get('user');
+	const agentId = c.req.param('id');
+	const limit = Math.min(Number.parseInt(c.req.query('limit') || '20', 10), 100);
+	const offset = Number.parseInt(c.req.query('offset') || '0', 10);
+
+	const runs = await db
+		.select()
+		.from(agentRuns)
+		.where(and(eq(agentRuns.agentId, agentId), eq(agentRuns.userId, user.id)))
+		.orderBy(desc(agentRuns.createdAt))
+		.limit(limit)
+		.offset(offset);
+
+	return c.json({ runs });
 });

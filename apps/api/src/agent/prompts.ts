@@ -144,11 +144,19 @@ export function buildSystemPrompt(
 	userMemory?: string,
 	priorContext?: string,
 	agentConfig?: AgentConfig,
+	domainKnowledge?: string,
 ): string {
 	const basePrompt = buildBasePrompt(agentConfig);
 
+	// Inject today's date
+	const now = new Date();
+	const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+	const dateStr = `**Today:** ${dayNames[now.getDay()]}, ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} (${now.toISOString().slice(0, 10)})`;
+
 	if (!pageIndex) {
 		return `${basePrompt}
+
+${dateStr}
 
 ## Current Page
 No page is currently indexed — but you CAN still act. If the user asks you to go somewhere or do something:
@@ -250,7 +258,14 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		identitySummary = `\n- **Logged-in user:** ${pi.userIdentity.username}`;
 	}
 
+	let domainKnowledgeSummary = '';
+	if (domainKnowledge) {
+		domainKnowledgeSummary = `\n\n## Domain Knowledge (from past sessions)\n${domainKnowledge}`;
+	}
+
 	return `${basePrompt}
+
+${dateStr}
 
 ## Current Page
 - **URL:** ${pi.url || 'Unknown'}
@@ -262,7 +277,7 @@ When the user refers to "these elements" or "the selected elements", they mean t
 ${elementsSummary}
 
 ## Navigation Links
-${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${priorContextSummary}${PLANNING_INSTRUCTIONS}`;
+${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${domainKnowledgeSummary}${priorContextSummary}${PLANNING_INSTRUCTIONS}`;
 }
 
 function formatIndexAge(lastIndexedAt: string | Date): string {

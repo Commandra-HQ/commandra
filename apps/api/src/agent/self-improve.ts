@@ -2,6 +2,9 @@
  * Self-improvement loop — post-execution analysis that appends to
  * SKILLS.md, LEARNINGS.md, and ERRORS.md after every non-coordinator agent run.
  * Also records runs in the agent_runs table.
+ *
+ * Includes deduplication, pruning, and LLM-powered consolidation to prevent
+ * unbounded file growth.
  */
 
 import type { AgentConfig } from '@afe/shared';
@@ -10,7 +13,12 @@ import { agentRuns } from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
 import { collectStream } from '../llm/types.js';
 import { downloadAgentFile, uploadAgentFile } from '../storage/agent-files.js';
+import { downloadDomainFile, uploadDomainFile } from '../storage/domain-files.js';
 import type { ToolCallRecord } from './orchestrator.js';
+
+const SOFT_CAP = 40; // Trigger consolidation
+const HARD_CAP = 60; // Force-trim oldest before append
+const TARGET = 30; // Post-consolidation target
 
 /**
  * Insert a row into the agent_runs table.
@@ -42,6 +50,103 @@ export async function recordAgentRun(params: {
 }
 
 /**
+ * Strip date prefix, lowercase, normalize whitespace for comparison.
+ */
+function normalizeEntry(line: string): string {
+	return line
+		.replace(/^- \[\d{4}-\d{2}-\d{2}\]\s*/, '')
+		.replace(/^- /, '')
+		.toLowerCase()
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+/**
+ * Levenshtein distance between two strings.
+ */
+function levenshteinDistance(a: string, b: string): number {
+	if (a.length === 0) return b.length;
+	if (b.length === 0) return a.length;
+
+	const matrix: number[][] = [];
+	for (let i = 0; i <= a.length; i++) matrix[i] = [i];
+	for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+	for (let i = 1; i <= a.length; i++) {
+		for (let j = 1; j <= b.length; j++) {
+			const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+			matrix[i][j] = Math.min(
+				matrix[i - 1][j] + 1,
+				matrix[i][j - 1] + 1,
+				matrix[i - 1][j - 1] + cost,
+			);
+		}
+	}
+	return matrix[a.length][b.length];
+}
+
+/**
+ * Normalized similarity (0-1) between two strings.
+ */
+function similarity(a: string, b: string): number {
+	const maxLen = Math.max(a.length, b.length);
+	if (maxLen === 0) return 1;
+	return 1 - levenshteinDistance(a, b) / maxLen;
+}
+
+/**
+ * Consolidate a file's entries using the fast model.
+ */
+async function consolidateFile(
+	userId: string,
+	agentSlug: string,
+	filename: string,
+	entries: string[],
+): Promise<void> {
+	try {
+		const provider = getProvider();
+		const model = getFastModel();
+
+		const stream = provider.chat({
+			model,
+			system:
+				'You are a concise editor. Return only a list of entries, one per line, starting with "- ".',
+			messages: [
+				{
+					role: 'user',
+					content: `Merge these ${entries.length} entries into the ${TARGET} most valuable. Remove duplicates, merge overlapping entries, drop outdated ones. Keep the most specific and actionable entries.\n\nEntries:\n${entries.join('\n')}`,
+				},
+			],
+			maxTokens: 2000,
+		});
+
+		const response = await collectStream(stream);
+		const text = response.content
+			.filter((b) => b.type === 'text')
+			.map((b) => (b as { text: string }).text)
+			.join('');
+
+		const consolidated = text
+			.split('\n')
+			.filter((l) => l.trim().startsWith('- '))
+			.slice(0, TARGET);
+
+		if (consolidated.length === 0) return;
+
+		const today = new Date().toISOString().slice(0, 10);
+		const header = `# ${filename.replace('.md', '')}`;
+		const content = `${header}\n\n${consolidated.join('\n')}\n\n<!-- consolidated: ${today} -->\n`;
+
+		await uploadAgentFile(userId, agentSlug, filename, content);
+		console.log(
+			`[SelfImprove] Consolidated ${filename} for ${agentSlug}: ${entries.length} → ${consolidated.length} entries`,
+		);
+	} catch (err) {
+		console.warn(`[SelfImprove] Consolidation failed for ${filename}:`, err);
+	}
+}
+
+/**
  * Analyze an agent run and append new insights to SKILLS.md, LEARNINGS.md, ERRORS.md.
  * Runs in the background — never propagates errors.
  */
@@ -51,6 +156,7 @@ export async function analyzeAndImprove(params: {
 	toolCalls: ToolCallRecord[];
 	transcript: string;
 	duration: number;
+	domain?: string;
 }): Promise<void> {
 	try {
 		const { userId, agentConfig, toolCalls, transcript } = params;
@@ -131,11 +237,19 @@ Respond ONLY with valid JSON, no markdown fencing.`;
 		console.log(
 			`[SelfImprove] Agent "${agentConfig.slug}": +${analysis.skills?.length ?? 0} skills, +${analysis.learnings?.length ?? 0} learnings, +${analysis.errors?.length ?? 0} errors`,
 		);
+
+		// Update domain AGENTS.md (fire-and-forget)
+		if (params.domain) {
+			updateDomainAgentsFile(userId, params.domain, agentConfig).catch(() => {});
+		}
 	} catch (err) {
 		console.warn('[SelfImprove] Analysis failed (non-critical):', err);
 	}
 }
 
+/**
+ * Append lines to an agent file with deduplication and pruning.
+ */
 async function appendToAgentFile(
 	userId: string,
 	agentSlug: string,
@@ -150,9 +264,123 @@ async function appendToAgentFile(
 		// File doesn't exist yet — will create
 	}
 
-	const updated = existing
-		? `${existing.trimEnd()}\n${newLines.join('\n')}\n`
-		: `# ${filename.replace('.md', '')}\n\n${newLines.join('\n')}\n`;
+	// Extract existing entries
+	const existingEntries = existing.split('\n').filter((l) => l.trim().startsWith('- '));
 
+	// Build set of normalized existing entries for dedup
+	const normalizedExisting = existingEntries.map(normalizeEntry);
+
+	// Filter out duplicates from new lines
+	const dedupedNewLines: string[] = [];
+	for (const line of newLines) {
+		const norm = normalizeEntry(line);
+		if (!norm) continue;
+
+		// Skip exact normalized match
+		if (normalizedExisting.includes(norm)) continue;
+
+		// Skip if too similar to any existing entry
+		const tooSimilar = normalizedExisting.some((ex) => similarity(norm, ex) > 0.8);
+		if (tooSimilar) continue;
+
+		// Also check against already-accepted new lines
+		const tooSimilarToNew = dedupedNewLines.some(
+			(nl) => similarity(norm, normalizeEntry(nl)) > 0.8,
+		);
+		if (tooSimilarToNew) continue;
+
+		dedupedNewLines.push(line);
+	}
+
+	if (dedupedNewLines.length === 0) return;
+
+	const allEntries = [...existingEntries, ...dedupedNewLines];
+
+	// Check if consolidation is needed
+	if (allEntries.length > SOFT_CAP) {
+		await consolidateFile(userId, agentSlug, filename, allEntries);
+		return;
+	}
+
+	// Hard cap: drop oldest entries if too many
+	const trimmedEntries =
+		allEntries.length > HARD_CAP ? allEntries.slice(allEntries.length - HARD_CAP) : allEntries;
+
+	const header = `# ${filename.replace('.md', '')}`;
+	const updated = `${header}\n\n${trimmedEntries.join('\n')}\n`;
 	await uploadAgentFile(userId, agentSlug, filename, updated);
+}
+
+/**
+ * Update domain AGENTS.md with info about which agents operate on this domain.
+ */
+async function updateDomainAgentsFile(
+	userId: string,
+	domain: string,
+	agentConfig: AgentConfig,
+): Promise<void> {
+	const today = new Date().toISOString().slice(0, 10);
+	const content = await downloadDomainFile(userId, domain, 'AGENTS.md');
+
+	interface AgentEntry {
+		slug: string;
+		name: string;
+		lastRun: string;
+		runs: number;
+		description: string;
+	}
+
+	let agents: AgentEntry[] = [];
+
+	if (content) {
+		// Parse existing entries (format: "- **slug** (name) — description | Last: YYYY-MM-DD | Runs: N")
+		const lines = content.split('\n').filter((l) => l.trim().startsWith('- **'));
+		for (const line of lines) {
+			const slugMatch = line.match(/\*\*([^*]+)\*\*/);
+			const nameMatch = line.match(/\(([^)]+)\)/);
+			const lastMatch = line.match(/Last: (\d{4}-\d{2}-\d{2})/);
+			const runsMatch = line.match(/Runs: (\d+)/);
+			const descMatch = line.match(/— ([^|]+)/);
+			if (slugMatch) {
+				agents.push({
+					slug: slugMatch[1],
+					name: nameMatch?.[1] || slugMatch[1],
+					lastRun: lastMatch?.[1] || today,
+					runs: Number.parseInt(runsMatch?.[1] || '0', 10),
+					description: descMatch?.[1]?.trim() || '',
+				});
+			}
+		}
+	}
+
+	// Upsert this agent
+	const idx = agents.findIndex((a) => a.slug === agentConfig.slug);
+	if (idx >= 0) {
+		agents[idx].lastRun = today;
+		agents[idx].runs += 1;
+		agents[idx].name = agentConfig.name;
+		agents[idx].description = agentConfig.description || '';
+	} else {
+		agents.push({
+			slug: agentConfig.slug,
+			name: agentConfig.name,
+			lastRun: today,
+			runs: 1,
+			description: agentConfig.description || '',
+		});
+	}
+
+	// Cap at 20 agents, keep most recently run
+	agents.sort((a, b) => b.lastRun.localeCompare(a.lastRun));
+	agents = agents.slice(0, 20);
+
+	const lines = ['# Domain Agents', ''];
+	for (const a of agents) {
+		lines.push(
+			`- **${a.slug}** (${a.name}) — ${a.description} | Last: ${a.lastRun} | Runs: ${a.runs}`,
+		);
+	}
+	lines.push('');
+
+	await uploadDomainFile(userId, domain, 'AGENTS.md', lines.join('\n'));
 }

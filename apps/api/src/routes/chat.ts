@@ -8,7 +8,8 @@ import { conversationEmbeddings, conversations, messages, pages, sites } from '.
 import { embedText, getEmbeddingProvider } from '../llm/embeddings.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
-import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
+import { loadDomainMemory, loadDomainKnowledgeFromS3, syncDomainKnowledgeToS3, updateDomainMemory } from '../memory/domain.js';
+import { writeRunLog } from '../storage/run-files.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
@@ -165,15 +166,18 @@ chatRoutes.post('/', async (c) => {
 	let domain: string | undefined;
 	let domainMem: string | undefined;
 	let userMem: string | undefined;
+	let domainKnowledge: string | undefined;
 	if (pi?.url) {
 		try {
 			domain = new URL(pi.url).hostname;
-			const [dm, um] = await Promise.all([
+			const [dm, um, dk] = await Promise.all([
 				loadDomainMemory(domain),
 				loadUserMemory(user.id, domain),
+				loadDomainKnowledgeFromS3(user.id, domain),
 			]);
 			domainMem = dm ?? undefined;
 			userMem = um ?? undefined;
+			domainKnowledge = dk ?? undefined;
 
 			// Enrich pageIndex with all indexed pages for this site so the agent
 			// knows the full site structure (what pages exist, their purpose, key elements)
@@ -341,6 +345,7 @@ chatRoutes.post('/', async (c) => {
 					onEvent,
 					signal,
 					agentConfig,
+					domainKnowledge,
 				});
 				fullResponse = result.response;
 				if (result.toolCalls.length > 0) {
@@ -369,7 +374,25 @@ chatRoutes.post('/', async (c) => {
 						toolCalls: result.toolCalls,
 						transcript,
 						duration: durationMs,
+						domain,
 					}).catch((err) => console.warn('[SelfImprove] analyzeAndImprove failed:', err));
+
+					// Write S3 run log
+					writeRunLog(user.id, {
+						agent: agentConfig.name,
+						agentSlug: agentConfig.slug,
+						domain,
+						status: 'completed',
+						toolCalls: result.toolCalls.length,
+						durationMs,
+						conversationId: convId!,
+						summary: fullResponse.slice(0, 200),
+						toolTimeline: result.toolCalls.map((t) => ({
+							time: new Date().toISOString().slice(11, 16),
+							tool: t.name,
+							result: t.success ? 'success' : 'failed',
+						})),
+					}).catch((err) => console.warn('[RunLog] writeRunLog failed:', err));
 				}
 			} else {
 				fullResponse = await runSimpleChat({
@@ -414,6 +437,10 @@ chatRoutes.post('/', async (c) => {
 					getFastModel(),
 					getStrongModel(),
 				).catch((err) => console.warn('[UserMemory] Extraction failed:', err));
+				// Sync knowledge to S3
+				syncDomainKnowledgeToS3(user.id, domain, transcript, getProvider(), getFastModel()).catch(
+					(err) => console.warn('[DomainKnowledge] S3 sync failed:', err),
+				);
 			}
 
 			// Send done event with conversation ID

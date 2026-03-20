@@ -30,6 +30,7 @@ import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { uploadAgentFile } from '../storage/agent-files.js';
 import { saveLocalFile } from '../storage/local.js';
 import { type StoredPlan, loadPlan, savePlan, updatePlanStep } from '../storage/plan-files.js';
+import { appendDomainWorkflow } from '../memory/domain.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
 import { db } from '../db/index.js';
 import { conversations } from '../db/schema.js';
@@ -58,6 +59,7 @@ export interface OrchestratorParams {
 	maxIterations?: number;
 	agentConfig: AgentConfig;
 	depth?: number;
+	domainKnowledge?: string;
 }
 
 export interface ToolCallRecord {
@@ -92,12 +94,13 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		signal,
 		maxIterations: maxIter,
 		agentConfig,
+		domainKnowledge,
 	} = params;
 
 	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 15;
 	const provider = getProvider();
 	const model = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
-	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext, agentConfig);
+	const systemPrompt = buildSystemPrompt(pageIndex, selectedElements, domainMemory, userMemory, priorContext, agentConfig, domainKnowledge);
 
 	// Add save_memory internal tool alongside browser tools
 	const browserTools = getToolDefinitions(agentConfig.tools);
@@ -1134,6 +1137,15 @@ async function executeToolBlock(
 				})
 				.where(eq(conversations.id, conversationId))
 				.catch(() => {});
+
+			// Extract workflow when plan completes successfully
+			if (allDone && failedSteps === 0 && domain) {
+				appendDomainWorkflow(userId, domain, {
+					name: updated.steps.map((s) => s.label).join(' → ').slice(0, 80),
+					steps: updated.steps.map((s) => s.label),
+					source: `conversation:${conversationId}`,
+				}).catch(() => {});
+			}
 
 			// Emit SSE event
 			await onEvent({
