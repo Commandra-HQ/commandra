@@ -35,15 +35,16 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | Phase | Name                    | What Ships                                                                                                                | Status  |
 | ----- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------- |
 | 13    | Agentic System Overhaul | Parallel tool calling, intelligent memory, multi-agent swarm, embedding improvements, learning loops, speed optimizations | ✅ Done |
-| 14    | Teams + Sharing         | Org schema + API, member management, org-scoped data, dashboard org UI                                                    |         |
+| 14    | Teams + Sharing         | Org schema + API, member management, org-scoped data, data scoping helper                                                 | ✅ Done |
 
-## Autonomous Agents (Next)
+## Autonomous Agents
 
-| Phase | Name                                  | What Ships                                                                                                                   | Status |
-| ----- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 15    | [Autonomous Agent System](phase15.md) | Agents as persistent, self-improving entities. Agent definitions in Supabase Storage (AGENT.yaml,SOUL.md, SKILLS.md. )       |        |
-|       |                                       | Agent registry with capability-based resolution. Agent-to-agent invocation.                                                  |        |
-|       |                                       | Self-improvement loop (learnings, errors, skill promotion). Agent scheduler (heartbeat/cron). Dashboard agent management UI. |        |
+| Phase | Name                                              | What Ships                                                                                                                   | Status  |
+| ----- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------- |
+| 15    | [Autonomous Agent System](15-autonomous-agents.md) | Agents as persistent entities in Supabase Storage (SOUL.md, SKILLS.md).                                                      | ✅ Done |
+|       |                                                   | Agent registry with domain-based resolution. Agent-to-agent invocation. Self-improvement loop. Agent scheduler. Dashboard UI. |         |
+| 16    | [Self-Learning + Autonomy](16-self-learning.md)   | Domain knowledge S3 layer, self-improvement dedup/pruning, agent autonomy levels (supervised/trusted/autonomous),            |         |
+|       |                                                   | run logging to S3, date context in prompts, domain workflows extraction, run log API endpoints.                               |         |
 
 ---
 

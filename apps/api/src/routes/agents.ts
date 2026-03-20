@@ -114,17 +114,16 @@ agentRoutes.put('/:id', async (c) => {
 	const user = c.get('user');
 	const agentId = c.req.param('id');
 	const body = await c.req.json();
-	const { name, description, model, maxIterations, tools, domains, trigger, autonomy } =
-		body as {
-			name?: string;
-			description?: string;
-			model?: string;
-			maxIterations?: number;
-			tools?: string[];
-			domains?: string[];
-			trigger?: { cron?: string; enabled?: boolean };
-			autonomy?: 'supervised' | 'trusted' | 'autonomous';
-		};
+	const { name, description, model, maxIterations, tools, domains, trigger, autonomy } = body as {
+		name?: string;
+		description?: string;
+		model?: string;
+		maxIterations?: number;
+		tools?: string[];
+		domains?: string[];
+		trigger?: { cron?: string; enabled?: boolean };
+		autonomy?: 'supervised' | 'trusted' | 'autonomous';
+	};
 
 	const agent = await updateAgent(agentId, user.id, {
 		name,

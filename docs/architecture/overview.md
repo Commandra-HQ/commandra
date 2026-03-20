@@ -120,13 +120,11 @@
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │              SUPABASE (Storage + Postgres)                │    │
 │  │                                                          │    │
-│  │  Storage (agent-files bucket):                            │    │
-│  │    {userId}/agents/{slug}/AGENT.yaml                      │    │
-│  │    {userId}/agents/{slug}/SOUL.md                         │    │
-│  │    {userId}/agents/{slug}/SKILLS.md                       │    │
-│  │    {userId}/agents/{slug}/LEARNINGS.md                    │    │
-│  │    {userId}/agents/{slug}/ERRORS.md                       │    │
-│  │    {userId}/agents/{slug}/workspace/                      │    │
+│  │  Storage (agents bucket):                                  │    │
+│  │    {userId}/{slug}/SOUL.md, SKILLS.md, LEARNINGS.md, ...  │    │
+│  │    domains/{userId}/{domain}/KNOWLEDGE.md, WORKFLOWS.md   │    │
+│  │    domains/{userId}/{domain}/AGENTS.md, MEMORY.md         │    │
+│  │    runs/{userId}/{date}/{time}_{slug}_{convId}.md          │    │
 │  │                                                          │    │
 │  │  Postgres + pgvector:                                     │    │
 │  │    users, organizations, org_members,                      │    │
@@ -203,9 +201,20 @@ The platform is evolving from a single generic agent to a system of **specialize
 **Agent lifecycle:**
 - **Create** — user defines agent via dashboard or AGENT.yaml
 - **Invoke** — user, scheduler, or another agent triggers a run
-- **Execute** — agent runs with its own prompt, tools, model, safety rules
-- **Learn** — post-execution analysis writes to SKILLS.md, LEARNINGS.md, ERRORS.md
+- **Execute** — agent runs with its own prompt, tools, model, autonomy level
+- **Learn** — post-execution analysis writes to SKILLS.md, LEARNINGS.md, ERRORS.md (with dedup + pruning). Domain knowledge synced to S3 (KNOWLEDGE.md, WORKFLOWS.md).
 - **Sleep** — agent is dormant until next trigger
+
+**Autonomy levels** control how much the agent can do without human approval:
+- `supervised` (default) — every write action requires approval, destructive actions blocked
+- `trusted` — write actions auto-approve, destructive still blocked, plans auto-approve. Required for scheduled agents.
+- `autonomous` — all actions auto-approve including destructive ones
+
+**Domain knowledge** accumulates per-user in S3 (`domains/{userId}/{domain}/`):
+- `KNOWLEDGE.md` — facts about the app learned from past sessions
+- `WORKFLOWS.md` — proven multi-step workflows extracted from completed plans
+- `AGENTS.md` — which agents operate on this domain
+- `MEMORY.md` — domain-specific user preferences
 
 **Agent-to-agent invocation:**
 - `spawn_agent` targets a specific agent by slug or matches by capability

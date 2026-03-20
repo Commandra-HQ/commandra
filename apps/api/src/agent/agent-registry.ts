@@ -9,7 +9,7 @@ import type { AgentAutonomy, AgentConfig } from '@afe/shared';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { agents } from '../db/schema.js';
-import { downloadAgentFile, deleteAgentFolder } from '../storage/agent-files.js';
+import { deleteAgentFolder, downloadAgentFile } from '../storage/agent-files.js';
 
 const VALID_AUTONOMY: AgentAutonomy[] = ['supervised', 'trusted', 'autonomous'];
 
@@ -38,10 +38,7 @@ export async function resolveAgent(
 
 	// Domain match
 	if (domain) {
-		const userAgents = await db
-			.select()
-			.from(agents)
-			.where(eq(agents.userId, userId));
+		const userAgents = await db.select().from(agents).where(eq(agents.userId, userId));
 
 		for (const agent of userAgents) {
 			const domains = agent.domains as string[] | null;
@@ -87,10 +84,7 @@ export async function loadAgentBySlug(slug: string, userId: string): Promise<Age
  * List all agents for a user (DB only, no file hydration).
  */
 export async function listAgents(userId: string): Promise<AgentConfig[]> {
-	const rows = await db
-		.select()
-		.from(agents)
-		.where(eq(agents.userId, userId));
+	const rows = await db.select().from(agents).where(eq(agents.userId, userId));
 
 	return rows.map((row) => rowToConfig(row));
 }
