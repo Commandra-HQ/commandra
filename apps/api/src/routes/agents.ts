@@ -32,16 +32,18 @@ agentRoutes.get('/', async (c) => {
 agentRoutes.post('/', async (c) => {
 	const user = c.get('user');
 	const body = await c.req.json();
-	const { slug, name, description, model, maxIterations, tools, domains, trigger } = body as {
-		slug: string;
-		name: string;
-		description?: string;
-		model?: string;
-		maxIterations?: number;
-		tools?: string[];
-		domains?: string[];
-		trigger?: { cron?: string; enabled?: boolean };
-	};
+	const { slug, name, description, model, maxIterations, tools, domains, trigger, autonomy } =
+		body as {
+			slug: string;
+			name: string;
+			description?: string;
+			model?: string;
+			maxIterations?: number;
+			tools?: string[];
+			domains?: string[];
+			trigger?: { cron?: string; enabled?: boolean };
+			autonomy?: 'supervised' | 'trusted' | 'autonomous';
+		};
 
 	if (!slug?.trim() || !name?.trim()) {
 		return c.json({ error: 'slug and name are required' }, 400);
@@ -60,6 +62,7 @@ agentRoutes.post('/', async (c) => {
 		tools,
 		domains,
 		trigger,
+		autonomy,
 		orgId: user.orgId,
 	});
 
@@ -111,15 +114,17 @@ agentRoutes.put('/:id', async (c) => {
 	const user = c.get('user');
 	const agentId = c.req.param('id');
 	const body = await c.req.json();
-	const { name, description, model, maxIterations, tools, domains, trigger } = body as {
-		name?: string;
-		description?: string;
-		model?: string;
-		maxIterations?: number;
-		tools?: string[];
-		domains?: string[];
-		trigger?: { cron?: string; enabled?: boolean };
-	};
+	const { name, description, model, maxIterations, tools, domains, trigger, autonomy } =
+		body as {
+			name?: string;
+			description?: string;
+			model?: string;
+			maxIterations?: number;
+			tools?: string[];
+			domains?: string[];
+			trigger?: { cron?: string; enabled?: boolean };
+			autonomy?: 'supervised' | 'trusted' | 'autonomous';
+		};
 
 	const agent = await updateAgent(agentId, user.id, {
 		name,
@@ -129,6 +134,7 @@ agentRoutes.put('/:id', async (c) => {
 		tools,
 		domains,
 		trigger,
+		autonomy,
 	});
 
 	if (!agent) return c.json({ error: 'Agent not found' }, 404);

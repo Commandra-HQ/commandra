@@ -506,7 +506,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			hasToolUse = true;
 
 			// Partition tools by safety level for parallel execution
-			const partitioned = partitionToolsBySafety(toolBlocks, domain);
+			const partitioned = partitionToolsBySafety(toolBlocks, domain, agentConfig.autonomy);
 
 			// Phase 1: Execute all safe tools in parallel (including save_memory)
 			if (partitioned.safe.length > 0) {
@@ -525,6 +525,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 							userMemory,
 							currentDepth,
 							conversationId,
+							agentConfig.autonomy,
 						),
 					),
 				);
@@ -562,6 +563,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 					domainMemory,
 					userMemory,
 					currentDepth,
+					conversationId,
+					agentConfig.autonomy,
 				);
 				toolResults.push(result);
 			}
@@ -680,6 +683,7 @@ export async function runSimpleChat(params: {
 function partitionToolsBySafety(
 	toolBlocks: ToolUseBlock[],
 	domain?: string,
+	autonomy?: 'supervised' | 'trusted' | 'autonomous',
 ): { safe: ToolUseBlock[]; review: ToolUseBlock[]; blocked: ToolUseBlock[] } {
 	const safe: ToolUseBlock[] = [];
 	const review: ToolUseBlock[] = [];
@@ -700,12 +704,26 @@ function partitionToolsBySafety(
 			elementLabel,
 		});
 
-		if (classification.level === 'blocked') {
-			blocked.push(block);
-		} else if (classification.level === 'review') {
-			review.push(block);
-		} else {
+		// Apply autonomy overrides
+		if (autonomy === 'autonomous') {
+			// Autonomous: everything auto-approves
 			safe.push(block);
+		} else if (autonomy === 'trusted') {
+			// Trusted: review → safe, blocked still blocked
+			if (classification.level === 'blocked') {
+				blocked.push(block);
+			} else {
+				safe.push(block);
+			}
+		} else {
+			// Supervised (default): normal classification
+			if (classification.level === 'blocked') {
+				blocked.push(block);
+			} else if (classification.level === 'review') {
+				review.push(block);
+			} else {
+				safe.push(block);
+			}
 		}
 	}
 
@@ -728,6 +746,7 @@ async function executeToolBlock(
 	userMemoryStr?: string,
 	depth?: number,
 	conversationId?: string,
+	autonomy?: 'supervised' | 'trusted' | 'autonomous',
 ): Promise<ToolResultBlock> {
 	// Handle internal tools (no WS routing)
 
@@ -1015,13 +1034,17 @@ async function executeToolBlock(
 
 			const planId = conversationId || 'plan'; // use convId as planId
 
-			// Send plan to extension for approval (blocks here)
-			const approval = await sendApprovalRequest(connectionId, {
-				type: 'plan_approval',
-				planId,
-				description: args.description,
-				steps: args.steps,
-			});
+			// Auto-approve plans for trusted/autonomous agents
+			const autoApprovePlan = autonomy === 'trusted' || autonomy === 'autonomous';
+
+			const approval = autoApprovePlan
+				? { approved: true }
+				: await sendApprovalRequest(connectionId, {
+						type: 'plan_approval',
+						planId,
+						description: args.description,
+						steps: args.steps,
+					});
 
 			if (approval.approved) {
 				// Mark plan as approved
@@ -1179,7 +1202,7 @@ async function executeToolBlock(
 	}
 
 	// Browser tool — classify, approve, execute
-	const result = await handleToolCall(block, context, userId, connectionId, onEvent);
+	const result = await handleToolCall(block, context, userId, connectionId, onEvent, autonomy);
 
 	// Build tool result content — save screenshots to disk, keep compressed version for LLM
 	let toolContent: string | (TextBlock | ImageBlock)[];
@@ -1371,6 +1394,7 @@ async function handleToolCall(
 	userId: string,
 	connectionId: string,
 	onEvent: (event: SSEEvent) => Promise<void>,
+	autonomy?: 'supervised' | 'trusted' | 'autonomous',
 ): Promise<ToolCallResult> {
 	const { name, input: toolArgs } = block;
 	const elementLabel = (toolArgs.description as string) || (toolArgs.selector as string) || '';
@@ -1386,11 +1410,11 @@ async function handleToolCall(
 	// Safety classification
 	const classification = classifyAction({ toolName: name, args: toolArgs, elementLabel });
 	console.log(
-		`[Safety] ${name} "${elementLabel}" → ${classification.level} (${classification.reason})`,
+		`[Safety] ${name} "${elementLabel}" → ${classification.level} (${classification.reason})${autonomy && autonomy !== 'supervised' ? ` [autonomy: ${autonomy}]` : ''}`,
 	);
 
-	// Blocked
-	if (classification.level === 'blocked') {
+	// Blocked — skip only for autonomous agents
+	if (classification.level === 'blocked' && autonomy !== 'autonomous') {
 		await onEvent({ type: 'blocked', toolName: name, reason: classification.reason });
 		await logAction({
 			userId,
@@ -1408,8 +1432,8 @@ async function handleToolCall(
 		};
 	}
 
-	// Review — request approval via WS (existing flow, just emit events)
-	if (classification.level === 'review') {
+	// Review — skip approval for trusted/autonomous agents
+	if (classification.level === 'review' && autonomy !== 'trusted' && autonomy !== 'autonomous') {
 		try {
 			const approval = await sendApprovalRequest(connectionId, {
 				action: name,

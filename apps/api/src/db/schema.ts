@@ -193,6 +193,7 @@ export const agents = pgTable('agents', {
 	tools: jsonb('tools').$type<string[]>(),
 	domains: jsonb('domains').$type<string[]>(),
 	trigger: jsonb('trigger').$type<{ cron?: string; enabled?: boolean }>(),
+	autonomy: text('autonomy').default('supervised'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
