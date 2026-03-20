@@ -146,45 +146,59 @@ The extension lives in the user's browser. It does three things:
 
 **Indexes pages** — a content script walks the DOM on every page load, extracting all interactive elements (buttons, forms, tables, links), their labels, selectors, and positions. Synced to Postgres via the API. This is how the agent "knows" the app.
 
-**Executes actions** — when the backend agent decides to click a button or fill a form, the command comes over WebSocket to the background service worker, which injects a script into the page via `chrome.scripting.executeScript`. Events are simulated to match human behavior (mousedown → mouseup → click).
+**Executes actions** — when the backend agent decides to click a button or fill a form, the command comes over WebSocket to the background service worker (`ws-client.ts` → `action-handler.ts`), which injects self-contained page functions from `page-scripts.ts` via `chrome.scripting.executeScript`. Element finding uses a 4-tier resilience strategy: primary selector → fallback selectors → fuzzy label matching → vector search.
 
-**Provides the UI** — side panel for chat (with markdown rendering, streaming thinking, block-based messages), element selector overlay for point-and-click control.
+**Provides the UI** — side panel chat interface split into focused modules:
+- `ChatTab.tsx` — main component (state management, event handlers)
+- `chat-layout.tsx` — context bar, plan panel, input area
+- `message-blocks.tsx` — block-based rendering (thinking, text, tool calls, approvals, plans, sub-agents)
+- `use-chat-stream.ts` — SSE streaming hook with rAF-batched React state updates
 
 The extension is deliberately thin. It doesn't make LLM calls or run agent logic. It's a bridge between the user's authenticated browser session and the backend brain.
 
 ### 2. Backend Orchestrator (Custom, Provider-Agnostic)
 
-The brain. We built our own agentic loop — ~300 lines of TypeScript, no framework dependencies.
+The brain. We built our own agentic loop — modular TypeScript, no framework dependencies. The orchestrator is split into focused modules:
+
+| Module | Purpose |
+|--------|---------|
+| `orchestrator.ts` | Main agentic loop — LLM streaming, tool dispatch, compaction |
+| `tool-definitions.ts` | Internal tool schemas (memory, knowledge, agents, plans) |
+| `internal-tools.ts` | Server-side tool handlers — no WS routing |
+| `browser-tools.ts` | Browser tool execution with safety classification + approval gates |
+| `token-budget.ts` | Context window estimation and trimming |
 
 **Why custom instead of an agent framework?**
 - **Provider-agnostic** — works with Anthropic, OpenAI, and any future provider
 - **Full streaming control** — we stream thinking, text, and tool events as structured SSE
 - **Safety hooks built in** — classification + approval happen inside the loop, not as external middleware
-- **Simpler** — no framework abstractions, easy to debug and extend
+- **Modular** — each concern in its own file, easy to debug and extend
 
-**How the loop works:**
+**How the loop works** (in `orchestrator.ts`):
 ```
 1. Receive user message + page context
 2. Build system prompt with page index, selected elements, domain memory, user memory
-3. Token budget management: strip old screenshots from history,
-   truncate long tool results, drop oldest messages if over 200K token estimate.
-   Catches context_length_exceeded errors and retries with aggressive trimming.
-4. Call LLM (streaming)
-5. Stream thinking + text to client as SSE events
-6. If LLM returns tool calls:
-   a. Partition by safety classification
+3. Build tool list from tool-definitions.ts (browser tools + internal tools)
+4. Token budget management (token-budget.ts): strip old screenshots,
+   truncate long results, drop oldest messages if over 200K token estimate.
+   Auto-compact at 80% context usage.
+5. Call LLM (streaming)
+6. Stream thinking + text to client as SSE events
+7. If LLM returns tool calls:
+   a. Partition by safety classification (browser-tools.ts)
    b. Safe tools → execute in parallel (Promise.allSettled)
    c. Review tools → execute sequentially with approval gates
    d. Blocked tools → reject immediately
-   e. Log each to audit table
-   f. Feed results back to LLM
-7. Repeat until end_turn or max iterations (15)
-8. Save conversation (knowledge persistence is agent-driven via save_knowledge tool during execution)
+   e. Internal tools handled by internal-tools.ts (no WS routing)
+   f. Log each to audit table
+   g. Feed results back to LLM
+8. Repeat until end_turn or max iterations (15)
+9. Save conversation (knowledge persistence is agent-driven via save_knowledge tool during execution)
 ```
 
-**Internal tools** (`save_memory`, `recall_memory`, `save_knowledge`, `read_knowledge`, `list_knowledge`, `spawn_agent`, `wait_for_agents`) execute server-side — they don't route through WebSocket to the extension.
+**Internal tools** (handled in `internal-tools.ts`): `save_memory`, `recall_memory`, `save_knowledge`, `read_knowledge`, `list_knowledge`, `spawn_agent`, `wait_for_agents`, `save_to_local`, `create_agent`, `update_agent_files`, `submit_plan`, `update_plan`. These execute server-side — they don't route through WebSocket.
 
-**Tool dispatch** happens via WebSocket directly — no MCP layer. The tool registry maps tool names to WS message handlers. Each tool sends an `action_request` to the extension and awaits the response. Internal tools (`save_memory`, `recall_memory`, `save_knowledge`, `read_knowledge`, `list_knowledge`, `spawn_agent`, `wait_for_agents`) run server-side without WS. Tab management tools (`open_tab`, `close_tab`) route through WS for the swarm.
+**Tool dispatch** happens via WebSocket directly — no MCP layer. The tool registry maps tool names to WS message handlers. Browser tools send an `action_request` to the extension and await the response. Tab management tools (`open_tab`, `close_tab`) route through WS for the swarm.
 
 **Anthropic prompt caching:** System prompts use `cache_control: ephemeral` for ~90% input token cost reduction on multi-turn conversations.
 

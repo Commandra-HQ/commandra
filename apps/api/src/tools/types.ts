@@ -15,6 +15,7 @@ export interface ToolDefinition {
 export interface ToolContext {
 	connectionId: string;
 	userId: string;
+	tabId?: number;
 }
 
 export interface ToolResult {

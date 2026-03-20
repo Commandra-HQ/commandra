@@ -127,13 +127,28 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Monorepo with Turborepo: `apps/extension`, `apps/api`, `apps/web`, `packages/shared`
 - Shared types go in `packages/shared`, never duplicate type definitions
 - Extension content scripts go in `apps/extension/src/content/`
-- Agent-related code goes in `apps/api/src/agent/`
-- Orchestrator: `apps/api/src/agent/orchestrator.ts` (main agentic loop)
-- Agent registry: `apps/api/src/agent/agent-registry.ts` (agent CRUD, resolution, loading)
-- Multi-agent swarm: `apps/api/src/agent/swarm.ts` (sub-agent lifecycle + tab management)
-- Self-improvement: `apps/api/src/agent/self-improve.ts` (post-execution analysis)
-- Agent scheduler: `apps/api/src/agent/scheduler.ts` (cron evaluation, run dispatch)
-- Planning: `apps/api/src/agent/planner.ts` (plan parsing, approval, workflow templates)
+- **Backend agent modules** (`apps/api/src/agent/`):
+  - `orchestrator.ts` — main agentic loop (LLM streaming, tool dispatch, compaction)
+  - `tool-definitions.ts` — internal tool schemas (memory, knowledge, agents, plans)
+  - `internal-tools.ts` — server-side tool execution handlers (not routed through WS)
+  - `browser-tools.ts` — browser tool execution with safety classification + approval gates
+  - `token-budget.ts` — context window estimation and trimming
+  - `agent-registry.ts` — agent CRUD, domain-match resolution, file hydration
+  - `swarm.ts` — multi-agent sub-agent lifecycle + tab management
+  - `self-improve.ts` — post-execution analysis (SKILLS.md, LEARNINGS.md, ERRORS.md)
+  - `scheduler.ts` — cron evaluation, run dispatch
+  - `planner.ts` — plan parsing, approval, workflow templates
+  - `prompts.ts` — system prompt construction
+- **Extension background** (`apps/extension/src/background/`):
+  - `ws-client.ts` — WebSocket connection management + message routing
+  - `action-handler.ts` — action dispatch (click, type, navigate, screenshot, etc.)
+  - `page-scripts.ts` — injectable page functions (run in DOM context via executeScript)
+- **Extension side panel** (`apps/extension/src/sidepanel/tabs/`):
+  - `ChatTab.tsx` — main chat component (state, handlers, layout composition)
+  - `chat-types.ts` — types, constants, formatters, SSE parser
+  - `chat-layout.tsx` — context bar, plan panel, chat input area
+  - `message-blocks.tsx` — message block rendering (thinking, text, tool calls, approvals, plans, sub-agents)
+  - `use-chat-stream.ts` — SSE streaming hook (block accumulation, rAF flushing)
 - Memory: `apps/api/src/memory/` (conversation.ts, domain.ts, user.ts)
 - Storage: `apps/api/src/storage/` (supabase.ts, agent-files.ts, domain-files.ts, run-files.ts)
 - LLM provider adapters go in `apps/api/src/llm/providers/`
@@ -142,7 +157,10 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Agent routes: `apps/api/src/routes/agents.ts` (agent CRUD, files, runs)
 - Dashboard (Next.js) goes in `apps/web/`
 - Dashboard auth callback: `apps/web/app/auth/callback/page.tsx` (for cloud redirect flow)
-- Dashboard agent pages: `apps/web/app/(dashboard)/agents/` (list, create, detail, file editor)
+- **Dashboard agent pages** (`apps/web/app/(dashboard)/agents/`):
+  - `page.tsx` — agent list page, state management, API calls
+  - `agent-card.tsx` — expandable agent detail card with file editor
+  - `agent-form.tsx` — agent creation form
 
 ### Don't
 - Don't add Cloudflare Workers, Vercel, or serverless runtimes — we use Docker

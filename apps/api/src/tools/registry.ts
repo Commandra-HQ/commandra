@@ -65,7 +65,9 @@ export async function executeTool(
 	if (!tool) {
 		return { success: false, error: `Unknown tool: ${name}` };
 	}
-	return tool.execute(args, context);
+	// Inject targetTabId into args so WS actions route to the correct browser tab
+	const argsWithTab = context.tabId ? { ...args, targetTabId: context.tabId } : args;
+	return tool.execute(argsWithTab, context);
 }
 
 /**

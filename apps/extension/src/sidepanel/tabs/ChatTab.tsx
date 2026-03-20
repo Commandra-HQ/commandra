@@ -47,6 +47,9 @@ export function ChatTab() {
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
 	const [pendingPlanApproval, setPendingPlanApproval] = useState<PlanApprovalRequest | null>(null);
 	const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
+	const [originTabId, setOriginTabId] = useState<number | null>(null);
+	const [originDomain, setOriginDomain] = useState<string>('');
+	const isActiveRef = useRef(false);
 	const [selectorActive, setSelectorActive] = useState(false);
 	const [contextStatus, setContextStatus] = useState<{
 		used: number;
@@ -66,7 +69,7 @@ export function ChatTab() {
 	const CHAT_INPUT_MIN_HEIGHT_PX = 40;
 
 	// SSE streaming hook
-	const { sendMessage, handleStop, blocksRef, scheduleFlush } = useChatStream({
+	const { sendMessage, handleStop, blocksRef, scheduleFlush, resetConversation } = useChatStream({
 		setChatMessages,
 		setIsActive,
 		setContextStatus,
@@ -112,17 +115,15 @@ export function ChatTab() {
 		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
 			const tab = tabs[0];
 			if (tab?.url && tab.id) {
+				// Ignore chrome:// and about: URLs — these are transient (new tab, settings, etc.)
+				if (tab.url.startsWith('chrome://') || tab.url.startsWith('about:') || tab.url === 'chrome://newtab/') {
+					return;
+				}
 				try {
 					const parsed = new URL(tab.url);
 					const newDomain = parsed.hostname;
-					setDomain((prev) => {
-						if (prev && prev !== newDomain && !externalConvId) {
-							setChatMessages([]);
-							setPendingApprovals([]);
-							setSelectedElements([]);
-						}
-						return newDomain;
-					});
+					if (newDomain === 'newtab' || !newDomain) return; // Ignore new tab page
+					setDomain(newDomain);
 					const segments = parsed.pathname.split('/').filter(Boolean);
 					const scope =
 						segments.length >= 2
@@ -136,28 +137,46 @@ export function ChatTab() {
 				} catch {}
 			}
 		});
-	}, [loadSiteData, externalConvId]);
+	}, [loadSiteData]);
+
+	const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	useEffect(() => {
 		updateCurrentTab();
-		const onActivated = () => updateCurrentTab();
+		const onActivated = () => {
+			// Debounce tab changes — rapid tab switches shouldn't cause rapid state updates
+			if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+			debounceTimerRef.current = setTimeout(updateCurrentTab, 150);
+		};
 		chrome.tabs.onActivated.addListener(onActivated);
 		chrome.tabs.onUpdated.addListener(onActivated);
 		return () => {
 			chrome.tabs.onActivated.removeListener(onActivated);
 			chrome.tabs.onUpdated.removeListener(onActivated);
+			if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 		};
 	}, [updateCurrentTab]);
 
+	// Keep ref in sync with isActive state
+	useEffect(() => {
+		isActiveRef.current = isActive;
+	}, [isActive]);
+
 	// Load conversation when parent passes a conversationId
 	useEffect(() => {
+		console.log('[ChatTab] externalConvId changed:', externalConvId, 'isActive:', isActiveRef.current, 'messages:', chatMessages.length);
 		if (externalConvId) {
 			setMode('chat');
-			loadConversation(externalConvId);
-		} else {
-			setChatMessages([]);
-			setPendingApprovals([]);
+			// Only reload from DB if we have no messages yet (opening from history).
+			// If we already have messages, we're mid-stream and the live blocks are more
+			// complete than the DB. The done event just updated our URL.
+			if (chatMessages.length === 0) {
+				loadConversation(externalConvId);
+			} else {
+				console.log('[ChatTab] Already have messages, skipping DB reload');
+			}
 		}
+		// Never clear messages here — only handleNewConversation does that explicitly
 	}, [externalConvId]);
 
 	useEffect(() => {
@@ -255,8 +274,14 @@ export function ChatTab() {
 	}
 
 	function handleNewConversation() {
+		console.log('[ChatTab] handleNewConversation called');
 		setChatMessages([]);
 		setPendingApprovals([]);
+		setOriginTabId(null);
+		setOriginDomain('');
+		setContextStatus(null);
+		setPlanState(null);
+		resetConversation();
 		navigate('/');
 	}
 
@@ -332,7 +357,14 @@ export function ChatTab() {
 		const els = selectedElements.length > 0 ? selectedElements : undefined;
 		setSelectedElements([]);
 
-		await sendMessage(text, { pageIndex, selectedElements: els });
+		// Pin conversation to the tab where the first message was sent
+		if (!originTabId && tabId) {
+			setOriginTabId(tabId);
+			setOriginDomain(domain);
+		}
+		const chatTabId = originTabId || tabId;
+
+		await sendMessage(text, { pageIndex, selectedElements: els, tabId: chatTabId });
 	}
 
 	async function loadConversation(convId: string) {
@@ -381,6 +413,22 @@ export function ChatTab() {
 					},
 				);
 				setChatMessages(loaded);
+
+				// Restore plan state if the conversation had an associated plan
+				if (data.plan) {
+					const plan = data.plan as {
+						description: string;
+						steps: { label: string; status: string }[];
+					};
+					setPlanState(plan);
+					// Auto-show panel if plan is still in progress
+					const hasActive = plan.steps.some(
+						(s) => s.status === 'in_progress' || s.status === 'pending',
+					);
+					if (hasActive) {
+						setShowPlanPanel(true);
+					}
+				}
 			}
 		} catch (err) {
 			console.error('Failed to load conversation:', err);
@@ -446,6 +494,8 @@ export function ChatTab() {
 				onReindex={handleReindexPage}
 				onIndexSite={handleIndexSite}
 				onNavigateBack={() => navigate('/')}
+				originDomain={originDomain}
+				isTaskActive={isActive}
 			/>
 
 			{showContext && (

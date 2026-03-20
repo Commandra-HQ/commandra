@@ -89,18 +89,17 @@ export async function handleActionRequest(
 		return;
 	}
 
-	// Determine target tab: use explicit tabId for sub-agents, else active tab
+	// Determine target tab: use explicit targetTabId/tabId for pinned conversations + sub-agents, else active tab
 	let tab: chrome.tabs.Tab | undefined;
-	if (payload.tabId) {
+	const explicitTabId = (payload.targetTabId || payload.tabId) as number | undefined;
+	if (explicitTabId) {
 		try {
-			tab = await chrome.tabs.get(payload.tabId as number);
+			tab = await chrome.tabs.get(explicitTabId);
 		} catch {
-			// Tab might have been closed
-			ctx.sendResult(requestId, {
-				success: false,
-				error: `Sub-agent tab ${payload.tabId} not found (may have been closed)`,
-			});
-			return;
+			// Tab might have been closed — fall back to active tab
+			console.warn(`[AFE WS] Target tab ${explicitTabId} not found, falling back to active tab`);
+			const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+			tab = tabs[0];
 		}
 	} else {
 		const tabs = await chrome.tabs.query({ active: true, currentWindow: true });

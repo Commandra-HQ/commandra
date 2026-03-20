@@ -38,7 +38,7 @@ The extension handles UI, DOM indexing, and action execution. The backend handle
 
 **Key design decisions:**
 - Extension is a thin client — no LLM calls, no agent logic
-- Custom provider-agnostic orchestrator (~300 lines, no framework deps)
+- Custom provider-agnostic orchestrator (modular, no framework deps)
 - Agent always runs in the user's browser — core privacy guarantee
 - Pre-indexed pages — agent knows the app before you ask (faster + cheaper than screenshot-reading)
 
@@ -89,25 +89,50 @@ commandra/
 ├── apps/
 │   ├── extension/       # Chrome Extension (thin client)
 │   │   └── src/
-│   │       ├── background/   # Service worker (WS client, action router)
-│   │       ├── content/      # Content scripts (DOM indexer, selector, executor)
-│   │       └── sidepanel/    # Chat UI (React), flows, teach mode
+│   │       ├── background/
+│   │       │   ├── ws-client.ts       # WS connection management + message routing
+│   │       │   ├── action-handler.ts  # Action dispatch (click, type, navigate, etc.)
+│   │       │   └── page-scripts.ts    # Injectable page functions (run in DOM context)
+│   │       ├── content/               # Content scripts (DOM indexer, selector)
+│   │       └── sidepanel/
+│   │           └── tabs/
+│   │               ├── ChatTab.tsx       # Main chat component (state + layout)
+│   │               ├── chat-types.ts     # Types, constants, formatters
+│   │               ├── chat-layout.tsx   # Context bar, plan panel, input area
+│   │               ├── message-blocks.tsx # Message rendering (tool calls, approvals, etc.)
+│   │               └── use-chat-stream.ts # SSE streaming hook
 │   │
 │   ├── api/             # Backend (Hono + orchestrator)
 │   │   └── src/
-│   │       ├── agent/        # Orchestrator, planner, recorder, prompts
+│   │       ├── agent/
+│   │       │   ├── orchestrator.ts      # Main agentic loop
+│   │       │   ├── tool-definitions.ts  # Internal tool schemas
+│   │       │   ├── internal-tools.ts    # Server-side tool handlers (memory, knowledge, agents)
+│   │       │   ├── browser-tools.ts     # Browser tool execution + safety classification
+│   │       │   ├── token-budget.ts      # Context window management
+│   │       │   ├── swarm.ts             # Multi-agent sub-agent lifecycle
+│   │       │   ├── self-improve.ts      # Post-execution analysis
+│   │       │   ├── scheduler.ts         # Cron-based agent runs
+│   │       │   ├── planner.ts           # Plan parsing + approval
+│   │       │   └── prompts.ts           # System prompt construction
 │   │       ├── llm/          # Provider layer + adapters (Anthropic, OpenAI)
 │   │       ├── memory/       # Domain memory + user memory
 │   │       ├── safety/       # Action classifier + audit logging
-│   │       ├── tools/        # Tool registry (11 browser tools)
-│   │       ├── routes/       # API endpoints (auth, chat, sites, memory, etc.)
+│   │       ├── tools/        # Tool registry (browser tools)
+│   │       ├── storage/      # Supabase Storage (agent files, domain knowledge)
+│   │       ├── routes/       # API endpoints (auth, chat, agents, sites, memory)
 │   │       ├── ws/           # WebSocket handler
 │   │       └── db/           # Drizzle schema + migrations
 │   │
 │   └── web/             # Dashboard (Next.js)
 │       ├── app/
 │       │   ├── login/        # Email/password auth
-│       │   └── (dashboard)/  # Stats, history, audit, sites, memory, settings
+│       │   └── (dashboard)/
+│       │       ├── agents/
+│       │       │   ├── page.tsx        # Agent list + state management
+│       │       │   ├── agent-card.tsx  # Agent detail card + file editor
+│       │       │   └── agent-form.tsx  # Agent creation form
+│       │       └── ...                 # Stats, history, audit, sites, memory, settings
 │       └── lib/
 │           ├── auth-context.tsx  # AuthProvider (JWT-based)
 │           └── api.ts            # API client with auth headers

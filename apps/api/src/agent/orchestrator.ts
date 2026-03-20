@@ -52,6 +52,7 @@ export interface OrchestratorParams {
 	agentConfig: AgentConfig;
 	depth?: number;
 	domainKnowledge?: string;
+	tabId?: number;
 }
 
 export interface ToolCallRecord {
@@ -102,7 +103,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
 	const currentDepth = params.depth ?? 0;
 	const tools = buildToolList(agentConfig, currentDepth);
-	const context = { connectionId, userId };
+	const { tabId } = params;
+	const context = { connectionId, userId, tabId };
 
 	// Compress long conversation histories before sending to LLM
 	const { messages: compressedHistory } = await compressHistory(
