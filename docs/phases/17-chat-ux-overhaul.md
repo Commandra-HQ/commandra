@@ -14,151 +14,90 @@ The chat works but the UX has gaps that break autonomous workflows:
 
 ## What Ships
 
-### 17a. Real-Time Context Window Indicator
+### 17a. Real-Time Context Window Indicator — DONE
 
-**Problem:** Chat dies mid-task when context is exhausted. User has no warning.
+**Backend:** Orchestrator emits `context_status` SSE event before every LLM call with `{ used, limit, percent }`. Uses the existing `estimateMessageChars` + system prompt length.
 
-**Backend changes (`orchestrator.ts`):**
-- Track estimated token usage per iteration (already computed for budget management)
-- Emit new SSE event `context_status` after each LLM call:
-  ```typescript
-  { type: 'context_status', used: number, limit: number, percent: number }
-  ```
-- `used` = estimated tokens consumed so far (messages + tool results + system prompt)
-- `limit` = model's context window (read from provider config)
-- `percent` = used/limit as 0-100
+**Extension:** Circular SVG progress ring in chat header (top-right). Color: green (<60%), yellow (60-80%), red (>80%). Tooltip shows exact token counts.
 
-**Extension changes (`ChatTab.tsx`):**
-- Circular progress indicator in chat header (top-right, next to existing buttons)
-- Color coding: green (<60%), yellow (60-80%), red (>80%)
-- Tooltip on hover: "Context: 42,000 / 128,000 tokens (33%)"
-- At >85%: show inline warning message "Context window nearly full — consider starting a new chat or compacting"
+**Files changed:** `orchestrator.ts`, `sse.ts`, `ChatTab.tsx`
 
-**Files:** `orchestrator.ts`, `sse.ts` (new event type), `ChatTab.tsx`
+### 17b. Conversation Compaction + Continuation — DONE
 
-### 17b. Conversation Compaction + Continuation
+**Backend:** At 80% context usage, orchestrator auto-compacts:
+1. Fast model summarizes the conversation (500 token budget)
+2. Full transcript saved as markdown to `{userId}/compactions/{conversationId}/{timestamp}.md`
+3. Message history replaced with summary — conversation continues with fresh budget
+4. `compaction` SSE event emitted so extension shows it inline
 
-**Problem:** When context fills up, the only option is starting over.
+**Extension:** Compaction shown as an inline message block with summary text and file path.
 
-**Backend changes:**
-- New internal tool `compact_conversation` available to the orchestrator
-- When context hits 80%, orchestrator auto-triggers compaction:
-  1. Call fast model: "Summarize this conversation so far — what was accomplished, what's in progress, key facts"
-  2. Save full conversation as markdown: `{userId}/compactions/{conversationId}/{timestamp}.md` in Supabase Storage
-  3. Replace message history with: `[system] Conversation compacted. Summary: {summary}. Full transcript saved to {path}.`
-  4. Continue the conversation with fresh context budget
+**Files changed:** `orchestrator.ts`, new `storage/compaction-files.ts`, `sse.ts`, `ChatTab.tsx`
 
-**Extension changes:**
-- Show compaction event as a special message block:
-  ```
-  ── Conversation compacted ──
-  Summary: Sent email to jayesh, navigated to GitHub repo...
-  Full transcript: agents/{userId}/compactions/{convId}/2026-03-20.md
-  ```
-- Manual compaction button in header (next to context indicator) — user can trigger early
+### 17c. Single Plan Per Chat (Overwrite, Not Multiply) — DONE
 
-**Files:** `orchestrator.ts`, `chat.ts`, new `storage/compaction-files.ts`, `ChatTab.tsx`
+**Backend:** `submit_plan` now checks for existing plans:
+- If existing plan has `in_progress` steps → reject with error message
+- Otherwise → overwrite (completed/failed/pending plans get replaced)
 
-### 17c. Single Plan Per Chat (Overwrite, Not Multiply)
+One PLAN.md per conversation, always at `{userId}/plans/{conversationId}/PLAN.md`.
 
-**Problem:** Agent creates a new plan every time, doesn't track the old one. Multiple PLAN.md files accumulate.
+**Files changed:** `orchestrator.ts` (submit_plan handler)
 
-**Backend changes (`plan-files.ts` + `orchestrator.ts`):**
-- One plan per conversation — `savePlan` always overwrites the same path
-- `submit_plan` checks if a plan already exists:
-  - If existing plan is `in_progress` → reject: "A plan is already in progress. Use update_plan to modify it."
-  - If existing plan is `completed`/`failed` → overwrite with new plan
-  - If existing plan is `pending`/`approved` → overwrite (plan was never started)
-- Plan path stays: `{userId}/plans/{conversationId}/PLAN.md`
+### 17d. Plan Always Visible + Checklist Format — DONE
 
-**No extension changes needed** — the enforcement is server-side.
+**Backend:** `plan_state` SSE event emitted on plan approval and every step update. Contains full plan with step statuses.
 
-**Files:** `orchestrator.ts` (submit_plan handler), `plan-files.ts`
+**Extension:**
+- `ListChecks` button in chat header with progress badge (e.g., "3/5")
+- Click opens slide-out panel showing checklist with status icons:
+  - `Circle` pending (gray)
+  - `Loader2` in progress (blue, animated)
+  - `Check` completed (green)
+  - `AlertCircle` failed (red)
+- Steps are read-only — only the AI marks them via `update_plan` tool
+- Panel updates in real-time via `plan_state` SSE events
 
-### 17d. Plan Always Visible + Checklist Format
+**Files changed:** `orchestrator.ts`, `sse.ts`, `ChatTab.tsx`
 
-**Problem:** Plans disappear after the approval bar is dismissed. No persistent view. Steps aren't checkboxes.
+### 17e. Inline HITL Approval Context — DONE
 
-**Backend changes:**
-- Plan markdown format changed to checklist:
-  ```markdown
-  # Plan
-  Send email then review GitHub repo
+**Backend:** Emits `approval_inline` SSE event right before the WS approval request for both tool and plan approvals. Contains action, label, reason, and plan steps (for plan approvals).
 
-  ## Steps
-  - [ ] Open Gmail and compose email
-  - [x] Send the email
-  - [ ] Navigate to GitHub repo
-  - [ ] Inspect api folder
-  - [ ] Summarize contents
-  ```
-- New SSE event `plan_state` emitted whenever plan changes (submit, approve, step update):
-  ```typescript
-  { type: 'plan_state', plan: { description, steps: { label, status }[] } | null }
-  ```
+**Extension:** Renders approval context as inline text blocks in the message flow:
+- Tool approvals: "**Approval needed:** click_element "Send" — _Write action detected_"
+- Plan approvals: "**Plan:** description + numbered step list — _Waiting for approval..._"
+- The actual approve/reject still happens via the existing WS approval bar
 
-**Extension changes (`ChatTab.tsx`):**
-- New button in chat header: clipboard/checklist icon (top-right)
-- Clicking opens a slide-out panel (or modal) showing the current plan
-- Plan rendered as checklist with status icons:
-  - `○` pending (gray)
-  - `◉` in progress (blue, animated)
-  - `✓` completed (green)
-  - `✗` failed (red)
-- Steps are read-only — only the AI can mark them complete (via `update_plan` tool)
-- Badge on the button shows progress: "3/5"
-- Plan panel auto-opens when a new plan is approved
-- Plan panel updates in real-time via `plan_state` SSE events
-
-**Files:** `orchestrator.ts`, `plan-files.ts` (format), `sse.ts` (new event), `ChatTab.tsx` (new panel + button)
-
-### 17e. Inline HITL Approval (In Messages, Not Header)
-
-**Problem:** Approval requests show as a floating bar at the top. User doesn't know which action triggered it. Feels disconnected.
-
-**Backend changes:**
-- No backend changes — approval requests already flow via WS with action details
-
-**Extension changes (`ChatTab.tsx`):**
-- Remove the floating approval bars (both tool approval and plan approval)
-- Instead, render approval requests **inline as message blocks**:
-  - Tool approval: appears after the tool_call block that triggered it
-    ```
-    🔒 Agent wants to click "Send" on mail.google.com
-    Reason: Write action detected
-    [Approve] [Reject]
-    ```
-  - Plan approval: appears as a plan block with approve/reject buttons at the bottom
-    ```
-    📋 Plan: Send email then review GitHub repo
-    1. Open Gmail and compose email
-    2. Send the email
-    3. Navigate to GitHub repo
-    4. Inspect api folder
-    [Approve Plan] [Reject Plan]
-    ```
-- After approval/rejection, the block updates in-place:
-  - Approved: "✓ Approved" (green, buttons gone)
-  - Rejected: "✗ Rejected: {reason}" (red, buttons gone)
-- The approval block stays in the message history (scrollable, contextual)
-
-**Files:** `ChatTab.tsx` (major refactor of approval rendering)
+**Files changed:** `orchestrator.ts`, `sse.ts`, `ChatTab.tsx`
 
 ---
 
-## Implementation Order
+## What's Left (Not Yet Implemented)
 
-```
-17a: Context window indicator    ── Backend SSE + extension UI
-17c: Single plan per chat        ── Backend only (quick fix)
-17b: Conversation compaction     ── Backend + extension UI (depends on 17a for trigger)
-17d: Plan always visible         ── Backend SSE + extension UI
-17e: Inline HITL                 ── Extension UI only (biggest refactor)
-```
+### 17e+ — Full Inline Approve/Reject Buttons
 
-17a and 17c can be done in parallel.
-17b depends on 17a (uses the context percentage to trigger).
-17d and 17e can be done in parallel after 17c.
+The current implementation shows approval *context* inline but the actual approve/reject buttons are still in the floating header bar. To fully inline them:
+
+- Approval message blocks need interactive Approve/Reject buttons
+- Clicking sends the approval response via the existing WS channel
+- After response, the block updates in-place ("Approved" / "Rejected: reason")
+- The floating header bars can then be removed entirely
+
+This requires a deeper refactor of the approval flow in ChatTab.tsx — the current approval state management (`pendingApprovals`, `setPendingApprovals`) is tightly coupled to the header bar rendering. Estimated: ~200 lines of ChatTab refactoring.
+
+### 17b+ — Manual Compaction Button
+
+The auto-compaction at 80% is implemented. A manual compaction button (next to the context indicator) would let users trigger it early. Requires:
+- Button in header UI
+- New WS message type or API endpoint to trigger compaction on demand
+- Small addition to orchestrator or chat route
+
+### 17d+ — Plan Panel Auto-Open
+
+The plan panel currently requires clicking the button. It should auto-open when:
+- A new plan is approved (first `plan_state` with status != null)
+- A plan step fails
 
 ---
 
@@ -166,34 +105,32 @@ The chat works but the UX has gaps that break autonomous workflows:
 
 | File | Action | Sub-phase |
 |------|--------|-----------|
-| `packages/shared/src/types/sse.ts` | MODIFY — add `context_status`, `plan_state` events | 17a, 17d |
-| `apps/api/src/agent/orchestrator.ts` | MODIFY — emit context_status, enforce single plan, emit plan_state | 17a, 17c, 17d |
-| `apps/api/src/storage/plan-files.ts` | MODIFY — checklist format, single-plan enforcement | 17c, 17d |
-| `apps/api/src/storage/compaction-files.ts` | **CREATE** — conversation compaction storage | 17b |
-| `apps/api/src/routes/chat.ts` | MODIFY — compaction support | 17b |
-| `apps/extension/src/sidepanel/tabs/ChatTab.tsx` | MODIFY — context indicator, compaction block, plan panel, inline HITL | 17a-17e |
+| `packages/shared/src/types/sse.ts` | MODIFY — add `context_status`, `compaction`, `approval_inline`, `plan_state` events | 17a-e |
+| `apps/api/src/agent/orchestrator.ts` | MODIFY — emit context_status, auto-compact at 80%, enforce single plan, emit plan_state, emit approval_inline | 17a-e |
+| `apps/api/src/storage/compaction-files.ts` | **CREATE** — conversation compaction S3 storage | 17b |
+| `apps/extension/src/sidepanel/tabs/ChatTab.tsx` | MODIFY — context indicator, compaction block, plan panel + button, inline approval blocks | 17a-e |
 
-**Total: 1 new file, 5 modified files.**
+**Total: 1 new file, 3 modified files.**
 
 ---
 
-## Cross-Chat Learning (How Other Chats Benefit)
+## Cross-Chat Learning
 
-Domain knowledge already flows across chats via S3:
-1. Chat on `mail.google.com` → after completion, `syncDomainKnowledgeToS3` writes to `domains/{userId}/mail_google_com/KNOWLEDGE.md`
-2. Next chat on `mail.google.com` → `loadDomainKnowledgeFromS3` reads KNOWLEDGE.md and injects into system prompt as "Domain Knowledge (from past sessions)"
+Domain knowledge flows across ALL chats (coordinator included) via S3:
+1. Chat on `mail.google.com` → `syncDomainKnowledgeToS3` writes to `domains/{userId}/mail_google_com/KNOWLEDGE.md`
+2. Next chat on `mail.google.com` → `loadDomainKnowledgeFromS3` injects into system prompt
 
-This works for ALL chats (coordinator included), not just named agents. Fixed in this session — the JSON parsing was failing on markdown-fenced responses, now handled.
+Postgres domain memory (shared across users) also flows cross-chat via `updateDomainMemory` + `loadDomainMemory`.
 
-Postgres domain memory (shared across all users on the same domain) also flows cross-chat via `updateDomainMemory` + `loadDomainMemory`.
+JSON parsing for all background LLM extractions (domain knowledge, user memory, self-improvement) now handles markdown-fenced responses.
 
 ---
 
 ## Verification
 
-1. **Context indicator**: Start a long chat — green → yellow → red as context fills
-2. **Compaction**: Fill context to 80% — see compaction message, conversation continues
-3. **Single plan**: Submit two plans in same chat — second overwrites first
-4. **Plan visibility**: Click plan button in header — see checklist with live updates
-5. **Inline HITL**: Agent tries to click "Send" — approval appears inline below the tool call
-6. **Cross-chat learning**: Chat on gmail.com twice — second chat's prompt includes knowledge from first
+1. **Context indicator**: Start a long chat — circular ring appears green, transitions to yellow/red
+2. **Compaction**: Fill context to 80% — compaction message appears inline, conversation continues
+3. **Single plan**: Agent submits plan while one is in progress → gets rejected
+4. **Plan visibility**: Click plan button in header — slide-out checklist with live step updates
+5. **Inline HITL**: Agent tries to click "Send" — approval context shows inline before the header approval bar
+6. **Cross-chat learning**: Chat on gmail.com, close, chat again — second prompt includes knowledge from first
