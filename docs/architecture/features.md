@@ -109,22 +109,25 @@ Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent.
 | **Site crawl** | Index entire web app via background tabs |
 | **Self-healing selectors** | Multiple fallback strategies when UI changes |
 | **Autonomous task completion** | Agent plans and executes multi-step tasks end-to-end |
-| **Contextual awareness** | Agent uses domain and user memory to improve over time |
+| **Contextual awareness** | Agent uses domain memory, user memory, and S3 domain knowledge to improve over time |
 | **Conversation continuity** | Resume past conversations with full context recall |
 
 ### Tier 3: Autonomous Agents
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **Agent definitions** | User-created agents with AGENT.yaml + SOUL.md in Supabase Storage | |
-| **Agent registry** | Load, list, resolve agents by capability or domain | |
-| **Agent-to-agent invocation** | Agents invoke other agents by slug or capability match | |
-| **Self-improvement loop** | Agents write SKILLS.md, LEARNINGS.md, ERRORS.md after each run | |
-| **Agent scheduler** | Cron triggers — agents wake up, do work, go back to sleep | |
-| **Webhook triggers** | External systems can trigger agent runs | |
+| **Agent definitions** | User-created agents with SOUL.md + SKILLS.md in Supabase Storage | ✅ |
+| **Agent registry** | Load, list, resolve agents by domain match | ✅ |
+| **Agent-to-agent invocation** | Agents invoke other agents by slug, max depth 2 | ✅ |
+| **Self-improvement loop** | Agents write SKILLS.md, LEARNINGS.md, ERRORS.md with dedup + pruning | ✅ |
+| **Agent scheduler** | Cron triggers — agents wake up, do work, go back to sleep | ✅ |
 | **Multi-agent swarm** | Parallel sub-agents in separate browser tabs, coordinated by lead agent | ✅ |
 | **Cross-app workflows** | Chain actions across different web apps via swarm | ✅ |
-| **Agent dashboard** | Create, configure, monitor, and manage agents via web UI | |
+| **Agent dashboard** | Create, configure, monitor, and manage agents via web UI | ✅ |
+| **Agent autonomy levels** | Supervised/trusted/autonomous — configurable approval requirements | ✅ |
+| **Domain knowledge (S3)** | Per-user domain knowledge, workflows, preferences accumulated over time | ✅ |
+| **Run logging** | Structured markdown run logs in S3 + Postgres, API endpoints | ✅ |
+| **Webhook triggers** | External systems can trigger agent runs | |
 
 ### Tier 4: Teams & Enterprise
 
@@ -147,7 +150,6 @@ Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent.
 | **Intelligent memory** | Relevance-scored user memories, always-loaded corrections, on-demand recall | ✅ |
 | **Memory recall tool** | Agent can search past memories mid-conversation via recall_memory | ✅ |
 | **Real-time memory saving** | Agent saves corrections/preferences immediately, not just post-conversation | ✅ |
-| **Conversation recall** | Vector-embedded user messages for "do that thing again" queries | ✅ |
 | **Outcome tracking** | Users rate conversations (thumbs up/down), reinforces/flags memories | ✅ |
 | **Token budget management** | Auto-strips old screenshots, truncates history, recovers from context overflow | ✅ |
 | **Prompt caching** | Anthropic cache_control for ~90% input token cost reduction on multi-turn | ✅ |
@@ -165,12 +167,16 @@ This is the enterprise selling point. Every action goes through classification b
 
 **Blocked (never allowed without explicit override):** delete, bulk operations, admin/permission changes, anything matching custom blocklist
 
+**Agent autonomy levels:**
+- `supervised` (default): all review/blocked gates active
+- `trusted`: review actions auto-approve, blocked still rejected, plans auto-approve. Required for scheduled agents.
+- `autonomous`: all actions auto-approve (for fully unattended operation)
+
 **Additional safety layers:**
 - Scope locking: agent only operates on whitelisted domains/URLs
-- Rate limiting: max actions per minute, max records per run
-- Anomaly detection: pause if page state diverges from expected
-- Undo stack: revert reversible actions
-- Dry-run mode: show full plan before executing anything
+- Audit logging: all actions logged regardless of autonomy level
+- Kill switch: Escape key halts all agent activity immediately
+- Plan approval: multi-step tasks require explicit approval (unless trusted/autonomous)
 
 ---
 

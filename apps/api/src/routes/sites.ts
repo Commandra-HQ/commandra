@@ -3,7 +3,6 @@ import { Hono } from 'hono';
 import { db } from '../db/index.js';
 import { pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
-import { inngest } from '../inngest/client.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 
 export const siteRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -169,9 +168,6 @@ export async function upsertPage(siteId: string, pageIndex: PageIndexPayload): P
 			.returning({ id: pages.id });
 		pageId = inserted.id;
 	}
-
-	// Fire background embedding job (non-blocking)
-	inngest.send({ name: 'page/upserted', data: { pageId } }).catch(() => {});
 
 	return pageId;
 }

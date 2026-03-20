@@ -1,6 +1,8 @@
+import { ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
+const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:3000';
 
 export function LoginScreen() {
 	const [token, setToken] = useState('');
@@ -18,12 +20,10 @@ export function LoginScreen() {
 			});
 			if (!res.ok) throw new Error('Invalid token');
 			const user = await res.json();
-			// Store token and user in chrome.storage
 			await chrome.storage.local.set({
 				authToken: token.trim(),
 				user: { id: user.id, email: user.email },
 			});
-			// Trigger re-render in App
 			window.dispatchEvent(new Event('auth-changed'));
 		} catch {
 			setError('Invalid or expired token. Generate a new one from the dashboard.');
@@ -32,17 +32,35 @@ export function LoginScreen() {
 		}
 	}
 
+	function handleOpenDashboard() {
+		chrome.tabs.create({ url: DASHBOARD_URL });
+	}
+
 	return (
 		<div className="flex flex-col items-center justify-center h-screen p-6">
 			<h1 className="text-lg font-semibold text-foreground mb-1">Commandra</h1>
-			<p className="text-xs text-muted-foreground mb-4">Connect your extension to get started</p>
+			<p className="text-xs text-muted-foreground mb-6">Connect your extension to get started</p>
 
-			<div className="w-full max-w-xs mb-6 p-3 bg-secondary rounded-md">
-				<p className="text-xs text-muted-foreground">
-					1. Go to <span className="font-medium text-foreground">localhost:3000</span>
-				</p>
-				<p className="text-xs text-muted-foreground">2. Sign in and generate a token</p>
-				<p className="text-xs text-muted-foreground">3. Paste it below</p>
+			<div className="w-full max-w-xs mb-6 space-y-3">
+				<div className="p-3 bg-secondary rounded-lg space-y-1.5">
+					<p className="text-xs text-muted-foreground">
+						<span className="text-foreground font-medium">1.</span> Open the dashboard and sign in
+					</p>
+					<p className="text-xs text-muted-foreground">
+						<span className="text-foreground font-medium">2.</span> Generate a connection token
+					</p>
+					<p className="text-xs text-muted-foreground">
+						<span className="text-foreground font-medium">3.</span> Paste it below
+					</p>
+				</div>
+				<button
+					type="button"
+					onClick={handleOpenDashboard}
+					className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-foreground border border-border rounded-md hover:bg-secondary transition-colors"
+				>
+					<ExternalLink size={12} />
+					Open Dashboard
+				</button>
 			</div>
 
 			<form onSubmit={handleConnect} className="w-full max-w-xs space-y-3">
@@ -62,7 +80,7 @@ export function LoginScreen() {
 					disabled={loading}
 					className="w-full py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:opacity-90 disabled:opacity-50"
 				>
-					{loading ? '...' : 'Connect'}
+					{loading ? 'Connecting...' : 'Connect'}
 				</button>
 			</form>
 		</div>

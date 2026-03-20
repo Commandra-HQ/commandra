@@ -11,7 +11,6 @@ const RULES_SECTION = `## How You See the Page
 You have a structural index of the current page: all interactive elements (buttons, links, inputs, forms, tables) with their labels, CSS selectors, and navigation links. You also receive:
 - **Site knowledge:** Indexed pages, known workflows, and app behavior notes from domain memory
 - **User context:** Personal preferences, corrections, past interactions, and saved automations
-- **Prior context:** Semantically similar past conversations and relevant elements found via embeddings
 - **User identity:** The logged-in user detected from the page (when available)
 Use ALL of this context to inform your approach. Don't navigate blindly — check what you already know first.
 
@@ -42,10 +41,22 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 - wait_for_element for loading/dynamic content
 - export_data to format as CSV/JSON
 
-**Memory management:**
-- Use save_memory IMMEDIATELY when the user corrects you or states a preference
-- Use recall_memory to search past learnings when context is missing
-- Check the "Prior Context" section — it may contain relevant past conversations
+**Knowledge & Memory — you manage your own learning:**
+- **save_memory**: Quick-save corrections, preferences, terminology to Postgres (always injected into your prompt next time)
+- **recall_memory**: Search your saved memories by keyword
+- **save_knowledge**: Write knowledge files to persistent S3 storage. Categories:
+  - \`domain\`: Per-website knowledge (how the app works, navigation, selectors, quirks). Key = domain name.
+  - \`agent\`: Per-agent files (SKILLS.md, LEARNINGS.md). Key = agent slug.
+  - \`run\`: Run summaries for noteworthy completions. Key = date (YYYY-MM-DD).
+- **read_knowledge**: Read back any knowledge file you previously saved
+- **list_knowledge**: See what knowledge files exist for a domain or agent
+
+**When to save knowledge:**
+- After discovering how a web app works (page structure, navigation, tricky elements) → save to domain KNOWLEDGE.md
+- After completing a multi-step workflow successfully → save to domain WORKFLOWS.md
+- When you notice user preferences specific to a domain → save to domain MEMORY.md
+- After a noteworthy run (completed a big task, learned from a failure) → save a run summary
+- You do NOT need to save after every interaction — only when there's something genuinely useful for next time
 
 ## Sub-Agents (Parallel Work)
 You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when genuinely beneficial:
@@ -142,13 +153,20 @@ export function buildSystemPrompt(
 	selectedElements?: SelectedElement[],
 	domainMemory?: string,
 	userMemory?: string,
-	priorContext?: string,
 	agentConfig?: AgentConfig,
+	domainKnowledge?: string,
 ): string {
 	const basePrompt = buildBasePrompt(agentConfig);
 
+	// Inject today's date
+	const now = new Date();
+	const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+	const dateStr = `**Today:** ${dayNames[now.getDay()]}, ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} (${now.toISOString().slice(0, 10)})`;
+
 	if (!pageIndex) {
 		return `${basePrompt}
+
+${dateStr}
 
 ## Current Page
 No page is currently indexed — but you CAN still act. If the user asks you to go somewhere or do something:
@@ -240,17 +258,19 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		userMemorySummary = `\n\n## What You Know About This User\n${userMemory}`;
 	}
 
-	let priorContextSummary = '';
-	if (priorContext) {
-		priorContextSummary = `\n\n## Prior Context (from embeddings)\nThese are semantically similar past interactions, relevant elements, and saved automations found via vector search. Use this context to inform your approach — the user may be asking to repeat or build on previous work.\n${priorContext}`;
-	}
-
 	let identitySummary = '';
 	if (pi.userIdentity?.username) {
 		identitySummary = `\n- **Logged-in user:** ${pi.userIdentity.username}`;
 	}
 
+	let domainKnowledgeSummary = '';
+	if (domainKnowledge) {
+		domainKnowledgeSummary = `\n\n## Domain Knowledge (from past sessions)\n${domainKnowledge}`;
+	}
+
 	return `${basePrompt}
+
+${dateStr}
 
 ## Current Page
 - **URL:** ${pi.url || 'Unknown'}
@@ -262,7 +282,7 @@ When the user refers to "these elements" or "the selected elements", they mean t
 ${elementsSummary}
 
 ## Navigation Links
-${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${priorContextSummary}${PLANNING_INSTRUCTIONS}`;
+${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${domainKnowledgeSummary}${PLANNING_INSTRUCTIONS}`;
 }
 
 function formatIndexAge(lastIndexedAt: string | Date): string {
@@ -283,7 +303,9 @@ function formatIndexAge(lastIndexedAt: string | Date): string {
 	return `${mins}m ago (fresh)`;
 }
 
-function formatElements(elements: { type: string; label: string; selector: string; inOverlay?: boolean }[]): string {
+function formatElements(
+	elements: { type: string; label: string; selector: string; inOverlay?: boolean }[],
+): string {
 	if (elements.length === 0) return 'No interactive elements found.';
 
 	// Separate overlay elements (modals/dialogs) from page elements

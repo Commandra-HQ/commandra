@@ -5,11 +5,13 @@
  * Zero setup required for existing users.
  */
 
-import type { AgentConfig } from '@afe/shared';
+import type { AgentAutonomy, AgentConfig } from '@afe/shared';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { agents } from '../db/schema.js';
-import { downloadAgentFile, deleteAgentFolder } from '../storage/agent-files.js';
+import { deleteAgentFolder, downloadAgentFile } from '../storage/agent-files.js';
+
+const VALID_AUTONOMY: AgentAutonomy[] = ['supervised', 'trusted', 'autonomous'];
 
 const DEFAULT_COORDINATOR: AgentConfig = {
 	id: '_coordinator',
@@ -36,10 +38,7 @@ export async function resolveAgent(
 
 	// Domain match
 	if (domain) {
-		const userAgents = await db
-			.select()
-			.from(agents)
-			.where(eq(agents.userId, userId));
+		const userAgents = await db.select().from(agents).where(eq(agents.userId, userId));
 
 		for (const agent of userAgents) {
 			const domains = agent.domains as string[] | null;
@@ -85,32 +84,36 @@ export async function loadAgentBySlug(slug: string, userId: string): Promise<Age
  * List all agents for a user (DB only, no file hydration).
  */
 export async function listAgents(userId: string): Promise<AgentConfig[]> {
-	const rows = await db
-		.select()
-		.from(agents)
-		.where(eq(agents.userId, userId));
+	const rows = await db.select().from(agents).where(eq(agents.userId, userId));
 
-	return rows.map((row) => ({
-		id: row.id,
-		slug: row.slug,
-		userId: row.userId,
-		name: row.name,
-		description: row.description,
-		model: row.model ?? undefined,
-		maxIterations: row.maxIterations ?? undefined,
-		tools: (row.tools as string[] | null) ?? undefined,
-		domains: (row.domains as string[] | null) ?? undefined,
-		trigger: (row.trigger as { cron?: string; enabled?: boolean } | null) ?? undefined,
-	}));
+	return rows.map((row) => rowToConfig(row));
 }
 
 /**
  * Create a new agent — insert DB row.
+ * Scheduled agents (cron trigger) must be at least 'trusted' autonomy.
  */
 export async function createAgent(
 	userId: string,
-	config: { slug: string; name: string; description?: string; model?: string; maxIterations?: number; tools?: string[]; domains?: string[]; orgId?: string; trigger?: { cron?: string; enabled?: boolean } },
+	config: {
+		slug: string;
+		name: string;
+		description?: string;
+		model?: string;
+		maxIterations?: number;
+		tools?: string[];
+		domains?: string[];
+		orgId?: string;
+		trigger?: { cron?: string; enabled?: boolean };
+		autonomy?: AgentAutonomy;
+	},
 ): Promise<AgentConfig> {
+	// Scheduled agents must be at least trusted — there's no human to approve actions
+	let autonomy = config.autonomy ?? 'supervised';
+	if (config.trigger?.cron && autonomy === 'supervised') {
+		autonomy = 'trusted';
+	}
+
 	const [row] = await db
 		.insert(agents)
 		.values({
@@ -124,21 +127,11 @@ export async function createAgent(
 			tools: config.tools,
 			domains: config.domains,
 			trigger: config.trigger,
+			autonomy,
 		})
 		.returning();
 
-	return {
-		id: row.id,
-		slug: row.slug,
-		userId: row.userId,
-		name: row.name,
-		description: row.description,
-		model: row.model ?? undefined,
-		maxIterations: row.maxIterations ?? undefined,
-		tools: (row.tools as string[] | null) ?? undefined,
-		domains: (row.domains as string[] | null) ?? undefined,
-		trigger: (row.trigger as { cron?: string; enabled?: boolean } | null) ?? undefined,
-	};
+	return rowToConfig(row);
 }
 
 /**
@@ -147,8 +140,22 @@ export async function createAgent(
 export async function updateAgent(
 	agentId: string,
 	userId: string,
-	partial: Partial<{ name: string; description: string; model: string; maxIterations: number; tools: string[]; domains: string[]; trigger: { cron?: string; enabled?: boolean } }>,
+	partial: Partial<{
+		name: string;
+		description: string;
+		model: string;
+		maxIterations: number;
+		tools: string[];
+		domains: string[];
+		trigger: { cron?: string; enabled?: boolean };
+		autonomy: AgentAutonomy;
+	}>,
 ): Promise<AgentConfig | null> {
+	// Validate autonomy value if provided
+	if (partial.autonomy && !VALID_AUTONOMY.includes(partial.autonomy)) {
+		partial.autonomy = 'supervised';
+	}
+
 	const [row] = await db
 		.update(agents)
 		.set({ ...partial, updatedAt: new Date() })
@@ -156,18 +163,7 @@ export async function updateAgent(
 		.returning();
 
 	if (!row) return null;
-	return {
-		id: row.id,
-		slug: row.slug,
-		userId: row.userId,
-		name: row.name,
-		description: row.description,
-		model: row.model ?? undefined,
-		maxIterations: row.maxIterations ?? undefined,
-		tools: (row.tools as string[] | null) ?? undefined,
-		domains: (row.domains as string[] | null) ?? undefined,
-		trigger: (row.trigger as { cron?: string; enabled?: boolean } | null) ?? undefined,
-	};
+	return rowToConfig(row);
 }
 
 /**
@@ -206,8 +202,15 @@ export function matchDomain(pattern: string, domain: string): boolean {
 
 // --- Internal ---
 
-async function hydrateAgent(row: typeof agents.$inferSelect): Promise<AgentConfig> {
-	const config: AgentConfig = {
+function parseAutonomy(value: string | null | undefined): AgentAutonomy | undefined {
+	if (value && VALID_AUTONOMY.includes(value as AgentAutonomy)) {
+		return value as AgentAutonomy;
+	}
+	return undefined;
+}
+
+function rowToConfig(row: typeof agents.$inferSelect): AgentConfig {
+	return {
 		id: row.id,
 		slug: row.slug,
 		userId: row.userId,
@@ -218,7 +221,12 @@ async function hydrateAgent(row: typeof agents.$inferSelect): Promise<AgentConfi
 		tools: (row.tools as string[] | null) ?? undefined,
 		domains: (row.domains as string[] | null) ?? undefined,
 		trigger: (row.trigger as { cron?: string; enabled?: boolean } | null) ?? undefined,
+		autonomy: parseAutonomy(row.autonomy),
 	};
+}
+
+async function hydrateAgent(row: typeof agents.$inferSelect): Promise<AgentConfig> {
+	const config = rowToConfig(row);
 
 	// Load agent files from Supabase Storage
 	try {

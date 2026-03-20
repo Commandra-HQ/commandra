@@ -120,6 +120,20 @@
       "when": 1774502400000,
       "tag": "0016_plan_status",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1774588800000,
+      "tag": "0017_agent_autonomy",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1774675200000,
+      "tag": "0018_drop_embeddings",
+      "breakpoints": true
     }
   ]
 }

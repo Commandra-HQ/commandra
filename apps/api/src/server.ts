@@ -3,9 +3,9 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
-import { serve as inngestServe } from 'inngest/hono';
 import { WebSocketServer } from 'ws';
-import { embedPageElements, inngest } from './inngest/index.js';
+import { startScheduler, stopScheduler } from './agent/scheduler.js';
+import { agentRoutes } from './routes/agents.js';
 import { auditRoutes } from './routes/audit.js';
 import { authRoutes } from './routes/auth.js';
 import { chatRoutes } from './routes/chat.js';
@@ -18,8 +18,6 @@ import { siteRoutes } from './routes/sites.js';
 import { statsRoutes } from './routes/stats.js';
 import { storageRoutes } from './routes/storage.js';
 import { tokenRoutes } from './routes/token.js';
-import { agentRoutes } from './routes/agents.js';
-import { startScheduler, stopScheduler } from './agent/scheduler.js';
 import { initLocalStorage } from './storage/local.js';
 import { handleWsConnection } from './ws/handler.js';
 
@@ -27,7 +25,10 @@ const app = new Hono();
 
 app.use('*', logger());
 // CORS: allow chrome-extension + localhost always; optional CORS_ORIGINS for dashboard (e.g. https://app.example.com)
-const corsOrigins = process.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? [];
+const corsOrigins =
+	process.env.CORS_ORIGINS?.split(',')
+		.map((o) => o.trim())
+		.filter(Boolean) ?? [];
 app.use(
 	'*',
 	cors({
@@ -57,11 +58,6 @@ app.route('/api/memory', memoryRoutes);
 app.route('/api/orgs', orgRoutes);
 app.route('/api/storage', storageRoutes);
 app.route('/api/agents', agentRoutes);
-
-// Inngest handler — serve as middleware
-const inngestHandler = inngestServe({ client: inngest, functions: [embedPageElements] });
-app.all('/api/inngest', (c) => inngestHandler(c));
-app.all('/api/inngest/*', (c) => inngestHandler(c));
 
 // Initialize local storage directories
 initLocalStorage();

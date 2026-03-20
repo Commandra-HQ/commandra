@@ -21,15 +21,17 @@ function deriveWsUrl(apiUrl: string): string {
 }
 
 export default defineConfig(({ mode }: ConfigEnv) => {
-	const env = loadEnv(mode, '../../', ['VITE_', 'API_', 'WS_']);
+	const env = loadEnv(mode, '../../', ['VITE_', 'API_', 'WS_', 'DASHBOARD_']);
 	const API_URL = process.env.API_URL || env.API_URL || 'http://localhost:3001';
 	const WS_URL = process.env.WS_URL || env.WS_URL || deriveWsUrl(API_URL);
+	const DASHBOARD_URL = process.env.DASHBOARD_URL || env.DASHBOARD_URL || 'http://localhost:3000';
 
 	return {
 		plugins: [react(), crx({ manifest })],
 		define: {
 			'process.env.API_URL': JSON.stringify(API_URL),
 			'process.env.WS_URL': JSON.stringify(WS_URL),
+			'process.env.DASHBOARD_URL': JSON.stringify(DASHBOARD_URL),
 		},
 		build: {
 			outDir: 'dist',

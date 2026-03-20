@@ -353,9 +353,15 @@ export async function extractAndSaveUserMemory(
 
 	let learnings: { category: string; content: string }[];
 	try {
-		learnings = JSON.parse(text);
+		let jsonText = text.trim();
+		if (jsonText.startsWith('```')) {
+			jsonText = jsonText.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+		}
+		learnings = JSON.parse(jsonText);
 	} catch {
-		console.warn('[UserMemory] Failed to parse learnings:', text.slice(0, 200));
+		if (text.trim()) {
+			console.warn('[UserMemory] Failed to parse learnings:', text.slice(0, 200));
+		}
 		return;
 	}
 

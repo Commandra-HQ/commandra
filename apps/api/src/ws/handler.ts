@@ -4,7 +4,6 @@ import { jwtVerify } from 'jose';
 import type { WebSocket } from 'ws';
 import { db } from '../db/index.js';
 import { sites } from '../db/schema.js';
-import { searchElements } from '../db/vector-search.js';
 import { updateSiteTotals, upsertPage } from '../routes/sites.js';
 
 interface Connection {
@@ -156,62 +155,11 @@ export function handleWsConnection(ws: WebSocket) {
 				}
 
 				case 'find_element': {
-					// Vector search fallback — extension couldn't find element via selectors or fuzzy match
-					const feConn = connections.get(connectionId);
-					if (!feConn?.userId) break;
-
-					const {
-						label: feLabel,
-						elementType: feType,
-						domain: feDomain,
-						requestId: feReqId,
-					} = message as {
-						label: string;
-						elementType: string;
-						domain: string;
-						requestId: string;
-					};
-
-					(async () => {
-						try {
-							const [feSite] = await db
-								.select({ id: sites.id })
-								.from(sites)
-								.where(and(eq(sites.domain, feDomain), eq(sites.userId, feConn.userId!)))
-								.limit(1);
-
-							if (!feSite) {
-								ws.send(
-									JSON.stringify({ type: 'find_element_result', requestId: feReqId, result: null }),
-								);
-								return;
-							}
-
-							const feResults = await searchElements(`${feType}: ${feLabel}`, feSite.id, 1);
-							const best = feResults[0];
-
-							ws.send(
-								JSON.stringify({
-									type: 'find_element_result',
-									requestId: feReqId,
-									result:
-										best && best.score > 0.5
-											? {
-													selector: best.selector,
-													label: best.elementLabel,
-													type: best.elementType,
-													score: best.score,
-												}
-											: null,
-								}),
-							);
-						} catch (err) {
-							console.error('[WS] Vector search failed:', err);
-							ws.send(
-								JSON.stringify({ type: 'find_element_result', requestId: feReqId, result: null }),
-							);
-						}
-					})();
+					// Element search removed (embeddings removed) — return null
+					const { requestId: feReqId } = message as { requestId: string };
+					ws.send(
+						JSON.stringify({ type: 'find_element_result', requestId: feReqId, result: null }),
+					);
 					break;
 				}
 
@@ -343,7 +291,9 @@ export function sendApprovalRequest(
 	}
 
 	const requestId = randomUUID();
-	console.log(`[WS] Sending approval request: ${details.action || details.type} "${details.label || ''}" (${requestId})`);
+	console.log(
+		`[WS] Sending approval request: ${details.action || details.type} "${details.label || ''}" (${requestId})`,
+	);
 
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {

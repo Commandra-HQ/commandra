@@ -96,13 +96,13 @@
 │  │               AGENT REGISTRY + SCHEDULER                 │    │
 │  │                                                          │    │
 │  │  loadAgent(slug) → reads AGENT.yaml + SOUL.md + SKILLS   │    │
-│  │  resolveAgent(task) → capability embedding match          │    │
+│  │  resolveAgent(task) → domain match                        │    │
 │  │  scheduler → cron eval → spawn agent runs                 │    │
 │  │  self-improve → writes SKILLS/LEARNINGS/ERRORS post-run   │    │
 │  └──────────────────────────────────────────────────────────┘    │
 │                                                                   │
 │  ┌──────────────────┐  ┌───────────────────────────────────┐     │
-│  │  WebSocket Server │  │  TOOL REGISTRY (18 Tools)          │     │
+│  │  WebSocket Server │  │  TOOL REGISTRY (21 Tools)          │     │
 │  │  (ws library)     │  │                                   │     │
 │  │                   │  │  Browser: click, type, select,    │     │
 │  │  Connections map  │  │  navigate, scroll, screenshot,    │     │
@@ -112,6 +112,8 @@
 │  └──────────────────┘  │  Internal: save_memory,            │     │
 │                         │  recall_memory, spawn_agent,       │     │
 │                         │  wait_for_agents,                  │     │
+│                         │  save_knowledge, read_knowledge,   │     │
+│                         │  list_knowledge,                   │     │
 │                         │  save_to_workspace,                │     │
 │                         │  read_from_workspace,              │     │
 │                         │  list_workspace                    │     │
@@ -120,20 +122,18 @@
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │              SUPABASE (Storage + Postgres)                │    │
 │  │                                                          │    │
-│  │  Storage (agent-files bucket):                            │    │
-│  │    {userId}/agents/{slug}/AGENT.yaml                      │    │
-│  │    {userId}/agents/{slug}/SOUL.md                         │    │
-│  │    {userId}/agents/{slug}/SKILLS.md                       │    │
-│  │    {userId}/agents/{slug}/LEARNINGS.md                    │    │
-│  │    {userId}/agents/{slug}/ERRORS.md                       │    │
-│  │    {userId}/agents/{slug}/workspace/                      │    │
+│  │  Storage (agents bucket):                                  │    │
+│  │    {userId}/{slug}/SOUL.md, SKILLS.md, LEARNINGS.md, ...  │    │
+│  │    domains/{userId}/{domain}/KNOWLEDGE.md, WORKFLOWS.md   │    │
+│  │    domains/{userId}/{domain}/AGENTS.md, MEMORY.md         │    │
+│  │    runs/{userId}/{date}/{time}_{slug}_{convId}.md          │    │
 │  │                                                          │    │
-│  │  Postgres + pgvector:                                     │    │
+│  │  Postgres:                                                 │    │
 │  │    users, organizations, org_members,                      │    │
-│  │    agents (metadata + stats), agent_runs, agent_embeddings│    │
+│  │    agents (metadata + stats), agent_runs,                 │    │
 │  │    conversations (+ outcome), messages, audit_logs,       │    │
-│  │    sites, pages, elements (+ embeddings),                 │    │
-│  │    domain_memory, user_memory, conversation_embeddings    │    │
+│  │    sites, pages, elements,                                │    │
+│  │    domain_memory, user_memory                             │    │
 │  └──────────────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -179,12 +179,12 @@ The brain. We built our own agentic loop — ~300 lines of TypeScript, no framew
    e. Log each to audit table
    f. Feed results back to LLM
 7. Repeat until end_turn or max iterations (15)
-8. Save conversation + trigger background memory extraction
+8. Save conversation (knowledge persistence is agent-driven via save_knowledge tool during execution)
 ```
 
-**Internal tools** (`save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`) execute server-side — they don't route through WebSocket to the extension.
+**Internal tools** (`save_memory`, `recall_memory`, `save_knowledge`, `read_knowledge`, `list_knowledge`, `spawn_agent`, `wait_for_agents`) execute server-side — they don't route through WebSocket to the extension.
 
-**Tool dispatch** happens via WebSocket directly — no MCP layer. The tool registry maps tool names to WS message handlers. Each tool sends an `action_request` to the extension and awaits the response. Internal tools (`save_memory`, `recall_memory`, `spawn_agent`, `wait_for_agents`) run server-side without WS. Tab management tools (`open_tab`, `close_tab`) route through WS for the swarm.
+**Tool dispatch** happens via WebSocket directly — no MCP layer. The tool registry maps tool names to WS message handlers. Each tool sends an `action_request` to the extension and awaits the response. Internal tools (`save_memory`, `recall_memory`, `save_knowledge`, `read_knowledge`, `list_knowledge`, `spawn_agent`, `wait_for_agents`) run server-side without WS. Tab management tools (`open_tab`, `close_tab`) route through WS for the swarm.
 
 **Anthropic prompt caching:** System prompts use `cache_control: ephemeral` for ~90% input token cost reduction on multi-turn conversations.
 
@@ -203,9 +203,20 @@ The platform is evolving from a single generic agent to a system of **specialize
 **Agent lifecycle:**
 - **Create** — user defines agent via dashboard or AGENT.yaml
 - **Invoke** — user, scheduler, or another agent triggers a run
-- **Execute** — agent runs with its own prompt, tools, model, safety rules
-- **Learn** — post-execution analysis writes to SKILLS.md, LEARNINGS.md, ERRORS.md
+- **Execute** — agent runs with its own prompt, tools, model, autonomy level
+- **Learn** — post-execution analysis writes to SKILLS.md, LEARNINGS.md, ERRORS.md (with dedup + pruning). Domain knowledge managed by the agent during execution via `save_knowledge` tool (writes KNOWLEDGE.md, WORKFLOWS.md to S3).
 - **Sleep** — agent is dormant until next trigger
+
+**Autonomy levels** control how much the agent can do without human approval:
+- `supervised` (default) — every write action requires approval, destructive actions blocked
+- `trusted` — write actions auto-approve, destructive still blocked, plans auto-approve. Required for scheduled agents.
+- `autonomous` — all actions auto-approve including destructive ones
+
+**Domain knowledge** accumulates per-user in S3 (`domains/{userId}/{domain}/`):
+- `KNOWLEDGE.md` — facts about the app learned from past sessions
+- `WORKFLOWS.md` — proven multi-step workflows extracted from completed plans
+- `AGENTS.md` — which agents operate on this domain
+- `MEMORY.md` — domain-specific user preferences
 
 **Agent-to-agent invocation:**
 - `spawn_agent` targets a specific agent by slug or matches by capability
@@ -236,19 +247,19 @@ The existing swarm system powers agent-to-agent invocation:
 - 60-second timeout per sub-agent
 - Tab cleanup: `close_tab` is sent when a sub-agent completes, fails, or times out
 
-### 4. Memory System (3 Layers)
+### 4. Memory System (Agent-Driven Knowledge Management)
 
 **Conversation memory:** Compresses messages >20 into summaries using the fast model. Token budget guard strips old screenshots from history before each LLM call.
 
-**Domain memory:** Per-domain shared knowledge — pages, workflows, element notes. Cached in-memory with 5-minute TTL. Background extraction runs after each conversation to capture new learnings about the site.
+**Agent-driven knowledge (S3):** Agents manage their own domain knowledge via tools — no background LLM extraction. The agent decides what to save during conversations:
+- `save_knowledge` — writes facts, workflows, and preferences to S3 (Supabase Storage) at `domains/{userId}/{domain}/`
+- `read_knowledge` — reads domain knowledge files from S3 to recall what the agent knows about a domain
+- `list_knowledge` — lists available knowledge files for a domain
+- Files include KNOWLEDGE.md (facts about the app), WORKFLOWS.md (proven multi-step workflows), AGENTS.md (which agents operate on this domain), and MEMORY.md (domain-specific preferences)
 
-**User memory:** Per-user-per-domain preferences, corrections, terminology, and workflows. Relevance-scored using `confidence × recency × reinforcement`. Top-15 memories injected into the system prompt. Corrections are always loaded regardless of score. The `recall_memory` tool allows on-demand search during a conversation. Smart extraction uses the strong model when corrections are detected.
+**User memory:** Per-user-per-domain preferences, corrections, terminology, and workflows stored in Postgres. The `recall_memory` tool allows on-demand keyword search during a conversation. `save_memory` persists corrections and preferences in real-time when detected.
 
-### 5. Embeddings
-
-Embeddings power three subsystems: element fallback matching (when selectors break), domain memory search, and conversation recall. Providers are configurable via `EMBEDDING_PROVIDER`: Voyage AI (default for Anthropic), OpenAI, or Ollama. All vectors are 1024 dimensions stored in pgvector.
-
-### 6. Learning Feedback Loops
+### 5. Learning Feedback Loops
 
 **Outcome tracking:** Users rate conversations with thumbs up/down. Conversations store an `outcome` column (success/failure/partial).
 
@@ -256,7 +267,7 @@ Embeddings power three subsystems: element fallback matching (when selectors bre
 
 **Smart extraction:** Conversations where the user corrected the agent trigger extraction with the strong model (instead of fast), ensuring corrections are captured with high fidelity.
 
-### 7. Site Index (The Knowledge Layer)
+### 6. Site Index (The Knowledge Layer)
 
 The agent doesn't guess what's on the page — it knows. The site index is a structured map of every page in the web application.
 
@@ -271,7 +282,7 @@ The agent doesn't guess what's on the page — it knows. The site index is a str
 - Auto-indexed whenever the user visits a page
 - Full site crawl via background tabs (extension opens pages in hidden tabs, extracts structure, closes them)
 - Incremental updates via MutationObserver
-- Synced to Postgres via API, with pgvector embeddings for semantic search (Voyage AI, OpenAI, or Ollama — configurable via `EMBEDDING_PROVIDER`)
+- Synced to Postgres via API
 
 **Why this matters:**
 General browser agents (like OpenAI Operator) figure out the UI from scratch every time. Our agents already have a map. They're faster, more reliable, and cheaper (fewer LLM tokens spent figuring out the page).

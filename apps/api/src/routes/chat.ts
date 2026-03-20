@@ -1,20 +1,17 @@
 import type { SSEEvent } from '@afe/shared';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import { resolveAgent } from '../agent/agent-registry.js';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
+import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
 import { db } from '../db/index.js';
-import { conversationEmbeddings, conversations, messages, pages, sites } from '../db/schema.js';
-import { embedText, getEmbeddingProvider } from '../llm/embeddings.js';
+import { conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
-import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
-import { loadDomainMemory, updateDomainMemory } from '../memory/domain.js';
-import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
+import { loadDomainKnowledgeFromS3, loadDomainMemory } from '../memory/domain.js';
+import { loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
-import { searchConversations, searchElements } from '../db/vector-search.js';
-import { resolveAgent } from '../agent/agent-registry.js';
-import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
 
 /**
  * Detect if a user message clearly requires PARALLEL work across multiple distinct websites.
@@ -25,13 +22,15 @@ function detectMultiSiteIntent(message: string): boolean {
 	// Look for explicit URLs pointing to different domains
 	const urlMatches = message.match(/https?:\/\/[^\s]+/gi) || [];
 	const urlDomains = new Set(
-		urlMatches.map((u) => {
-			try {
-				return new URL(u).hostname.replace(/^www\./, '');
-			} catch {
-				return '';
-			}
-		}).filter(Boolean),
+		urlMatches
+			.map((u) => {
+				try {
+					return new URL(u).hostname.replace(/^www\./, '');
+				} catch {
+					return '';
+				}
+			})
+			.filter(Boolean),
 	);
 	if (urlDomains.size >= 2) return true;
 
@@ -46,7 +45,8 @@ function detectMultiSiteIntent(message: string): boolean {
 	for (const pattern of parallelPatterns) {
 		if (pattern.test(message)) {
 			// Verify 2+ different site names
-			const sitePattern = /\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana|salesforce|hubspot|figma)\b/gi;
+			const sitePattern =
+				/\b(gmail|github|linkedin|slack|jira|confluence|notion|trello|outlook|asana|salesforce|hubspot|figma)\b/gi;
 			const matches = message.match(sitePattern);
 			if (matches) {
 				const unique = new Set(matches.map((m) => m.toLowerCase()));
@@ -56,30 +56,6 @@ function detectMultiSiteIntent(message: string): boolean {
 	}
 
 	return false;
-}
-
-async function embedUserMessage(conversationId: string, messageText: string): Promise<void> {
-	// Get the message ID we just inserted
-	const [msg] = await db
-		.select({ id: messages.id })
-		.from(messages)
-		.where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
-		.orderBy(desc(messages.createdAt))
-		.limit(1);
-	if (!msg) return;
-
-	try {
-		const vector = await embedText(messageText);
-		await db.insert(conversationEmbeddings).values({
-			conversationId,
-			messageId: msg.id,
-			messageText: messageText.slice(0, 500), // Cap stored text
-			embeddingModel: getEmbeddingProvider().id,
-			embedding: vector,
-		});
-	} catch {
-		// Embedding may not be configured — that's fine, skip silently
-	}
 }
 
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -123,11 +99,6 @@ chatRoutes.post('/', async (c) => {
 		content: message,
 	});
 
-	// Background: embed user message for conversational recall
-	embedUserMessage(convId!, message).catch((err) =>
-		console.warn('[Embeddings] User message embed failed:', err),
-	);
-
 	// Load conversation history
 	const history = await db
 		.select()
@@ -137,7 +108,9 @@ chatRoutes.post('/', async (c) => {
 
 	const chatMessages = history.map((m) => {
 		// Include tool call summary in assistant messages for multi-turn context
-		const td = m.toolData as { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } | null;
+		const td = m.toolData as {
+			tools: { name: string; args: unknown; result: unknown; success: boolean }[];
+		} | null;
 		if (m.role === 'assistant' && td?.tools?.length) {
 			const toolSummary = td.tools
 				.map((t) => `[Tool: ${t.name}${t.success ? ' ✓' : ' ✗'}]`)
@@ -165,15 +138,18 @@ chatRoutes.post('/', async (c) => {
 	let domain: string | undefined;
 	let domainMem: string | undefined;
 	let userMem: string | undefined;
+	let domainKnowledge: string | undefined;
 	if (pi?.url) {
 		try {
 			domain = new URL(pi.url).hostname;
-			const [dm, um] = await Promise.all([
+			const [dm, um, dk] = await Promise.all([
 				loadDomainMemory(domain),
 				loadUserMemory(user.id, domain),
+				loadDomainKnowledgeFromS3(user.id, domain),
 			]);
 			domainMem = dm ?? undefined;
 			userMem = um ?? undefined;
+			domainKnowledge = dk ?? undefined;
 
 			// Enrich pageIndex with all indexed pages for this site so the agent
 			// knows the full site structure (what pages exist, their purpose, key elements)
@@ -237,63 +213,6 @@ chatRoutes.post('/', async (c) => {
 		}
 	}
 
-	// --- Embedding-powered context enrichment ---
-	// Search past conversations and elements for relevant context
-	let priorContext = '';
-	if (domain) {
-		try {
-			const [site] = pi?.sitePages
-				? [] // Already have site info
-				: await db
-						.select({ id: sites.id })
-						.from(sites)
-						.where(and(eq(sites.domain, domain), getOrgOrUserScope(user, sites)))
-						.limit(1);
-
-			const siteId = site?.id;
-
-			// Run all embedding searches in parallel (non-blocking — skip if embeddings not configured)
-			const [pastConvos, relevantElements] = await Promise.allSettled([
-				searchConversations(message, user.id, 3),
-				siteId ? searchElements(message, siteId, 8) : Promise.resolve([]),
-			]);
-
-			const contextParts: string[] = [];
-
-			// Past conversations — "have we done this before?"
-			if (pastConvos.status === 'fulfilled' && pastConvos.value.length > 0) {
-				const relevant = pastConvos.value.filter((c) => c.score > 0.3);
-				if (relevant.length > 0) {
-					contextParts.push('### Past Related Conversations');
-					for (const c of relevant) {
-						contextParts.push(
-							`- "${c.messageText}" (similarity: ${(c.score * 100).toFixed(0)}%)`,
-						);
-					}
-				}
-			}
-
-			// Relevant elements across the site — semantic element lookup
-			if (relevantElements.status === 'fulfilled' && relevantElements.value.length > 0) {
-				const relevant = relevantElements.value.filter((e) => e.score > 0.3);
-				if (relevant.length > 0) {
-					contextParts.push('### Relevant Elements on This Site');
-					for (const e of relevant) {
-						contextParts.push(
-							`- ${e.elementType}: "${e.elementLabel}" [${e.selector}] (match: ${(e.score * 100).toFixed(0)}%)`,
-						);
-					}
-				}
-			}
-
-			if (contextParts.length > 0) {
-				priorContext = contextParts.join('\n');
-			}
-		} catch (err) {
-			console.warn('[Chat] Embedding context enrichment failed:', err);
-		}
-	}
-
 	// Detect multi-site intent — only for genuinely parallel cross-domain tasks
 	const multiSiteDetected = detectMultiSiteIntent(message);
 	if (multiSiteDetected) {
@@ -318,13 +237,25 @@ chatRoutes.post('/', async (c) => {
 	return streamSSE(c, async (stream) => {
 		let fullResponse = '';
 
+		// SSE heartbeat — keeps connection alive during long tool executions
+		const heartbeat = setInterval(async () => {
+			if (signal.aborted) return;
+			try {
+				await stream.writeSSE({ event: 'heartbeat', data: '{}' });
+			} catch {
+				// Stream closed
+			}
+		}, 15000); // Every 15 seconds
+
 		const onEvent = async (event: SSEEvent) => {
 			if (signal.aborted) return;
 			await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });
 		};
 
 		try {
-			let toolData: { tools: { name: string; args: unknown; result: unknown; success: boolean }[] } | undefined;
+			let toolData:
+				| { tools: { name: string; args: unknown; result: unknown; success: boolean }[] }
+				| undefined;
 			const startTime = Date.now();
 			if (canAct) {
 				const result = await runOrchestrator({
@@ -335,12 +266,12 @@ chatRoutes.post('/', async (c) => {
 					selectedElements,
 					domainMemory: domainMem,
 					userMemory: userMem,
-					priorContext: priorContext || undefined,
 					domain,
 					conversationId: convId,
 					onEvent,
 					signal,
 					agentConfig,
+					domainKnowledge,
 				});
 				fullResponse = result.response;
 				if (result.toolCalls.length > 0) {
@@ -369,6 +300,8 @@ chatRoutes.post('/', async (c) => {
 						toolCalls: result.toolCalls,
 						transcript,
 						duration: durationMs,
+						domain,
+						conversationId: convId,
 					}).catch((err) => console.warn('[SelfImprove] analyzeAndImprove failed:', err));
 				}
 			} else {
@@ -378,7 +311,6 @@ chatRoutes.post('/', async (c) => {
 					selectedElements,
 					domainMemory: domainMem,
 					userMemory: userMem,
-					priorContext: priorContext || undefined,
 					onEvent,
 					signal,
 					agentConfig,
@@ -388,33 +320,21 @@ chatRoutes.post('/', async (c) => {
 			if (signal.aborted) return;
 
 			// Store assistant response with structured tool data
-			if (fullResponse.trim()) {
+			// If no text response but tools were used, save a summary so the conversation isn't lost
+			const contentToSave =
+				fullResponse.trim() ||
+				(toolData ? `[Agent executed ${toolData.tools.length} actions]` : '');
+			if (contentToSave) {
 				await db.insert(messages).values({
 					conversationId: convId!,
 					role: 'assistant',
-					content: fullResponse,
+					content: contentToSave,
 					...(toolData && { toolData }),
 				});
 			}
 
-			// Update domain memory and user memory in the background
-			if (domain && fullResponse.length > 20) {
-				const transcript = [
-					...chatMessages.slice(-10).map((m) => `${m.role}: ${m.content}`),
-					`assistant: ${fullResponse}`,
-				].join('\n\n');
-				updateDomainMemory(domain, transcript, getProvider(), getFastModel()).catch((err) =>
-					console.warn('[DomainMemory] Update failed:', err),
-				);
-				extractAndSaveUserMemory(
-					user.id,
-					domain,
-					transcript,
-					getProvider(),
-					getFastModel(),
-					getStrongModel(),
-				).catch((err) => console.warn('[UserMemory] Extraction failed:', err));
-			}
+			// Knowledge management is now agent-driven via save_knowledge/save_memory tools.
+			// No background LLM extraction calls — the agent decides what to save.
 
 			// Send done event with conversation ID
 			await onEvent({ type: 'done', conversationId: convId! });
@@ -422,6 +342,8 @@ chatRoutes.post('/', async (c) => {
 			if (signal.aborted) return;
 			console.error('Chat error:', err);
 			await onEvent({ type: 'error', message: 'Something went wrong. Please try again.' });
+		} finally {
+			clearInterval(heartbeat);
 		}
 	});
 });
