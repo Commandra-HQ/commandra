@@ -227,8 +227,15 @@ export function ChatTab() {
 	const [pendingPlanApproval, setPendingPlanApproval] = useState<PlanApprovalRequest | null>(null);
 	const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
 	const [selectorActive, setSelectorActive] = useState(false);
-	const [contextStatus, setContextStatus] = useState<{ used: number; limit: number; percent: number } | null>(null);
-	const [planState, setPlanState] = useState<{ description: string; steps: { label: string; status: string }[] } | null>(null);
+	const [contextStatus, setContextStatus] = useState<{
+		used: number;
+		limit: number;
+		percent: number;
+	} | null>(null);
+	const [planState, setPlanState] = useState<{
+		description: string;
+		steps: { label: string; status: string }[];
+	} | null>(null);
 	const [showPlanPanel, setShowPlanPanel] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -968,6 +975,59 @@ export function ChatTab() {
 					</p>
 				</button>
 				<div className="flex items-center gap-1 flex-shrink-0">
+					{/* Context window indicator */}
+					{contextStatus && (
+						<div
+							className="relative w-6 h-6 flex-shrink-0 cursor-help"
+							title={`Context: ${Math.round(contextStatus.used / 1000)}K / ${Math.round(contextStatus.limit / 1000)}K tokens (${contextStatus.percent}%)`}
+						>
+							<svg viewBox="0 0 24 24" className="w-6 h-6 -rotate-90">
+								<circle
+									cx="12"
+									cy="12"
+									r="10"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									className="text-secondary"
+								/>
+								<circle
+									cx="12"
+									cy="12"
+									r="10"
+									fill="none"
+									strokeWidth="2.5"
+									strokeDasharray={`${contextStatus.percent * 0.628} 62.8`}
+									strokeLinecap="round"
+									className={
+										contextStatus.percent > 80
+											? 'text-red-500'
+											: contextStatus.percent > 60
+												? 'text-yellow-500'
+												: 'text-green-500'
+									}
+								/>
+							</svg>
+							<span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold text-muted-foreground">
+								{contextStatus.percent}
+							</span>
+						</div>
+					)}
+					{/* Plan button with progress badge */}
+					{planState && (
+						<button
+							type="button"
+							onClick={() => setShowPlanPanel(!showPlanPanel)}
+							className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-secondary/50 relative"
+							title="View plan"
+						>
+							<ListChecks size={12} />
+							<span className="absolute -top-0.5 -right-0.5 text-[8px] font-bold bg-primary text-primary-foreground rounded-full w-3.5 h-3.5 flex items-center justify-center">
+								{planState.steps.filter((s: { status: string }) => s.status === 'completed').length}
+								/{planState.steps.length}
+							</span>
+						</button>
+					)}
 					<button
 						type="button"
 						onClick={handleReindexPage}
@@ -1014,6 +1074,46 @@ export function ChatTab() {
 							</div>
 						</div>
 					))}
+				</div>
+			)}
+
+			{/* Plan panel */}
+			{showPlanPanel && planState && (
+				<div className="border-b border-border bg-secondary/20 px-4 py-3 space-y-2 max-h-48 overflow-y-auto">
+					<div className="flex items-center justify-between">
+						<p className="text-xs font-medium text-foreground">{planState.description}</p>
+						<button
+							type="button"
+							onClick={() => setShowPlanPanel(false)}
+							className="p-0.5 text-muted-foreground hover:text-foreground"
+						>
+							<X size={10} />
+						</button>
+					</div>
+					<div className="space-y-1">
+						{planState.steps.map((step: { label: string; status: string }, i: number) => (
+							<div key={`plan-step-${i}`} className="flex items-center gap-2 text-xs">
+								{step.status === 'completed' ? (
+									<Check size={12} className="text-green-500 flex-shrink-0" />
+								) : step.status === 'in_progress' ? (
+									<Loader2 size={12} className="text-blue-500 animate-spin flex-shrink-0" />
+								) : step.status === 'failed' ? (
+									<AlertCircle size={12} className="text-red-500 flex-shrink-0" />
+								) : (
+									<Circle size={12} className="text-muted-foreground flex-shrink-0" />
+								)}
+								<span
+									className={
+										step.status === 'completed'
+											? 'text-muted-foreground line-through'
+											: 'text-foreground'
+									}
+								>
+									{step.label}
+								</span>
+							</div>
+						))}
+					</div>
 				</div>
 			)}
 
