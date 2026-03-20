@@ -378,6 +378,7 @@ export function useChatStream(options: UseChatStreamOptions) {
 	const handleStop = useCallback(() => {
 		abortRef.current?.abort();
 		setIsActive(false);
+		try { chrome.action.setBadgeText({ text: '' }); } catch {}
 	}, [setIsActive]);
 
 	return {
