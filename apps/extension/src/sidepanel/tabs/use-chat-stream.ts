@@ -289,6 +289,13 @@ export function useChatStream(options: UseChatStreamOptions) {
 			setChatMessages((prev) => [...prev, assistantMsg]);
 			setIsActive(true);
 
+			// Show badge on extension icon while task runs
+			try {
+				chrome.action.setBadgeText({ text: '●' });
+				chrome.action.setBadgeBackgroundColor({ color: '#3b82f6' });
+			} catch {}
+
+
 			if (externalConvId) {
 				markActive(externalConvId, 'Chat', text.slice(0, 60));
 			}
@@ -360,6 +367,9 @@ export function useChatStream(options: UseChatStreamOptions) {
 				setIsActive(false);
 				abortRef.current = null;
 				assistantMsgIdRef.current = '';
+
+				// Clear badge
+				try { chrome.action.setBadgeText({ text: '' }); } catch {}
 			}
 		},
 		[externalConvId, markActive, setChatMessages, setIsActive],

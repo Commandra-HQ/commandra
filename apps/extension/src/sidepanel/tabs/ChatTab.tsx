@@ -47,6 +47,8 @@ export function ChatTab() {
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
 	const [pendingPlanApproval, setPendingPlanApproval] = useState<PlanApprovalRequest | null>(null);
 	const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
+	const [originTabId, setOriginTabId] = useState<number | null>(null);
+	const [originDomain, setOriginDomain] = useState<string>('');
 	const [selectorActive, setSelectorActive] = useState(false);
 	const [contextStatus, setContextStatus] = useState<{
 		used: number;
@@ -115,14 +117,7 @@ export function ChatTab() {
 				try {
 					const parsed = new URL(tab.url);
 					const newDomain = parsed.hostname;
-					setDomain((prev) => {
-						if (prev && prev !== newDomain && !externalConvId) {
-							setChatMessages([]);
-							setPendingApprovals([]);
-							setSelectedElements([]);
-						}
-						return newDomain;
-					});
+					setDomain(newDomain);
 					const segments = parsed.pathname.split('/').filter(Boolean);
 					const scope =
 						segments.length >= 2
@@ -257,6 +252,8 @@ export function ChatTab() {
 	function handleNewConversation() {
 		setChatMessages([]);
 		setPendingApprovals([]);
+		setOriginTabId(null);
+		setOriginDomain('');
 		navigate('/');
 	}
 
@@ -332,7 +329,14 @@ export function ChatTab() {
 		const els = selectedElements.length > 0 ? selectedElements : undefined;
 		setSelectedElements([]);
 
-		await sendMessage(text, { pageIndex, selectedElements: els });
+		// Pin conversation to current tab on first message
+		const chatTabId = originTabId || tabId;
+		if (!originTabId && tabId) {
+			setOriginTabId(tabId);
+			setOriginDomain(domain);
+		}
+
+		await sendMessage(text, { pageIndex, selectedElements: els, tabId: chatTabId });
 	}
 
 	async function loadConversation(convId: string) {
@@ -462,6 +466,8 @@ export function ChatTab() {
 				onReindex={handleReindexPage}
 				onIndexSite={handleIndexSite}
 				onNavigateBack={() => navigate('/')}
+				originDomain={originDomain}
+				isTaskActive={isActive}
 			/>
 
 			{showContext && (

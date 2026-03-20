@@ -65,11 +65,12 @@ chatRoutes.use('*', requireAuth);
 chatRoutes.post('/', async (c) => {
 	const user = c.get('user');
 	const body = await c.req.json();
-	const { message, pageIndex, conversationId, selectedElements, agentId } = body as {
+	const { message, pageIndex, conversationId, selectedElements, agentId, tabId } = body as {
 		message: string;
 		pageIndex?: unknown;
 		conversationId?: string;
 		agentId?: string;
+		tabId?: number;
 		selectedElements?: {
 			selector: string;
 			fallbackSelectors: string[];
@@ -271,6 +272,7 @@ chatRoutes.post('/', async (c) => {
 					onEvent,
 					signal,
 					agentConfig,
+					tabId,
 					domainKnowledge,
 				});
 				fullResponse = result.response;

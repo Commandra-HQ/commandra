@@ -37,6 +37,8 @@ export function ContextBar({
 	onReindex,
 	onIndexSite,
 	onNavigateBack,
+	originDomain,
+	isTaskActive,
 }: {
 	domain: string;
 	siteData: SiteData;
@@ -50,9 +52,19 @@ export function ContextBar({
 	onReindex: () => void;
 	onIndexSite: () => void;
 	onNavigateBack: () => void;
+	originDomain?: string;
+	isTaskActive?: boolean;
 }) {
+	const isOnDifferentTab = isTaskActive && originDomain && originDomain !== domain;
+
 	return (
-		<div className="px-3 py-2 border-b border-border flex items-center gap-2">
+		<>
+			{isOnDifferentTab && (
+				<div className="px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-[11px] text-blue-400">
+					Task running on <span className="font-semibold">{originDomain}</span> — actions routed to that tab
+				</div>
+			)}
+			<div className="px-3 py-2 border-b border-border flex items-center gap-2">
 			<button
 				type="button"
 				onClick={onNavigateBack}
@@ -135,6 +147,7 @@ export function ContextBar({
 				</button>
 			</div>
 		</div>
+		</>
 	);
 }
 
