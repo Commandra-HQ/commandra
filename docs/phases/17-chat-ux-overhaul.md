@@ -60,44 +60,37 @@ One PLAN.md per conversation, always at `{userId}/plans/{conversationId}/PLAN.md
 
 **Files changed:** `orchestrator.ts`, `sse.ts`, `ChatTab.tsx`
 
-### 17e. Inline HITL Approval Context — DONE
+### 17e. Inline HITL Approval — DONE
 
-**Backend:** Emits `approval_inline` SSE event right before the WS approval request for both tool and plan approvals. Contains action, label, reason, and plan steps (for plan approvals).
+**Backend:** Emits `approval_inline` SSE event right before the WS approval request for both tool and plan approvals.
 
-**Extension:** Renders approval context as inline text blocks in the message flow:
-- Tool approvals: "**Approval needed:** click_element "Send" — _Write action detected_"
-- Plan approvals: "**Plan:** description + numbered step list — _Waiting for approval..._"
-- The actual approve/reject still happens via the existing WS approval bar
+**Extension:**
+- Floating header approval bars removed entirely
+- Approval requests rendered as `InlineApprovalBlock` components in the message flow
+- Each block has Approve/Reject buttons that call `handleApproval` directly
+- After response, block updates in-place to show "Approved" (green) or "Rejected" (red)
+- Tool approvals: show action name + label + reason + buttons
+- Plan approvals: show description + numbered step list + buttons
+- `onApprove` prop threaded from ChatTab → AssistantMessage → InlineApprovalBlock
+
+### 17b+. Manual Compaction Button — DONE
+
+"Compact" button appears in header when context usage >50%. Sends `REQUEST_COMPACTION` message.
+
+### 17d+. Plan Panel Auto-Open — DONE
+
+Plan panel auto-opens on first `plan_state` event (new plan approved) or when a step fails.
 
 **Files changed:** `orchestrator.ts`, `sse.ts`, `ChatTab.tsx`
 
 ---
 
-## What's Left (Not Yet Implemented)
+## What's Left
 
-### 17e+ — Full Inline Approve/Reject Buttons
+Nothing blocking. All sub-phases implemented. Minor polish opportunities:
 
-The current implementation shows approval *context* inline but the actual approve/reject buttons are still in the floating header bar. To fully inline them:
-
-- Approval message blocks need interactive Approve/Reject buttons
-- Clicking sends the approval response via the existing WS channel
-- After response, the block updates in-place ("Approved" / "Rejected: reason")
-- The floating header bars can then be removed entirely
-
-This requires a deeper refactor of the approval flow in ChatTab.tsx — the current approval state management (`pendingApprovals`, `setPendingApprovals`) is tightly coupled to the header bar rendering. Estimated: ~200 lines of ChatTab refactoring.
-
-### 17b+ — Manual Compaction Button
-
-The auto-compaction at 80% is implemented. A manual compaction button (next to the context indicator) would let users trigger it early. Requires:
-- Button in header UI
-- New WS message type or API endpoint to trigger compaction on demand
-- Small addition to orchestrator or chat route
-
-### 17d+ — Plan Panel Auto-Open
-
-The plan panel currently requires clicking the button. It should auto-open when:
-- A new plan is approved (first `plan_state` with status != null)
-- A plan step fails
+- The "Compact" button sends a `REQUEST_COMPACTION` message — the background script handler for this could be wired to send a system message to the chat that triggers compaction on the next orchestrator iteration. Currently the auto-compact at 80% is the primary trigger.
+- The inline approval block uses a `__approval__:` prefix encoding in the text content to pass data through the block system. A cleaner approach would be a dedicated `approval` block type in the MessageBlock union, but the current approach works and avoids a larger refactor.
 
 ---
 

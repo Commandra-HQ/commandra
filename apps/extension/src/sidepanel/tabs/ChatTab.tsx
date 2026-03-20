@@ -365,11 +365,26 @@ export function ChatTab() {
 						description: req.payload.description as string,
 						steps: req.payload.steps as string[],
 					});
+					// Also inject inline approval block in message flow
+					const blocks = blocksRef.current;
+					blocks.push({
+						type: 'approval' as 'text',
+						content: `__approval__:plan:${req.requestId}:${req.payload.description}:${(req.payload.steps as string[]).join('|')}`,
+					});
+					scheduleFlush();
 				} else {
 					setPendingApprovals((prev) => [
 						...prev,
 						{ ...(req.payload as unknown as ApprovalRequest), requestId: req.requestId },
 					]);
+					// Also inject inline approval block in message flow
+					const blocks = blocksRef.current;
+					const ap = req.payload as unknown as ApprovalRequest;
+					blocks.push({
+						type: 'approval' as 'text',
+						content: `__approval__:tool:${req.requestId}:${ap.action}:${ap.label || ''}:${ap.reason}`,
+					});
+					scheduleFlush();
 				}
 			} else if (message.type === 'ELEMENT_SELECTED') {
 				const els = message.payload as SelectedElement[];
@@ -626,6 +641,14 @@ export function ChatTab() {
 
 							case 'plan_state':
 								setPlanState(event.plan);
+								// Auto-open plan panel when plan first appears or a step fails
+								if (event.plan) {
+									const hasFailed = event.plan.steps.some((s: { status: string }) => s.status === 'failed');
+									const isNew = !planState; // first plan_state in this chat
+									if (isNew || hasFailed) {
+										setShowPlanPanel(true);
+									}
+								}
 								break;
 
 							case 'compaction': {
@@ -1043,6 +1066,24 @@ export function ChatTab() {
 							</span>
 						</div>
 					)}
+					{/* Manual compact button */}
+					{contextStatus && contextStatus.percent > 50 && (
+						<button
+							type="button"
+							onClick={() => {
+								// Send a message to trigger compaction via the chat
+								// The next orchestrator iteration at >80% will auto-compact,
+								// but we can hint by setting a lower threshold via a special message
+								chrome.runtime.sendMessage({
+									type: 'REQUEST_COMPACTION',
+								});
+							}}
+							className="px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground hover:text-foreground bg-secondary/50 hover:bg-secondary rounded"
+							title="Compact conversation — save transcript and free up context"
+						>
+							Compact
+						</button>
+					)}
 					{/* Plan button with progress badge */}
 					{planState && (
 						<button
@@ -1147,69 +1188,7 @@ export function ChatTab() {
 				</div>
 			)}
 
-			{/* Approval Requests */}
-			{pendingApprovals.map((req) => (
-				<div
-					key={req.requestId}
-					className="border-b border-yellow-500/30 bg-yellow-500/5 px-4 py-3 space-y-2"
-				>
-					<p className="text-xs font-medium text-foreground">
-						Agent wants to:{' '}
-						<span className="font-semibold">{TOOL_LABELS[req.action] || req.action}</span>
-						{req.label ? ` "${req.label}"` : ''}
-					</p>
-					<p className="text-xs text-muted-foreground">{req.reason}</p>
-					<div className="flex gap-2">
-						<button
-							onClick={() => handleApproval(req.requestId, true)}
-							className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
-						>
-							Approve
-						</button>
-						<button
-							onClick={() => handleApproval(req.requestId, false)}
-							className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700"
-						>
-							Reject
-						</button>
-					</div>
-				</div>
-			))}
-
-			{/* Plan Approval */}
-			{pendingPlanApproval && (
-				<div className="border-b border-blue-500/30 bg-blue-500/5 px-4 py-3 space-y-2">
-					<p className="text-xs font-semibold text-foreground">Plan requires approval</p>
-					<p className="text-xs text-muted-foreground">{pendingPlanApproval.description}</p>
-					<ol className="list-decimal list-inside space-y-0.5 pl-1">
-						{pendingPlanApproval.steps.map((step, i) => (
-							<li key={i} className="text-xs text-foreground">
-								{step}
-							</li>
-						))}
-					</ol>
-					<div className="flex gap-2 pt-1">
-						<button
-							onClick={() => {
-								handleApproval(pendingPlanApproval.requestId, true);
-								setPendingPlanApproval(null);
-							}}
-							className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
-						>
-							Approve Plan
-						</button>
-						<button
-							onClick={() => {
-								handleApproval(pendingPlanApproval.requestId, false);
-								setPendingPlanApproval(null);
-							}}
-							className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700"
-						>
-							Reject
-						</button>
-					</div>
-				</div>
-			)}
+			{/* Approval requests are now rendered inline in the message flow (InlineApprovalBlock) */}
 
 			{/* Messages */}
 			<div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -1231,7 +1210,7 @@ export function ChatTab() {
 						{msg.role === 'user' ? (
 							<UserMessage msg={msg} />
 						) : (
-							<AssistantMessage msg={msg} isActive={isActive} />
+							<AssistantMessage msg={msg} isActive={isActive} onApprove={handleApproval} />
 						)}
 					</div>
 				))}
@@ -1392,9 +1371,11 @@ function UserMessage({ msg }: { msg: ChatMessage }) {
 function AssistantMessage({
 	msg,
 	isActive,
+	onApprove,
 }: {
 	msg: ChatMessage;
 	isActive: boolean;
+	onApprove: (requestId: string, approved: boolean) => void;
 }) {
 	const rawBlocks = msg.blocks;
 
@@ -1424,6 +1405,40 @@ function AssistantMessage({
 								<ThinkingBlock key={i} content={block.content} isLast={i === blocks.length - 1} />
 							);
 						case 'text': {
+							// Check if this is an inline approval block
+							if (block.content.startsWith('__approval__:')) {
+								const parts = block.content.split(':');
+								const approvalType = parts[1]; // 'tool' or 'plan'
+								const requestId = parts[2];
+								if (approvalType === 'plan') {
+									const desc = parts[3];
+									const steps = parts[4]?.split('|') || [];
+									return (
+										<InlineApprovalBlock
+											key={i}
+											requestId={requestId}
+											type="plan"
+											description={desc}
+											steps={steps}
+											onApprove={onApprove}
+										/>
+									);
+								}
+								const action = parts[3];
+								const label = parts[4];
+								const reason = parts[5];
+								return (
+									<InlineApprovalBlock
+										key={i}
+										requestId={requestId}
+										type="tool"
+										action={action}
+										label={label}
+										reason={reason}
+										onApprove={onApprove}
+									/>
+								);
+							}
 							return <TextBlock key={i} content={block.content} />;
 						}
 						case 'tool_call':
@@ -1487,6 +1502,87 @@ function TextBlock({ content }: { content: string }) {
 	return (
 		<div className="rounded-lg px-3 py-2 text-sm bg-secondary text-foreground prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-1 prose-code:text-xs">
 			<ReactMarkdown>{content}</ReactMarkdown>
+		</div>
+	);
+}
+
+function InlineApprovalBlock({
+	requestId,
+	type,
+	action,
+	label,
+	reason,
+	description,
+	steps,
+	onApprove,
+}: {
+	requestId: string;
+	type: 'tool' | 'plan';
+	action?: string;
+	label?: string;
+	reason?: string;
+	description?: string;
+	steps?: string[];
+	onApprove: (requestId: string, approved: boolean) => void;
+}) {
+	const [responded, setResponded] = useState<'approved' | 'rejected' | null>(null);
+
+	const handleClick = (approved: boolean) => {
+		onApprove(requestId, approved);
+		setResponded(approved ? 'approved' : 'rejected');
+	};
+
+	if (responded) {
+		return (
+			<div className={`rounded-md px-3 py-2 text-xs border ${responded === 'approved' ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
+				{responded === 'approved' ? (
+					<span className="text-green-500 font-medium">Approved</span>
+				) : (
+					<span className="text-red-500 font-medium">Rejected</span>
+				)}
+				{type === 'tool' && <span className="text-muted-foreground"> — {TOOL_LABELS[action || ''] || action}{label ? ` "${label}"` : ''}</span>}
+				{type === 'plan' && <span className="text-muted-foreground"> — {description}</span>}
+			</div>
+		);
+	}
+
+	return (
+		<div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2.5 space-y-2">
+			{type === 'tool' ? (
+				<>
+					<p className="text-xs font-medium text-foreground">
+						Agent wants to:{' '}
+						<span className="font-semibold">{TOOL_LABELS[action || ''] || action}</span>
+						{label ? ` "${label}"` : ''}
+					</p>
+					{reason && <p className="text-[11px] text-muted-foreground">{reason}</p>}
+				</>
+			) : (
+				<>
+					<p className="text-xs font-semibold text-foreground">Plan: {description}</p>
+					{steps && steps.length > 0 && (
+						<ol className="list-decimal list-inside space-y-0.5 pl-1">
+							{steps.map((s, i) => (
+								<li key={`step-${i}`} className="text-xs text-foreground">{s}</li>
+							))}
+						</ol>
+					)}
+				</>
+			)}
+			<div className="flex gap-2">
+				<button
+					onClick={() => handleClick(true)}
+					className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
+				>
+					{type === 'plan' ? 'Approve Plan' : 'Approve'}
+				</button>
+				<button
+					onClick={() => handleClick(false)}
+					className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700"
+				>
+					Reject
+				</button>
+			</div>
 		</div>
 	);
 }
