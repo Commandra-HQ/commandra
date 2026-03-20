@@ -42,6 +42,7 @@ export function useChatStream(options: UseChatStreamOptions) {
 	const textAccumRef = useRef('');
 	const thinkingAccumRef = useRef('');
 	const rafRef = useRef<number>(0);
+	const conversationIdRef = useRef<string>('');
 
 	function flushBlocks() {
 		const id = assistantMsgIdRef.current;
@@ -256,8 +257,15 @@ export function useChatStream(options: UseChatStreamOptions) {
 			}
 
 			case 'done':
+				console.log('[ChatStream] done event, convId:', event.conversationId, 'externalConvId:', externalConvId);
 				if (event.conversationId) {
-					navigate(`/chat/${event.conversationId}`, { replace: true });
+					// Store the conversationId so follow-up messages continue this conversation
+					conversationIdRef.current = event.conversationId;
+					// Update URL without triggering a reload — use replace so back button works
+					// Only navigate if we're not already on this conversation's route
+					if (externalConvId !== event.conversationId) {
+						navigate(`/chat/${event.conversationId}`, { replace: true });
+					}
 					markDone(event.conversationId);
 				}
 				break;
@@ -296,8 +304,9 @@ export function useChatStream(options: UseChatStreamOptions) {
 			} catch {}
 
 
-			if (externalConvId) {
-				markActive(externalConvId, 'Chat', text.slice(0, 60));
+			const activeConvId = externalConvId || conversationIdRef.current;
+			if (activeConvId) {
+				markActive(activeConvId, 'Chat', text.slice(0, 60));
 			}
 
 			const controller = new AbortController();
@@ -312,7 +321,7 @@ export function useChatStream(options: UseChatStreamOptions) {
 					},
 					body: JSON.stringify({
 						message: text,
-						conversationId: externalConvId,
+						conversationId: externalConvId || conversationIdRef.current || undefined,
 						...extraBody,
 					}),
 					signal: controller.signal,
@@ -381,10 +390,19 @@ export function useChatStream(options: UseChatStreamOptions) {
 		try { chrome.action.setBadgeText({ text: '' }); } catch {}
 	}, [setIsActive]);
 
+	const resetConversation = useCallback(() => {
+		conversationIdRef.current = '';
+		assistantMsgIdRef.current = '';
+		blocksRef.current = [];
+		textAccumRef.current = '';
+		thinkingAccumRef.current = '';
+	}, []);
+
 	return {
 		sendMessage,
 		handleStop,
 		blocksRef,
 		scheduleFlush,
+		resetConversation,
 	};
 }
