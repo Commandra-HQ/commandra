@@ -381,6 +381,22 @@ export function ChatTab() {
 					},
 				);
 				setChatMessages(loaded);
+
+				// Restore plan state if the conversation had an associated plan
+				if (data.plan) {
+					const plan = data.plan as {
+						description: string;
+						steps: { label: string; status: string }[];
+					};
+					setPlanState(plan);
+					// Auto-show panel if plan is still in progress
+					const hasActive = plan.steps.some(
+						(s) => s.status === 'in_progress' || s.status === 'pending',
+					);
+					if (hasActive) {
+						setShowPlanPanel(true);
+					}
+				}
 			}
 		} catch (err) {
 			console.error('Failed to load conversation:', err);

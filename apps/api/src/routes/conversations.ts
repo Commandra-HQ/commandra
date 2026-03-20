@@ -5,6 +5,7 @@ import { db } from '../db/index.js';
 import { agents, conversations, messages, userMemory } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
+import { loadPlan } from '../storage/plan-files.js';
 
 export const conversationRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
@@ -59,19 +60,22 @@ conversationRoutes.get('/:id', async (c) => {
 		return c.json({ error: 'Not found' }, 404);
 	}
 
-	const msgs = await db
-		.select({
-			id: messages.id,
-			role: messages.role,
-			content: messages.content,
-			toolData: messages.toolData,
-			createdAt: messages.createdAt,
-		})
-		.from(messages)
-		.where(eq(messages.conversationId, convId))
-		.orderBy(messages.createdAt);
+	const [msgs, plan] = await Promise.all([
+		db
+			.select({
+				id: messages.id,
+				role: messages.role,
+				content: messages.content,
+				toolData: messages.toolData,
+				createdAt: messages.createdAt,
+			})
+			.from(messages)
+			.where(eq(messages.conversationId, convId))
+			.orderBy(messages.createdAt),
+		loadPlan(user.id, convId).catch(() => null),
+	]);
 
-	return c.json({ conversation: conv, messages: msgs });
+	return c.json({ conversation: conv, messages: msgs, plan });
 });
 
 // Rate conversation outcome (thumbs up/down)

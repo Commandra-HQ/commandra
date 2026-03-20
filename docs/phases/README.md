@@ -47,6 +47,8 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 |       |                                                    | run logging to S3, date context in prompts, domain workflows extraction, embedding removal.                                   |         |
 | 17    | [Chat UX Overhaul](17-chat-ux-overhaul.md)         | Real-time context window indicator, conversation compaction to MD, single plan per chat,                                      |         |
 |       |                                                    | plan always visible as checklist, inline HITL approval in messages.                                                           |         |
+| 18    | [Tab-Pinned Conversations](18-tab-pinned-conversations.md) | Conversations bound to tabs not domains, background task execution,                                                    |         |
+|       |                                                    | tab-aware tool dispatch, multi-conversation support, swarm tab management.                                                    |         |
 
 ---
 
