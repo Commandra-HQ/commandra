@@ -44,7 +44,9 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | 15    | [Autonomous Agent System](15-autonomous-agents.md) | Agents as persistent entities in Supabase Storage (SOUL.md, SKILLS.md).                                                       | ✅ Done |
 |       |                                                    | Agent registry with domain-based resolution. Agent-to-agent invocation. Self-improvement loop. Agent scheduler. Dashboard UI. |         |
 | 16    | [Self-Learning + Autonomy](16-self-learning.md)    | Domain knowledge S3 layer, self-improvement dedup/pruning, agent autonomy levels (supervised/trusted/autonomous),             |         |
-|       |                                                    | run logging to S3, date context in prompts, domain workflows extraction, run log API endpoints.                               |         |
+|       |                                                    | run logging to S3, date context in prompts, domain workflows extraction, embedding removal.                                   |         |
+| 17    | [Chat UX Overhaul](17-chat-ux-overhaul.md)         | Real-time context window indicator, conversation compaction to MD, single plan per chat,                                      |         |
+|       |                                                    | plan always visible as checklist, inline HITL approval in messages.                                                           |         |
 
 ---
 

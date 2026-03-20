@@ -209,9 +209,15 @@ Respond ONLY with valid JSON, no markdown fencing.`;
 			summary?: string | null;
 		};
 		try {
-			analysis = JSON.parse(text.trim());
+			let jsonText = text.trim();
+			if (jsonText.startsWith('```')) {
+				jsonText = jsonText.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+			}
+			analysis = JSON.parse(jsonText);
 		} catch {
-			console.warn('[SelfImprove] Failed to parse analysis JSON:', text.slice(0, 200));
+			if (text.trim()) {
+				console.warn('[SelfImprove] Failed to parse analysis JSON:', text.slice(0, 200));
+			}
 			return;
 		}
 

@@ -149,9 +149,15 @@ export async function updateDomainMemory(
 
 	let learned: DomainKnowledge;
 	try {
-		learned = JSON.parse(text);
+		let jsonText = text.trim();
+		if (jsonText.startsWith('```')) {
+			jsonText = jsonText.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+		}
+		learned = JSON.parse(jsonText);
 	} catch {
-		console.warn('[DomainMemory] Failed to parse learnings:', text.slice(0, 200));
+		if (text.trim()) {
+			console.warn('[DomainMemory] Failed to parse learnings:', text.slice(0, 200));
+		}
 		return;
 	}
 
@@ -292,9 +298,16 @@ export async function syncDomainKnowledgeToS3(
 
 		let extracted: { knowledge?: string[]; preferences?: string[] };
 		try {
-			extracted = JSON.parse(text.trim());
+			// Strip markdown fences if present
+			let jsonText = text.trim();
+			if (jsonText.startsWith('```')) {
+				jsonText = jsonText.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+			}
+			extracted = JSON.parse(jsonText);
 		} catch {
-			console.warn('[DomainKnowledge] Failed to parse S3 extraction:', text.slice(0, 200));
+			if (text.trim()) {
+				console.warn('[DomainKnowledge] Failed to parse S3 extraction:', text.slice(0, 200));
+			}
 			return;
 		}
 
