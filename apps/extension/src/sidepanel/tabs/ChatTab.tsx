@@ -365,27 +365,36 @@ export function ChatTab() {
 						description: req.payload.description as string,
 						steps: req.payload.steps as string[],
 					});
-					// Also inject inline approval block in message flow
-					const blocks = blocksRef.current;
-					blocks.push({
-						type: 'approval' as 'text',
-						content: `__approval__:plan:${req.requestId}:${req.payload.description}:${(req.payload.steps as string[]).join('|')}`,
-					});
-					scheduleFlush();
 				} else {
 					setPendingApprovals((prev) => [
 						...prev,
 						{ ...(req.payload as unknown as ApprovalRequest), requestId: req.requestId },
 					]);
-					// Also inject inline approval block in message flow
-					const blocks = blocksRef.current;
-					const ap = req.payload as unknown as ApprovalRequest;
-					blocks.push({
-						type: 'approval' as 'text',
-						content: `__approval__:tool:${req.requestId}:${ap.action}:${ap.label || ''}:${ap.reason}`,
-					});
-					scheduleFlush();
 				}
+				// Inject inline approval block into the last assistant message
+				const approvalPayload = req.payload;
+				const isPlan = approvalPayload.type === 'plan_approval';
+				const approvalContent = isPlan
+					? `__approval__:plan:${req.requestId}:${approvalPayload.description}:${(approvalPayload.steps as string[]).join('|')}`
+					: `__approval__:tool:${req.requestId}:${(approvalPayload as unknown as ApprovalRequest).action}:${(approvalPayload as unknown as ApprovalRequest).label || ''}:${(approvalPayload as unknown as ApprovalRequest).reason}`;
+
+				setChatMessages((prev) => {
+					const updated = [...prev];
+					// Find the last assistant message and append the approval block
+					for (let i = updated.length - 1; i >= 0; i--) {
+						if (updated[i].role === 'assistant' && updated[i].blocks) {
+							updated[i] = {
+								...updated[i],
+								blocks: [
+									...(updated[i].blocks || []),
+									{ type: 'text' as const, content: approvalContent },
+								],
+							};
+							break;
+						}
+					}
+					return updated;
+				});
 			} else if (message.type === 'ELEMENT_SELECTED') {
 				const els = message.payload as SelectedElement[];
 				setSelectedElements(els);
@@ -661,25 +670,9 @@ export function ChatTab() {
 								break;
 							}
 
-							case 'approval_inline': {
-								const blocks = blocksRef.current;
-								if (event.approvalType === 'plan' && event.planSteps) {
-									const stepList = event.planSteps
-										.map((s: string, i: number) => `${i + 1}. ${s}`)
-										.join('\n');
-									blocks.push({
-										type: 'text',
-										content: `**Plan:** ${event.label}\n\n${stepList}\n\n_Waiting for your approval..._`,
-									});
-								} else {
-									blocks.push({
-										type: 'text',
-										content: `**Approval needed:** ${event.action}${event.label ? ` "${event.label}"` : ''}\n\n_${event.reason}_`,
-									});
-								}
-								scheduleFlush();
+							case 'approval_inline':
+								// Handled via WS APPROVAL_REQUEST → InlineApprovalBlock with buttons
 								break;
-							}
 
 							case 'sub_agent_start': {
 								const blocks = blocksRef.current;
@@ -875,6 +868,10 @@ export function ChatTab() {
 	function handleApproval(requestId: string, approved: boolean) {
 		chrome.runtime.sendMessage({ type: 'APPROVAL_RESPONSE', requestId, approved });
 		setPendingApprovals((prev) => prev.filter((a) => a.requestId !== requestId));
+		// Also clear plan approval if this was a plan
+		if (pendingPlanApproval?.requestId === requestId) {
+			setPendingPlanApproval(null);
+		}
 	}
 
 	function handleToggleSelector() {
@@ -1066,23 +1063,14 @@ export function ChatTab() {
 							</span>
 						</div>
 					)}
-					{/* Manual compact button */}
-					{contextStatus && contextStatus.percent > 50 && (
-						<button
-							type="button"
-							onClick={() => {
-								// Send a message to trigger compaction via the chat
-								// The next orchestrator iteration at >80% will auto-compact,
-								// but we can hint by setting a lower threshold via a special message
-								chrome.runtime.sendMessage({
-									type: 'REQUEST_COMPACTION',
-								});
-							}}
-							className="px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground hover:text-foreground bg-secondary/50 hover:bg-secondary rounded"
-							title="Compact conversation — save transcript and free up context"
+					{/* Manual compact hint — shows when context is filling up */}
+					{contextStatus && contextStatus.percent > 60 && (
+						<span
+							className="text-[9px] text-yellow-500 cursor-help"
+							title={`Context ${contextStatus.percent}% full. Start a new chat if the agent stops responding.`}
 						>
-							Compact
-						</button>
+							{contextStatus.percent > 80 ? 'Compacting...' : `${contextStatus.percent}%`}
+						</span>
 					)}
 					{/* Plan button with progress badge */}
 					{planState && (
