@@ -371,30 +371,15 @@ export function ChatTab() {
 						{ ...(req.payload as unknown as ApprovalRequest), requestId: req.requestId },
 					]);
 				}
-				// Inject inline approval block into the last assistant message
+				// Inject inline approval block via blocksRef (same path as SSE events)
 				const approvalPayload = req.payload;
 				const isPlan = approvalPayload.type === 'plan_approval';
 				const approvalContent = isPlan
 					? `__approval__:plan:${req.requestId}:${approvalPayload.description}:${(approvalPayload.steps as string[]).join('|')}`
 					: `__approval__:tool:${req.requestId}:${(approvalPayload as unknown as ApprovalRequest).action}:${(approvalPayload as unknown as ApprovalRequest).label || ''}:${(approvalPayload as unknown as ApprovalRequest).reason}`;
 
-				setChatMessages((prev) => {
-					const updated = [...prev];
-					// Find the last assistant message and append the approval block
-					for (let i = updated.length - 1; i >= 0; i--) {
-						if (updated[i].role === 'assistant' && updated[i].blocks) {
-							updated[i] = {
-								...updated[i],
-								blocks: [
-									...(updated[i].blocks || []),
-									{ type: 'text' as const, content: approvalContent },
-								],
-							};
-							break;
-						}
-					}
-					return updated;
-				});
+				blocksRef.current.push({ type: 'text' as const, content: approvalContent });
+				scheduleFlush();
 			} else if (message.type === 'ELEMENT_SELECTED') {
 				const els = message.payload as SelectedElement[];
 				setSelectedElements(els);

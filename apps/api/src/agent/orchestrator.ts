@@ -27,7 +27,8 @@ import { type MemoryCategory, saveUserMemory } from '../memory/user.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
-import { uploadAgentFile } from '../storage/agent-files.js';
+import { downloadAgentFile, listAgentFiles, uploadAgentFile } from '../storage/agent-files.js';
+import { downloadDomainFile, listDomainFiles, uploadDomainFile } from '../storage/domain-files.js';
 import { saveCompaction } from '../storage/compaction-files.js';
 import { saveLocalFile } from '../storage/local.js';
 import { type StoredPlan, loadPlan, savePlan, updatePlanStep } from '../storage/plan-files.js';
@@ -326,11 +327,90 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		},
 	};
 
+	const saveKnowledgeTool = {
+		name: 'save_knowledge',
+		description:
+			'Write a knowledge file to persistent storage. Use this to save domain knowledge (how an app works, page structure, useful selectors), workflows (proven multi-step procedures), or any other knowledge worth preserving for future sessions. Files are markdown. You can create or overwrite files.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				category: {
+					type: 'string',
+					enum: ['domain', 'agent', 'run'],
+					description:
+						'Where to save: domain (per-website knowledge), agent (per-agent files), run (run logs/summaries)',
+				},
+				key: {
+					type: 'string',
+					description:
+						'The domain name (e.g. "mail.google.com") for domain category, agent slug for agent category, or date (YYYY-MM-DD) for run category',
+				},
+				filename: {
+					type: 'string',
+					description:
+						'Filename to write (e.g. "KNOWLEDGE.md", "WORKFLOWS.md", "MEMORY.md", "SKILLS.md"). Use .md extension.',
+				},
+				content: {
+					type: 'string',
+					description: 'Full markdown content to write. Include headers and structure.',
+				},
+			},
+			required: ['category', 'key', 'filename', 'content'],
+		},
+	};
+	const readKnowledgeTool = {
+		name: 'read_knowledge',
+		description:
+			'Read a knowledge file from persistent storage. Use this to check what you already know about a domain, read your own agent files, or review past run summaries.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				category: {
+					type: 'string',
+					enum: ['domain', 'agent', 'run'],
+					description: 'Where to read from: domain, agent, or run',
+				},
+				key: {
+					type: 'string',
+					description: 'Domain name, agent slug, or date (YYYY-MM-DD)',
+				},
+				filename: {
+					type: 'string',
+					description: 'Filename to read (e.g. "KNOWLEDGE.md", "WORKFLOWS.md")',
+				},
+			},
+			required: ['category', 'key', 'filename'],
+		},
+	};
+	const listKnowledgeTool = {
+		name: 'list_knowledge',
+		description:
+			'List knowledge files stored for a domain or agent. Use to discover what knowledge exists before reading or updating.',
+		parameters: {
+			type: 'object' as const,
+			properties: {
+				category: {
+					type: 'string',
+					enum: ['domain', 'agent', 'run'],
+					description: 'Where to list: domain, agent, or run',
+				},
+				key: {
+					type: 'string',
+					description: 'Domain name, agent slug, or date (YYYY-MM-DD)',
+				},
+			},
+			required: ['category', 'key'],
+		},
+	};
+
 	const currentDepth = params.depth ?? 0;
 	const tools = [
 		...browserTools,
 		saveMemoryTool,
 		recallMemoryTool,
+		saveKnowledgeTool,
+		readKnowledgeTool,
+		listKnowledgeTool,
 		// Exclude spawn/wait tools at depth >= 2 to prevent deep nesting
 		...(currentDepth >= 2 ? [] : [spawnAgentTool, waitForAgentsTool]),
 		saveToLocalTool,
@@ -774,6 +854,9 @@ function partitionToolsBySafety(
 			[
 				'save_memory',
 				'recall_memory',
+				'save_knowledge',
+				'read_knowledge',
+				'list_knowledge',
 				'spawn_agent',
 				'wait_for_agents',
 				'save_to_local',
@@ -854,6 +937,125 @@ async function executeToolBlock(
 				type: 'tool_result',
 				toolUseId: block.id,
 				content: JSON.stringify({ success: true, memories: formatted, count: results.length }),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// save_knowledge — write a knowledge file to S3
+	if (block.name === 'save_knowledge') {
+		const args = block.input as { category: string; key: string; filename: string; content: string };
+		try {
+			if (args.category === 'domain') {
+				await uploadDomainFile(userId, args.key, args.filename, args.content);
+			} else if (args.category === 'agent') {
+				await uploadAgentFile(userId, args.key, args.filename, args.content);
+			} else if (args.category === 'run') {
+				// Run files go under runs/{userId}/{date}/{filename}
+				const { getSupabase } = await import('../storage/supabase.js');
+				const supabase = getSupabase();
+				const path = `runs/${userId}/${args.key}/${args.filename}`;
+				await supabase.storage
+					.from('agents')
+					.upload(path, args.content, { upsert: true, contentType: 'text/plain' });
+			}
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: true, saved: `${args.category}/${args.key}/${args.filename}` }),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// read_knowledge — read a knowledge file from S3
+	if (block.name === 'read_knowledge') {
+		const args = block.input as { category: string; key: string; filename: string };
+		try {
+			let content: string | null = null;
+			if (args.category === 'domain') {
+				content = await downloadDomainFile(userId, args.key, args.filename);
+			} else if (args.category === 'agent') {
+				content = await downloadAgentFile(userId, args.key, args.filename);
+			} else if (args.category === 'run') {
+				const { getSupabase } = await import('../storage/supabase.js');
+				const supabase = getSupabase();
+				const path = `runs/${userId}/${args.key}/${args.filename}`;
+				const { data, error } = await supabase.storage.from('agents').download(path);
+				if (error) {
+					if (error.message?.includes('not found') || error.message?.includes('Not Found')) {
+						content = null;
+					} else {
+						throw error;
+					}
+				} else {
+					content = await data.text();
+				}
+			}
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({
+					success: true,
+					content: content || '(file not found)',
+					exists: content !== null,
+				}),
+				isError: false,
+			};
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({ success: false, error: errorMsg }),
+				isError: true,
+			};
+		}
+	}
+
+	// list_knowledge — list files in a knowledge path
+	if (block.name === 'list_knowledge') {
+		const args = block.input as { category: string; key: string };
+		try {
+			let files: { name: string; size: number }[] = [];
+			if (args.category === 'domain') {
+				files = (await listDomainFiles(userId, args.key)).map((f) => ({
+					name: f.name,
+					size: f.size,
+				}));
+			} else if (args.category === 'agent') {
+				files = (await listAgentFiles(userId, args.key)).map((f) => ({
+					name: f.name,
+					size: f.size,
+				}));
+			} else if (args.category === 'run') {
+				const { listRunLogs } = await import('../storage/run-files.js');
+				files = await listRunLogs(userId, args.key);
+			}
+			return {
+				type: 'tool_result',
+				toolUseId: block.id,
+				content: JSON.stringify({
+					success: true,
+					files,
+					count: files.length,
+				}),
 				isError: false,
 			};
 		} catch (err) {

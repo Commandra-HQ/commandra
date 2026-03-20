@@ -243,6 +243,16 @@ chatRoutes.post('/', async (c) => {
 	return streamSSE(c, async (stream) => {
 		let fullResponse = '';
 
+		// SSE heartbeat — keeps connection alive during long tool executions
+		const heartbeat = setInterval(async () => {
+			if (signal.aborted) return;
+			try {
+				await stream.writeSSE({ event: 'heartbeat', data: '{}' });
+			} catch {
+				// Stream closed
+			}
+		}, 15000); // Every 15 seconds
+
 		const onEvent = async (event: SSEEvent) => {
 			if (signal.aborted) return;
 			await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });
@@ -316,11 +326,14 @@ chatRoutes.post('/', async (c) => {
 			if (signal.aborted) return;
 
 			// Store assistant response with structured tool data
-			if (fullResponse.trim()) {
+			// If no text response but tools were used, save a summary so the conversation isn't lost
+			const contentToSave = fullResponse.trim()
+				|| (toolData ? `[Agent executed ${toolData.tools.length} actions]` : '');
+			if (contentToSave) {
 				await db.insert(messages).values({
 					conversationId: convId!,
 					role: 'assistant',
-					content: fullResponse,
+					content: contentToSave,
 					...(toolData && { toolData }),
 				});
 			}
@@ -354,6 +367,8 @@ chatRoutes.post('/', async (c) => {
 			if (signal.aborted) return;
 			console.error('Chat error:', err);
 			await onEvent({ type: 'error', message: 'Something went wrong. Please try again.' });
+		} finally {
+			clearInterval(heartbeat);
 		}
 	});
 });
