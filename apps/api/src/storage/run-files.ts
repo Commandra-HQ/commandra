@@ -1,5 +1,8 @@
 /**
- * Run log storage — date-wise structured logs for agent runs in Supabase Storage.
+ * Run log storage — AI-written summaries of noteworthy agent runs in Supabase Storage.
+ *
+ * NOT written on every run — only when analyzeAndImprove finds something worth recording
+ * (completed a task, learned something new, hit an interesting failure).
  *
  * Bucket: `agents` (reuses existing), path: `runs/{userId}/{YYYY-MM-DD}/{HH-MM}_{agentSlug}_{conversationId}.md`
  */
@@ -14,11 +17,12 @@ export interface RunLogData {
 	domain?: string;
 	status: 'completed' | 'failed';
 	toolCalls: number;
-	tokensUsed?: number;
 	durationMs: number;
 	conversationId: string;
-	summary?: string;
-	toolTimeline?: { time: string; tool: string; result: string }[];
+	/** AI-written summary of what happened and why it mattered */
+	summary: string;
+	/** What the agent learned from this run (if anything) */
+	insights?: { skills: number; learnings: number; errors: number };
 }
 
 function runPath(userId: string, date: string, filename?: string): string {
@@ -28,28 +32,20 @@ function runPath(userId: string, date: string, filename?: string): string {
 
 function formatRunLog(data: RunLogData): string {
 	const lines: string[] = [
-		`# Agent Run: ${data.agent}`,
+		`# ${data.agent}`,
 		'',
-		`- **Agent:** ${data.agent} (\`${data.agentSlug}\`)`,
-		`- **Status:** ${data.status}`,
-		`- **Domain:** ${data.domain || 'N/A'}`,
-		`- **Tool Calls:** ${data.toolCalls}`,
-		`- **Duration:** ${(data.durationMs / 1000).toFixed(1)}s`,
+		data.summary,
+		'',
+		'---',
+		`_${data.domain || 'unknown domain'} | ${data.toolCalls} tool calls | ${(data.durationMs / 1000).toFixed(1)}s_`,
 	];
 
-	if (data.tokensUsed) {
-		lines.push(`- **Tokens Used:** ${data.tokensUsed}`);
-	}
-
-	if (data.summary) {
-		lines.push('', '## Summary', '', data.summary);
-	}
-
-	if (data.toolTimeline?.length) {
-		lines.push('', '## Tool Timeline', '');
-		for (const t of data.toolTimeline) {
-			lines.push(`- \`${t.time}\` **${t.tool}** → ${t.result}`);
-		}
+	if (data.insights && data.insights.skills + data.insights.learnings + data.insights.errors > 0) {
+		const parts: string[] = [];
+		if (data.insights.skills) parts.push(`${data.insights.skills} new skills`);
+		if (data.insights.learnings) parts.push(`${data.insights.learnings} learnings`);
+		if (data.insights.errors) parts.push(`${data.insights.errors} error patterns`);
+		lines.push(`_Learned: ${parts.join(', ')}_`);
 	}
 
 	lines.push('', `<!-- data:${JSON.stringify(data)} -->`);

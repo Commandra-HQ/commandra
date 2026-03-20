@@ -14,6 +14,7 @@ import { getFastModel, getProvider } from '../llm/index.js';
 import { collectStream } from '../llm/types.js';
 import { downloadAgentFile, uploadAgentFile } from '../storage/agent-files.js';
 import { downloadDomainFile, uploadDomainFile } from '../storage/domain-files.js';
+import { writeRunLog } from '../storage/run-files.js';
 import type { ToolCallRecord } from './orchestrator.js';
 
 const SOFT_CAP = 40; // Trigger consolidation
@@ -148,6 +149,7 @@ async function consolidateFile(
 
 /**
  * Analyze an agent run and append new insights to SKILLS.md, LEARNINGS.md, ERRORS.md.
+ * Only writes an S3 run log when the AI found something noteworthy — no mechanical per-run logging.
  * Runs in the background — never propagates errors.
  */
 export async function analyzeAndImprove(params: {
@@ -157,6 +159,7 @@ export async function analyzeAndImprove(params: {
 	transcript: string;
 	duration: number;
 	domain?: string;
+	conversationId?: string;
 }): Promise<void> {
 	try {
 		const { userId, agentConfig, toolCalls, transcript } = params;
@@ -177,10 +180,11 @@ ${transcript.slice(-3000)}
 Tool calls:
 ${toolSummary || 'None'}
 
-Return JSON with three arrays:
-- skills: new techniques that worked well (for SKILLS.md)
-- learnings: corrections or discoveries about the domain/app (for LEARNINGS.md)
-- errors: failure patterns to avoid in the future (for ERRORS.md)
+Return JSON with these fields:
+- skills: new techniques that worked well (array of strings, for SKILLS.md)
+- learnings: corrections or discoveries about the domain/app (array of strings, for LEARNINGS.md)
+- errors: failure patterns to avoid in the future (array of strings, for ERRORS.md)
+- summary: a 1-2 sentence summary of what happened and what was accomplished. Only include this if the run did something meaningful (completed a task, learned something, hit an interesting failure). Set to null for routine/trivial runs.
 
 Only include genuinely new and useful insights. Return empty arrays if nothing new.
 Respond ONLY with valid JSON, no markdown fencing.`;
@@ -198,7 +202,12 @@ Respond ONLY with valid JSON, no markdown fencing.`;
 			.map((b) => (b as { text: string }).text)
 			.join('');
 
-		let analysis: { skills?: string[]; learnings?: string[]; errors?: string[] };
+		let analysis: {
+			skills?: string[];
+			learnings?: string[];
+			errors?: string[];
+			summary?: string | null;
+		};
 		try {
 			analysis = JSON.parse(text.trim());
 		} catch {
@@ -234,9 +243,36 @@ Respond ONLY with valid JSON, no markdown fencing.`;
 			);
 		}
 
+		const insightCount =
+			(analysis.skills?.length ?? 0) +
+			(analysis.learnings?.length ?? 0) +
+			(analysis.errors?.length ?? 0);
+
 		console.log(
 			`[SelfImprove] Agent "${agentConfig.slug}": +${analysis.skills?.length ?? 0} skills, +${analysis.learnings?.length ?? 0} learnings, +${analysis.errors?.length ?? 0} errors`,
 		);
+
+		// Write S3 run log only when the AI found something worth recording
+		if (analysis.summary && params.conversationId) {
+			writeRunLog(userId, {
+				agent: agentConfig.name,
+				agentSlug: agentConfig.slug,
+				domain: params.domain,
+				status: 'completed',
+				toolCalls: toolCalls.length,
+				durationMs: params.duration,
+				conversationId: params.conversationId,
+				summary: analysis.summary,
+				insights:
+					insightCount > 0
+						? {
+								skills: analysis.skills?.length ?? 0,
+								learnings: analysis.learnings?.length ?? 0,
+								errors: analysis.errors?.length ?? 0,
+							}
+						: undefined,
+			}).catch((err) => console.warn('[RunLog] writeRunLog failed:', err));
+		}
 
 		// Update domain AGENTS.md (fire-and-forget)
 		if (params.domain) {
