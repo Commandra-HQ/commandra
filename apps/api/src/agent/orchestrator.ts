@@ -416,7 +416,7 @@ async function streamLLMResponse(
 						type: 'tool_use',
 						id: event.id!,
 						name: event.name!,
-						input: event.input,
+						input: event.input as Record<string, unknown>,
 					});
 					break;
 				case 'message_end':
