@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { conversations } from '../db/schema.js';
 import { searchUserMemories } from '../db/vector-search.js';
-import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
+import { collectStream, getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import type {
 	ContentBlock,
 	ImageBlock,
@@ -28,6 +28,7 @@ import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { uploadAgentFile } from '../storage/agent-files.js';
+import { saveCompaction } from '../storage/compaction-files.js';
 import { saveLocalFile } from '../storage/local.js';
 import { type StoredPlan, loadPlan, savePlan, updatePlanStep } from '../storage/plan-files.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
@@ -371,6 +372,53 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			limit: MAX_INPUT_TOKENS,
 			percent: Math.min(contextPercent, 100),
 		});
+
+		// Auto-compact at 80% context usage — save transcript, replace with summary
+		if (contextPercent >= 80 && currentMessages.length > 4 && conversationId) {
+			try {
+				const transcript = currentMessages
+					.map((m) => `${m.role}: ${typeof m.content === 'string' ? m.content : '[tool data]'}`)
+					.join('\n\n');
+
+				const summaryStream = provider.chat({
+					model: agentConfig.model === 'fast' ? getFastModel() : getFastModel(),
+					system:
+						'Summarize this conversation concisely. Include: what was accomplished, what is in progress, key facts the agent needs to continue. 2-3 paragraphs max.',
+					messages: [{ role: 'user', content: transcript.slice(-6000) }],
+					maxTokens: 500,
+				});
+				const summaryResponse = await collectStream(summaryStream);
+				const summary = summaryResponse.content
+					.filter((b: ContentBlock) => b.type === 'text')
+					.map((b: ContentBlock) => (b as TextBlock).text)
+					.join('');
+
+				if (summary) {
+					const { path } = await saveCompaction(userId, conversationId, transcript, summary);
+
+					await onEvent({
+						type: 'compaction',
+						summary,
+						path,
+						messageCount: currentMessages.length,
+					});
+
+					// Replace history with summary — keep system context, start fresh
+					currentMessages = [
+						{
+							role: 'user',
+							content: `[Conversation compacted — ${currentMessages.length} messages saved to ${path}]\n\nSummary of what happened so far:\n${summary}\n\nContinue from where we left off.`,
+						},
+					];
+
+					console.log(
+						`[Orchestrator] Compacted ${currentMessages.length} messages → summary (${contextPercent}% context used)`,
+					);
+				}
+			} catch (err) {
+				console.warn('[Orchestrator] Compaction failed (non-critical):', err);
+			}
+		}
 
 		// Kill switch / abort check
 		if (isKilled(connectionId) || signal?.aborted) {
@@ -1086,7 +1134,8 @@ async function executeToolBlock(
 							toolUseId: block.id,
 							content: JSON.stringify({
 								success: false,
-								error: 'A plan is already in progress. Use update_plan to track step completion instead of submitting a new plan.',
+								error:
+									'A plan is already in progress. Use update_plan to track step completion instead of submitting a new plan.',
 							}),
 							isError: true,
 						};
@@ -1118,6 +1167,19 @@ async function executeToolBlock(
 
 			// Auto-approve plans for trusted/autonomous agents
 			const autoApprovePlan = autonomy === 'trusted' || autonomy === 'autonomous';
+
+			// Emit inline plan approval event for the extension
+			if (!autoApprovePlan) {
+				await onEvent({
+					type: 'approval_inline',
+					requestId: `${block.id}-plan-approval`,
+					action: 'submit_plan',
+					label: args.description,
+					reason: `Plan with ${args.steps.length} steps`,
+					approvalType: 'plan',
+					planSteps: args.steps,
+				});
+			}
 
 			const approval = autoApprovePlan
 				? { approved: true }
@@ -1541,6 +1603,16 @@ async function handleToolCall(
 	// Review — skip approval for trusted/autonomous agents
 	if (classification.level === 'review' && autonomy !== 'trusted' && autonomy !== 'autonomous') {
 		try {
+			// Emit inline approval event so extension renders it in the message flow
+			await onEvent({
+				type: 'approval_inline',
+				requestId: `${block.id}-approval`,
+				action: name,
+				label: elementLabel || undefined,
+				reason: classification.reason,
+				approvalType: 'tool',
+			});
+
 			const approval = await sendApprovalRequest(connectionId, {
 				action: name,
 				selector: toolArgs.selector as string,

@@ -628,6 +628,36 @@ export function ChatTab() {
 								setPlanState(event.plan);
 								break;
 
+							case 'compaction': {
+								const blocks = blocksRef.current;
+								blocks.push({
+									type: 'text',
+									content: `---\n**Conversation compacted** (${event.messageCount} messages saved)\n\n${event.summary}\n\n_Full transcript: \`${event.path}\`_\n\n---`,
+								});
+								scheduleFlush();
+								break;
+							}
+
+							case 'approval_inline': {
+								const blocks = blocksRef.current;
+								if (event.approvalType === 'plan' && event.planSteps) {
+									const stepList = event.planSteps
+										.map((s: string, i: number) => `${i + 1}. ${s}`)
+										.join('\n');
+									blocks.push({
+										type: 'text',
+										content: `**Plan:** ${event.label}\n\n${stepList}\n\n_Waiting for your approval..._`,
+									});
+								} else {
+									blocks.push({
+										type: 'text',
+										content: `**Approval needed:** ${event.action}${event.label ? ` "${event.label}"` : ''}\n\n_${event.reason}_`,
+									});
+								}
+								scheduleFlush();
+								break;
+							}
+
 							case 'sub_agent_start': {
 								const blocks = blocksRef.current;
 								// Remove empty thinking block

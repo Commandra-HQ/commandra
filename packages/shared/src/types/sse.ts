@@ -33,6 +33,16 @@ export type SSEEvent =
 			error?: string;
 	  }
 	| { type: 'context_status'; used: number; limit: number; percent: number }
+	| { type: 'compaction'; summary: string; path: string; messageCount: number }
+	| {
+			type: 'approval_inline';
+			requestId: string;
+			action: string;
+			label?: string;
+			reason: string;
+			approvalType: 'tool' | 'plan';
+			planSteps?: string[];
+	  }
 	| {
 			type: 'plan_state';
 			plan: {
