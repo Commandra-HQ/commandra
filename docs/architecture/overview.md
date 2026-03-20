@@ -96,7 +96,7 @@
 │  │               AGENT REGISTRY + SCHEDULER                 │    │
 │  │                                                          │    │
 │  │  loadAgent(slug) → reads AGENT.yaml + SOUL.md + SKILLS   │    │
-│  │  resolveAgent(task) → capability embedding match          │    │
+│  │  resolveAgent(task) → domain match                        │    │
 │  │  scheduler → cron eval → spawn agent runs                 │    │
 │  │  self-improve → writes SKILLS/LEARNINGS/ERRORS post-run   │    │
 │  └──────────────────────────────────────────────────────────┘    │
@@ -126,12 +126,12 @@
 │  │    domains/{userId}/{domain}/AGENTS.md, MEMORY.md         │    │
 │  │    runs/{userId}/{date}/{time}_{slug}_{convId}.md          │    │
 │  │                                                          │    │
-│  │  Postgres + pgvector:                                     │    │
+│  │  Postgres:                                                 │    │
 │  │    users, organizations, org_members,                      │    │
-│  │    agents (metadata + stats), agent_runs, agent_embeddings│    │
+│  │    agents (metadata + stats), agent_runs,                 │    │
 │  │    conversations (+ outcome), messages, audit_logs,       │    │
-│  │    sites, pages, elements (+ embeddings),                 │    │
-│  │    domain_memory, user_memory, conversation_embeddings    │    │
+│  │    sites, pages, elements,                                │    │
+│  │    domain_memory, user_memory                             │    │
 │  └──────────────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -251,13 +251,11 @@ The existing swarm system powers agent-to-agent invocation:
 
 **Domain memory:** Per-domain shared knowledge — pages, workflows, element notes. Cached in-memory with 5-minute TTL. Background extraction runs after each conversation to capture new learnings about the site.
 
-**User memory:** Per-user-per-domain preferences, corrections, terminology, and workflows. Relevance-scored using `confidence × recency × reinforcement`. Top-15 memories injected into the system prompt. Corrections are always loaded regardless of score. The `recall_memory` tool allows on-demand search during a conversation. Smart extraction uses the strong model when corrections are detected.
+**User memory:** Per-user-per-domain preferences, corrections, terminology, and workflows. Relevance-scored using `confidence × recency × reinforcement`. Top-15 memories injected into the system prompt. Corrections are always loaded regardless of score. The `recall_memory` tool allows on-demand keyword search during a conversation. Smart extraction uses the strong model when corrections are detected.
 
-### 5. Embeddings
+**Domain knowledge (S3):** Per-user domain knowledge accumulates organically in Supabase Storage (`domains/{userId}/{domain}/`). Files include KNOWLEDGE.md (facts about the app), WORKFLOWS.md (proven multi-step workflows), AGENTS.md (which agents operate on this domain), and MEMORY.md (domain-specific preferences). Knowledge is extracted from conversations and injected into the system prompt.
 
-Embeddings power three subsystems: element fallback matching (when selectors break), domain memory search, and conversation recall. Providers are configurable via `EMBEDDING_PROVIDER`: Voyage AI (default for Anthropic), OpenAI, or Ollama. All vectors are 1024 dimensions stored in pgvector.
-
-### 6. Learning Feedback Loops
+### 5. Learning Feedback Loops
 
 **Outcome tracking:** Users rate conversations with thumbs up/down. Conversations store an `outcome` column (success/failure/partial).
 
@@ -265,7 +263,7 @@ Embeddings power three subsystems: element fallback matching (when selectors bre
 
 **Smart extraction:** Conversations where the user corrected the agent trigger extraction with the strong model (instead of fast), ensuring corrections are captured with high fidelity.
 
-### 7. Site Index (The Knowledge Layer)
+### 6. Site Index (The Knowledge Layer)
 
 The agent doesn't guess what's on the page — it knows. The site index is a structured map of every page in the web application.
 
@@ -280,7 +278,7 @@ The agent doesn't guess what's on the page — it knows. The site index is a str
 - Auto-indexed whenever the user visits a page
 - Full site crawl via background tabs (extension opens pages in hidden tabs, extracts structure, closes them)
 - Incremental updates via MutationObserver
-- Synced to Postgres via API, with pgvector embeddings for semantic search (Voyage AI, OpenAI, or Ollama — configurable via `EMBEDDING_PROVIDER`)
+- Synced to Postgres via API
 
 **Why this matters:**
 General browser agents (like OpenAI Operator) figure out the UI from scratch every time. Our agents already have a map. They're faster, more reliable, and cheaper (fewer LLM tokens spent figuring out the page).

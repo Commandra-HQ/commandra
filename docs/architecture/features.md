@@ -109,7 +109,7 @@ Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent.
 | **Site crawl** | Index entire web app via background tabs |
 | **Self-healing selectors** | Multiple fallback strategies when UI changes |
 | **Autonomous task completion** | Agent plans and executes multi-step tasks end-to-end |
-| **Contextual awareness** | Agent uses domain and user memory to improve over time |
+| **Contextual awareness** | Agent uses domain memory, user memory, and S3 domain knowledge to improve over time |
 | **Conversation continuity** | Resume past conversations with full context recall |
 
 ### Tier 3: Autonomous Agents
@@ -150,7 +150,6 @@ Sub-agents run in parallel (separate browser tabs), coordinated by a lead agent.
 | **Intelligent memory** | Relevance-scored user memories, always-loaded corrections, on-demand recall | ✅ |
 | **Memory recall tool** | Agent can search past memories mid-conversation via recall_memory | ✅ |
 | **Real-time memory saving** | Agent saves corrections/preferences immediately, not just post-conversation | ✅ |
-| **Conversation recall** | Vector-embedded user messages for "do that thing again" queries | ✅ |
 | **Outcome tracking** | Users rate conversations (thumbs up/down), reinforces/flags memories | ✅ |
 | **Token budget management** | Auto-strips old screenshots, truncates history, recovers from context overflow | ✅ |
 | **Prompt caching** | Anthropic cache_control for ~90% input token cost reduction on multi-turn | ✅ |

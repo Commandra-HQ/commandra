@@ -23,28 +23,28 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 
 ## Automation
 
-| Phase | Name                      | What Ships                                                                               | Status  |
-| ----- | ------------------------- | ---------------------------------------------------------------------------------------- | ------- |
-| 10    | [Removed]                 | Previously Flows & Teach Mode — project pivoted to agentic chat + autonomous agents      |         |
-| 12    | Backend Indexing + Search | Kill IndexedDB, sync pages to Postgres, selector resilience, incremental re-indexing     | ✅ Done |
-| 12b   | Vector Embeddings         | Provider-agnostic embeddings, background Inngest jobs, vector search for elements/memory | ✅ Done |
-| 10c   | Adaptive Memory           | Per-user learning from corrections/preferences, memory management UI, save_memory tool   | ✅ Done |
+| Phase | Name                      | What Ships                                                                                            | Status  |
+| ----- | ------------------------- | ----------------------------------------------------------------------------------------------------- | ------- |
+| 10    | [Removed]                 | Previously Flows & Teach Mode — project pivoted to agentic chat + autonomous agents                   |         |
+| 12    | Backend Indexing + Search | Kill IndexedDB, sync pages to Postgres, selector resilience, incremental re-indexing                  | ✅ Done |
+| 12b   | ~~Vector Embeddings~~     | Removed — embedding pipeline replaced by S3 domain knowledge (KNOWLEDGE.md, WORKFLOWS.md) in Phase 16 | Removed |
+| 10c   | Adaptive Memory           | Per-user learning from corrections/preferences, memory management UI, save_memory tool                | ✅ Done |
 
 ## Scale
 
-| Phase | Name                    | What Ships                                                                                                                | Status  |
-| ----- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------- |
-| 13    | Agentic System Overhaul | Parallel tool calling, intelligent memory, multi-agent swarm, embedding improvements, learning loops, speed optimizations | ✅ Done |
-| 14    | Teams + Sharing         | Org schema + API, member management, org-scoped data, data scoping helper                                                 | ✅ Done |
+| Phase | Name                    | What Ships                                                                                        | Status  |
+| ----- | ----------------------- | ------------------------------------------------------------------------------------------------- | ------- |
+| 13    | Agentic System Overhaul | Parallel tool calling, intelligent memory, multi-agent swarm, learning loops, speed optimizations | ✅ Done |
+| 14    | Teams + Sharing         | Org schema + API, member management, org-scoped data, data scoping helper                         | ✅ Done |
 
 ## Autonomous Agents
 
-| Phase | Name                                              | What Ships                                                                                                                   | Status  |
-| ----- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------- |
-| 15    | [Autonomous Agent System](15-autonomous-agents.md) | Agents as persistent entities in Supabase Storage (SOUL.md, SKILLS.md).                                                      | ✅ Done |
-|       |                                                   | Agent registry with domain-based resolution. Agent-to-agent invocation. Self-improvement loop. Agent scheduler. Dashboard UI. |         |
-| 16    | [Self-Learning + Autonomy](16-self-learning.md)   | Domain knowledge S3 layer, self-improvement dedup/pruning, agent autonomy levels (supervised/trusted/autonomous),            |         |
-|       |                                                   | run logging to S3, date context in prompts, domain workflows extraction, run log API endpoints.                               |         |
+| Phase | Name                                               | What Ships                                                                                                                    | Status  |
+| ----- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------- |
+| 15    | [Autonomous Agent System](15-autonomous-agents.md) | Agents as persistent entities in Supabase Storage (SOUL.md, SKILLS.md).                                                       | ✅ Done |
+|       |                                                    | Agent registry with domain-based resolution. Agent-to-agent invocation. Self-improvement loop. Agent scheduler. Dashboard UI. |         |
+| 16    | [Self-Learning + Autonomy](16-self-learning.md)    | Domain knowledge S3 layer, self-improvement dedup/pruning, agent autonomy levels (supervised/trusted/autonomous),             |         |
+|       |                                                    | run logging to S3, date context in prompts, domain workflows extraction, run log API endpoints.                               |         |
 
 ---
 

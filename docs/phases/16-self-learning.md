@@ -8,6 +8,8 @@ Phase 15 gave agents identity and persistence. But they don't truly learn — se
 
 This phase makes the system genuinely self-learning and configurable for autonomous operation.
 
+**Embeddings removed:** As part of this phase, the entire embedding pipeline was removed (Voyage AI, OpenAI embeddings, Ollama embeddings, element_embeddings, conversation_embeddings, memory_embeddings tables). Domain knowledge now accumulates organically in S3 (KNOWLEDGE.md, WORKFLOWS.md) instead of via vector embeddings. The `recall_memory` tool uses keyword-only search. Pre-seeded domain knowledge (`domain-seeds.ts`) was also removed in favor of organic learning from usage.
+
 ---
 
 ## What Ships

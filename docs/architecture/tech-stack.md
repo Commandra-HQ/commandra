@@ -47,10 +47,10 @@
 
 | Choice | Why |
 |--------|-----|
-| **PostgreSQL 16 + pgvector** | Single DB for structured data + vector embeddings |
+| **PostgreSQL 16** | Single DB for structured data |
 | **Supabase** | Postgres host + Storage for agent files (AGENT.yaml, SKILLS.md, workspace/) |
 | **Supabase Storage** | Agent file layer — human-readable, agent-writable, per-user isolated via RLS |
-| **Neon** (cloud alt) / **pgvector/pgvector:pg16** (self-hosted alt) | Alternative Postgres providers |
+| **Neon** (cloud alt) | Alternative Postgres provider |
 
 ### AI
 
@@ -60,9 +60,7 @@
 | **OpenAI GPT-4.1 / o-series** | Alternative provider, reasoning token streaming |
 | — Strong model (Sonnet/GPT-4.1) | Planning, complex reasoning, form logic |
 | — Fast model (Haiku/GPT-4.1-mini) | Data reads, navigation, memory extraction |
-| **Voyage AI** (default) | Element/flow/memory vector search (Anthropic-recommended) |
-| **OpenAI Embeddings** | Alternative embedding provider |
-| **Ollama** | Local embeddings + LLM for self-hosted |
+| **Ollama** | Local LLM for self-hosted |
 
 ### Monorepo
 
@@ -105,10 +103,6 @@ The `landing-page/` repo (not open source) has Clerk for cloud users. After sign
 
 Long-running agent processes (agents can run for minutes). Workers have 30-second CPU limits. Docker is also required for the self-hosted story.
 
-### Postgres Over Separate Vector DB
-
-pgvector handles our embedding search needs. One fewer provider to manage. We're not at a scale where a dedicated vector DB (Pinecone, etc.) adds value.
-
 ---
 
 ## Provider Summary
@@ -118,8 +112,7 @@ Self-hosted needs only an LLM provider key + Postgres. Everything else is option
 | Provider | Purpose | Required? |
 |----------|---------|-----------|
 | **Anthropic or OpenAI** | LLM (strong + fast models) | Yes (pick one) |
-| **Voyage AI, OpenAI, or Ollama** | Embeddings (configurable via `EMBEDDING_PROVIDER`) | Yes (pick one) |
-| **Supabase** | Postgres + Storage (agent files, workspace) | Yes |
+| **Supabase** | Postgres + Storage (agent files, domain knowledge, workspace) | Yes |
 | **Clerk** | Auth (cloud — lives in landing-page/ repo) | Cloud only |
 
 ---
