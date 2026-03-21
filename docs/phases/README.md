@@ -49,6 +49,8 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 |       |                                                    | plan always visible as checklist, inline HITL approval in messages.                                                           |         |
 | 18    | [Tab-Pinned Conversations](18-tab-pinned-conversations.md) | Conversations bound to tabs not domains, background task execution,                                                    |         |
 |       |                                                    | tab-aware tool dispatch, multi-conversation support, swarm tab management.                                                    |         |
+| 19    | [Reliability Improvements](19-reliability-improvements.md) | Screenshot tab targeting fix, plan continuity across messages, OpenAI vision for tool results,                          |         |
+|       |                                                    | codebase modularization (15 new modules), storage bucket cleanup, plan UI redesign.                                           |         |
 
 ---
 

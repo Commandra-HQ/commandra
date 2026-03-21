@@ -53,7 +53,7 @@ export interface OrchestratorParams {
 	depth?: number;
 	domainKnowledge?: string;
 	tabId?: number;
-	existingPlan?: { description: string; steps: { label: string; status: string }[] } | null;
+	existingPlan?: import('../storage/plan-files.js').StoredPlan | null;
 }
 
 export interface ToolCallRecord {

@@ -155,7 +155,7 @@ export function buildSystemPrompt(
 	userMemory?: string,
 	agentConfig?: AgentConfig,
 	domainKnowledge?: string,
-	existingPlan?: { description: string; steps: { label: string; status: string }[] } | null,
+	existingPlan?: import('../storage/plan-files.js').StoredPlan | null,
 ): string {
 	const basePrompt = buildBasePrompt(agentConfig);
 
