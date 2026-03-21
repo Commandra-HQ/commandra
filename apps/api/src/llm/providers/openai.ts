@@ -231,20 +231,53 @@ function toResponsesInput(
         );
 
         // Tool results → function_call_output items
+        // For array content (e.g. screenshot results with [TextBlock, ImageBlock]),
+        // extract text for the output string and images for a follow-up user message.
+        const toolResultImages: Array<{ type: 'input_image'; image_url: string; detail: 'auto' }> = [];
         for (const tr of toolResults) {
           const toolResult = tr as {
             toolUseId: string;
             content: string | unknown[];
           };
-          const output =
-            typeof toolResult.content === 'string'
-              ? toolResult.content
-              : JSON.stringify(toolResult.content);
+          let output: string;
+          if (typeof toolResult.content === 'string') {
+            output = toolResult.content;
+          } else if (Array.isArray(toolResult.content)) {
+            // Extract text parts for function output, images separately
+            const textParts: string[] = [];
+            for (const sub of toolResult.content) {
+              const subBlock = sub as { type: string; text?: string; data?: string; mediaType?: string };
+              if (subBlock.type === 'text' && subBlock.text) {
+                textParts.push(subBlock.text);
+              } else if (subBlock.type === 'image' && subBlock.data) {
+                toolResultImages.push({
+                  type: 'input_image',
+                  image_url: `data:${subBlock.mediaType || 'image/jpeg'};base64,${subBlock.data}`,
+                  detail: 'auto',
+                });
+              }
+            }
+            output = textParts.join('\n') || JSON.stringify(toolResult.content);
+          } else {
+            output = JSON.stringify(toolResult.content);
+          }
           result.push({
             type: 'function_call_output',
             call_id: toolResult.toolUseId,
             output,
           } as Responses.ResponseInputItem.FunctionCallOutput);
+        }
+
+        // Images extracted from tool results → user message so the model can see them
+        if (toolResultImages.length > 0) {
+          result.push({
+            role: 'user',
+            content: [
+              { type: 'input_text', text: 'Screenshot from the tool result above:' },
+              ...toolResultImages,
+            ] as Responses.ResponseInputMessageContentList,
+            type: 'message',
+          });
         }
 
         // Text + image blocks → user message

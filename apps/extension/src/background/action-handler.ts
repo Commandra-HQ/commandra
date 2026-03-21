@@ -206,14 +206,16 @@ export async function handleActionRequest(
 		} else if (action === 'get_page_state') {
 			result = await executeInTab(tab.id, getPageStateInPage, []);
 		} else if (action === 'screenshot') {
-			// If this is a sub-agent tab (not the active tab), switch to it briefly to capture
-			const isSubAgentTab = payload.tabId && ctx.subAgentTabs.has(payload.tabId as number);
+			// captureVisibleTab() captures whatever tab is currently visible.
+			// If the agent is pinned to a specific tab (targetTabId) and the user
+			// switched away, we need to briefly activate the target tab to capture it.
+			const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+			const activeTabId = activeTabs[0]?.id;
+			const needsTabSwitch = tab.id !== activeTabId;
 			let previousTabId: number | undefined;
-			if (isSubAgentTab && tab.id) {
-				// Remember current active tab so we can switch back
-				const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-				previousTabId = activeTabs[0]?.id;
-				// Switch to the sub-agent tab
+
+			if (needsTabSwitch && tab.id) {
+				previousTabId = activeTabId;
 				await chrome.tabs.update(tab.id, { active: true });
 				// Wait for the tab to become visible
 				await new Promise((resolve) => setTimeout(resolve, 300));
@@ -238,7 +240,6 @@ export async function handleActionRequest(
 					canvasCtx.drawImage(bitmap, 0, 0, w, h);
 					const resizedBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.35 });
 					const arrayBuffer = await resizedBlob.arrayBuffer();
-					// Convert to base64 in service worker
 					const bytes = new Uint8Array(arrayBuffer);
 					let binary = '';
 					for (let i = 0; i < bytes.length; i++) {
@@ -248,11 +249,10 @@ export async function handleActionRequest(
 				}
 				bitmap.close();
 			} catch (resizeErr) {
-				// Fallback: use the original capture (still lower quality than before)
 				console.warn('[AFE WS] Screenshot resize failed, using original:', resizeErr);
 			}
-			// Switch back to user's original tab if we switched away for sub-agent screenshot
-			if (isSubAgentTab && previousTabId) {
+			// Switch back to user's original tab
+			if (needsTabSwitch && previousTabId) {
 				await chrome.tabs.update(previousTabId, { active: true });
 			}
 

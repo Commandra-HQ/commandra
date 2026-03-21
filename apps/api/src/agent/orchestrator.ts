@@ -53,6 +53,7 @@ export interface OrchestratorParams {
 	depth?: number;
 	domainKnowledge?: string;
 	tabId?: number;
+	existingPlan?: { description: string; steps: { label: string; status: string }[] } | null;
 }
 
 export interface ToolCallRecord {
@@ -99,6 +100,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		userMemory,
 		agentConfig,
 		domainKnowledge,
+		params.existingPlan,
 	);
 
 	const currentDepth = params.depth ?? 0;

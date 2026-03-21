@@ -80,7 +80,11 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - **Agent-to-agent invocation**: `spawn_agent` tool accepts optional `agentSlug` parameter to target a specific agent. Sub-agents inherit the target agent's identity (SOUL.md), model, tool allowlist, and learned files. Max invocation depth: 2 — at depth >= 2, spawn_agent/wait_for_agents are excluded from tool list.
 - **Self-improvement**: after every non-coordinator agent run, `analyzeAndImprove()` calls the fast model to extract new skills/learnings/errors and appends timestamped entries to the agent's files in Supabase Storage. `recordAgentRun()` inserts a row into `agent_runs` for tracking. Both are fire-and-forget (never block the response).
 - **Agent scheduler**: agents with `trigger: { cron, enabled }` run on a 60-second interval. Flow: query scheduled agents → cron match → check active WS connection → cheap LLM check (YES/NO) → full orchestrator run with no-op SSE handler. `startScheduler()` called at server startup, `stopScheduler()` on SIGTERM/SIGINT.
-- **Supabase Storage**: `@supabase/supabase-js` client at `apps/api/src/storage/supabase.ts`. Agent files in `agents` bucket, path: `{userId}/{agentSlug}/{filename}`.
+- **Supabase Storage**: Single `agents` bucket for all files. Client at `apps/api/src/storage/supabase.ts`. Paths:
+  - Agent files: `{userId}/{agentSlug}/SOUL.md`, `SKILLS.md`, etc.
+  - Plans: `{userId}/plans/{conversationId}/PLAN.md`
+  - Domain knowledge: `domains/{userId}/{domain}/KNOWLEDGE.md`, `WORKFLOWS.md`, `MEMORY.md`
+  - Run logs: `runs/{userId}/{date}/filename.md`
 
 ### Agent Orchestration
 - Provider-agnostic: all LLM calls go through the provider layer (`apps/api/src/llm/`)

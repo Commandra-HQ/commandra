@@ -11,6 +11,7 @@ import { getOrgOrUserScope } from '../db/scope.js';
 import { loadDomainKnowledgeFromS3, loadDomainMemory } from '../memory/domain.js';
 import { loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
+import { loadPlan } from '../storage/plan-files.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 
 /**
@@ -231,6 +232,9 @@ chatRoutes.post('/', async (c) => {
 			.catch(() => {}); // fire-and-forget
 	}
 
+	// Load existing plan for this conversation (if any) so the agent knows where it left off
+	const existingPlan = convId ? await loadPlan(user.id, convId).catch(() => null) : null;
+
 	// Get the abort signal from the request (fires when client disconnects)
 	const signal = c.req.raw.signal;
 
@@ -274,6 +278,7 @@ chatRoutes.post('/', async (c) => {
 					agentConfig,
 					tabId,
 					domainKnowledge,
+					existingPlan,
 				});
 				fullResponse = result.response;
 				if (result.toolCalls.length > 0) {

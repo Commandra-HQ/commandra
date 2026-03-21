@@ -155,6 +155,7 @@ export function buildSystemPrompt(
 	userMemory?: string,
 	agentConfig?: AgentConfig,
 	domainKnowledge?: string,
+	existingPlan?: { description: string; steps: { label: string; status: string }[] } | null,
 ): string {
 	const basePrompt = buildBasePrompt(agentConfig);
 
@@ -268,6 +269,27 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		domainKnowledgeSummary = `\n\n## Domain Knowledge (from past sessions)\n${domainKnowledge}`;
 	}
 
+	let existingPlanSummary = '';
+	if (existingPlan && existingPlan.steps.length > 0) {
+		const statusIcons: Record<string, string> = {
+			completed: 'done',
+			in_progress: 'IN PROGRESS',
+			failed: 'FAILED',
+			pending: 'pending',
+		};
+		const stepList = existingPlan.steps
+			.map((s, i) => `${i + 1}. [${statusIcons[s.status] || s.status}] ${s.label}`)
+			.join('\n');
+		existingPlanSummary = `\n\n## Active Plan
+**${existingPlan.description}**
+
+${stepList}
+
+You have an active plan from this conversation. Continue executing it — use \`update_plan\` to mark steps as you complete them.
+If the user asks for changes to the plan, use \`submit_plan\` to propose a revised plan.
+Do NOT start over or create a new plan from scratch unless the user explicitly asks for a completely different task.`;
+	}
+
 	return `${basePrompt}
 
 ${dateStr}
@@ -282,7 +304,7 @@ ${dateStr}
 ${elementsSummary}
 
 ## Navigation Links
-${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${domainKnowledgeSummary}${PLANNING_INSTRUCTIONS}`;
+${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${domainKnowledgeSummary}${existingPlanSummary}${PLANNING_INSTRUCTIONS}`;
 }
 
 function formatIndexAge(lastIndexedAt: string | Date): string {
