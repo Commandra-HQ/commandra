@@ -51,6 +51,9 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 |       |                                                    | tab-aware tool dispatch, multi-conversation support, swarm tab management.                                                    |         |
 | 19    | [Reliability Improvements](19-reliability-improvements.md) | Screenshot tab targeting fix, plan continuity across messages, OpenAI vision for tool results,                          |         |
 |       |                                                    | codebase modularization (15 new modules), storage bucket cleanup, plan UI redesign.                                           |         |
+| 20    | [Agent Runtime Hardening](20-agent-runtime-hardening.md) | Swarm v2 (tab lifecycle, inter-agent data, named invocation), scheduler v2 (retry, alerts,                             |         |
+|       |                                                    | offline queue, jitter), agent lifecycle (auto-capture skills, approval gates, edit from chat),                                 |         |
+|       |                                                    | file I/O tools (download interception, read local files, clipboard).                                                          |         |
 
 ---
 
