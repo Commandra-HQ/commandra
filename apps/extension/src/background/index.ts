@@ -1,4 +1,5 @@
 import { startSelectorInPage, stopSelectorInPage } from '../content/selector.js';
+import { initSentry } from '../lib/sentry.js';
 import { startCrawl, stopCrawl } from './crawler.js';
 import {
 	connectWebSocket,
@@ -7,6 +8,8 @@ import {
 	sendKill,
 	sendPageIndexed,
 } from './ws-client.js';
+
+initSentry('background');
 
 // Injected at build time by Vite define (see vite.config.ts)
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';

@@ -1,5 +1,7 @@
 import './env.js';
+import './instrument.js';
 import { serve } from '@hono/node-server';
+import * as Sentry from '@sentry/node';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
@@ -22,6 +24,10 @@ import { initLocalStorage } from './storage/local.js';
 import { handleWsConnection } from './ws/handler.js';
 
 const app = new Hono();
+
+if (process.env.SENTRY_DSN) {
+	Sentry.setupHonoErrorHandler(app);
+}
 
 app.use('*', logger());
 // CORS: allow chrome-extension + localhost always; optional CORS_ORIGINS for dashboard (e.g. https://app.example.com)
