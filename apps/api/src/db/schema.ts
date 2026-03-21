@@ -142,7 +142,7 @@ export const agents = pgTable('agents', {
 	maxIterations: integer('max_iterations'),
 	tools: jsonb('tools').$type<string[]>(),
 	domains: jsonb('domains').$type<string[]>(),
-	trigger: jsonb('trigger').$type<{ cron?: string; enabled?: boolean }>(),
+	trigger: jsonb('trigger').$type<{ cron?: string; enabled?: boolean; alertWebhook?: string }>(),
 	autonomy: text('autonomy').default('supervised'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),

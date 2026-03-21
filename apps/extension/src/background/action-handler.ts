@@ -300,6 +300,56 @@ export async function handleActionRequest(
 					ctx.sendPageIndexed(domain, pageResult.data.pageIndex);
 				}
 			}
+		} else if (action === 'wait_for_download') {
+			const timeout = Number(payload.timeout) || 30000;
+			result = await new Promise((resolve) => {
+				const timer = setTimeout(() => {
+					chrome.downloads.onChanged.removeListener(listener);
+					resolve({ success: false, error: `Download timeout after ${timeout}ms` });
+				}, timeout);
+
+				function listener(delta: chrome.downloads.DownloadDelta) {
+					if (delta.state?.current === 'complete') {
+						clearTimeout(timer);
+						chrome.downloads.onChanged.removeListener(listener);
+						chrome.downloads.search({ id: delta.id }, (items) => {
+							const item = items[0];
+							if (item) {
+								resolve({
+									success: true,
+									data: {
+										filename: item.filename.split('/').pop() || item.filename,
+										path: item.filename,
+										size: item.fileSize,
+										mimeType: item.mime,
+										url: item.url,
+									},
+								});
+							} else {
+								resolve({ success: true, data: { downloadId: delta.id } });
+							}
+						});
+					}
+				}
+				chrome.downloads.onChanged.addListener(listener);
+			});
+		} else if (action === 'clipboard_write') {
+			const text = payload.text as string;
+			if (!text) {
+				result = { success: false, error: 'No text provided for clipboard_write' };
+			} else {
+				result = await executeInTab(tab.id, (t: string) => {
+					navigator.clipboard.writeText(t).catch(() => {});
+					return { success: true, data: { written: t.length } };
+				}, [text]);
+			}
+		} else if (action === 'clipboard_read') {
+			result = await executeInTab(tab.id, () => {
+				return navigator.clipboard.readText().then(
+					(text) => ({ success: true, data: { text } }),
+					(err) => ({ success: false, error: `Clipboard read failed: ${err.message}` }),
+				);
+			}, []);
 		} else {
 			result = { success: false, error: `Unknown action: ${action}` };
 		}

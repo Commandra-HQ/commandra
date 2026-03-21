@@ -21,7 +21,7 @@ import {
   listDomainFiles,
   uploadDomainFile,
 } from '../storage/domain-files.js';
-import { saveLocalFile } from '../storage/local.js';
+import { getLocalFile, listLocalFiles, saveLocalFile } from '../storage/local.js';
 import {
   type StoredPlan,
   loadPlan,
@@ -29,6 +29,7 @@ import {
   updatePlanStep,
 } from '../storage/plan-files.js';
 import { sendApprovalRequest } from '../ws/handler.js';
+import { writeScratchpad, readScratchpad } from '../storage/scratchpad.js';
 import { createAgent, loadAgentBySlug } from './agent-registry.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
 
@@ -46,6 +47,10 @@ export const INTERNAL_TOOL_NAMES = new Set([
   'update_agent_files',
   'submit_plan',
   'update_plan',
+  'write_scratchpad',
+  'read_scratchpad',
+  'read_local_file',
+  'list_local_files',
 ]);
 
 export interface InternalToolContext {
@@ -94,6 +99,14 @@ export async function executeInternalTool(
       return handleSubmitPlan(block, ctx);
     case 'update_plan':
       return handleUpdatePlan(block, ctx);
+    case 'write_scratchpad':
+      return handleWriteScratchpad(block, ctx);
+    case 'read_scratchpad':
+      return handleReadScratchpad(block, ctx);
+    case 'read_local_file':
+      return handleReadLocalFile(block, ctx);
+    case 'list_local_files':
+      return handleListLocalFiles(block, ctx);
     default:
       return null;
   }
@@ -275,6 +288,7 @@ async function handleSpawnAgent(
     targetUrl: string;
     agentSlug?: string;
     timeout?: number;
+    keepTab?: boolean;
   };
   try {
     let subAgentConfig: AgentConfig | undefined;
@@ -295,6 +309,7 @@ async function handleSpawnAgent(
       signal: undefined,
       agentConfig: subAgentConfig,
       depth: (ctx.depth ?? 0) + 1,
+      keepTab: args.keepTab,
     });
     return {
       type: 'tool_result',
@@ -678,6 +693,85 @@ async function handleUpdatePlan(
       totalSteps: updated.steps.length,
       allDone,
     });
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+async function handleWriteScratchpad(
+  block: ToolUseBlock,
+  ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  if (!ctx.conversationId) {
+    return errorResult(block.id, 'No conversation context for scratchpad');
+  }
+  const args = block.input as { key: string; data: string };
+  try {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(args.data);
+    } catch {
+      parsed = args.data;
+    }
+    await writeScratchpad(ctx.userId, ctx.conversationId, args.key, parsed);
+    return successResult(block.id, {
+      success: true,
+      message: `Wrote "${args.key}" to scratchpad`,
+    });
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+async function handleReadScratchpad(
+  block: ToolUseBlock,
+  ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  if (!ctx.conversationId) {
+    return errorResult(block.id, 'No conversation context for scratchpad');
+  }
+  const args = block.input as { key: string };
+  try {
+    const data = await readScratchpad(ctx.userId, ctx.conversationId, args.key);
+    return successResult(block.id, {
+      success: true,
+      exists: data !== null,
+      data: data ?? '(not found)',
+    });
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+async function handleReadLocalFile(
+  block: ToolUseBlock,
+  _ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  const args = block.input as { path: string; maxBytes?: number };
+  try {
+    const result = getLocalFile(args.path);
+    if (!result) {
+      return successResult(block.id, { success: false, error: 'File not found' });
+    }
+    const maxBytes = args.maxBytes || 100_000;
+    const content = result.length > maxBytes ? result.slice(0, maxBytes) + '\n...[truncated]' : result;
+    return successResult(block.id, { success: true, content, sizeBytes: result.length });
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+async function handleListLocalFiles(
+  block: ToolUseBlock,
+  _ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  const args = block.input as { category?: string; domain?: string };
+  try {
+    const categories = args.category
+      ? [args.category as 'exports' | 'context' | 'screenshots']
+      : (['exports', 'context', 'screenshots'] as const);
+    const allFiles = categories.flatMap((cat) => listLocalFiles(cat, args.domain));
+    return successResult(block.id, { success: true, files: allFiles, count: allFiles.length });
   } catch (err) {
     return errorResult(block.id, err);
   }

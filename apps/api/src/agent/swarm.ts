@@ -71,6 +71,7 @@ export async function spawnSubAgent(params: {
 	signal?: AbortSignal;
 	agentConfig?: AgentConfig;
 	depth?: number;
+	keepTab?: boolean;
 }): Promise<{ agentId: string; error?: string }> {
 	const { userId, connectionId, task, targetUrl, onEvent } = params;
 	const timeout = params.timeout ?? DEFAULT_SUBAGENT_TIMEOUT;
@@ -233,6 +234,7 @@ async function runSubAgent(params: {
 	signal?: AbortSignal;
 	agentConfig?: AgentConfig;
 	depth?: number;
+	keepTab?: boolean;
 }): Promise<void> {
 	const {
 		agentId,
@@ -539,8 +541,12 @@ async function runSubAgent(params: {
 		}
 	} finally {
 		clearTimeout(timer);
-		// Don't close the sub-agent's tab — let the user inspect it or close it manually.
-		// Tabs persist until the user closes them or requests cleanup.
+		// Close tab on success, keep open on failure for debugging
+		if (subAgent.status === 'completed' && tabId && !params.keepTab) {
+			sendActionRequest(params.connectionId, 'close_tab', { action: 'close_tab', tabId }, 5000).catch(
+				() => {},
+			);
+		}
 	}
 
 	// Record run for non-coordinator agents
