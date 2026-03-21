@@ -29,6 +29,8 @@ import {
   updatePlanStep,
 } from '../storage/plan-files.js';
 import { sendApprovalRequest } from '../ws/handler.js';
+import { getFastModel, getProvider } from '../llm/index.js';
+import { collectStream } from '../llm/types.js';
 import { writeScratchpad, readScratchpad } from '../storage/scratchpad.js';
 import { createAgent, loadAgentBySlug } from './agent-registry.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
@@ -431,6 +433,46 @@ async function handleCreateAgent(
     cron?: string;
   };
   try {
+    // Approval gate — ask user before creating an agent (skip for autonomous)
+    const autoApprove = ctx.autonomy === 'autonomous';
+    if (!autoApprove) {
+      await ctx.onEvent({
+        type: 'approval_inline',
+        requestId: `${block.id}-agent-approval`,
+        action: 'create_agent',
+        label: `Create agent "${args.name}" (${args.slug})`,
+        reason: args.description,
+        approvalType: 'agent',
+        agentPreview: {
+          slug: args.slug,
+          name: args.name,
+          description: args.description,
+          soul: args.soul.slice(0, 300),
+          domains: args.domains,
+          cron: args.cron,
+        },
+      });
+
+      const approval = await sendApprovalRequest(ctx.connectionId, {
+        type: 'agent_approval',
+        agentName: args.name,
+        agentSlug: args.slug,
+        description: args.description,
+        soul: args.soul.slice(0, 500),
+        domains: args.domains,
+        cron: args.cron,
+      });
+
+      if (!approval.approved) {
+        return successResult(block.id, {
+          success: false,
+          approved: false,
+          reason: approval.reason || 'User declined agent creation',
+          message: 'Agent creation was rejected by the user. Ask what they would like to change.',
+        });
+      }
+    }
+
     const agent = await createAgent(ctx.userId, {
       slug: args.slug,
       name: args.name,
@@ -439,6 +481,12 @@ async function handleCreateAgent(
       trigger: args.cron ? { cron: args.cron, enabled: true } : undefined,
     });
     await uploadAgentFile(ctx.userId, args.slug, 'SOUL.md', args.soul);
+
+    // Auto-extract initial SKILLS.md from the agent's purpose (fire-and-forget)
+    extractInitialSkills(ctx.userId, args.slug, args.name, args.description, args.soul).catch(
+      (err) => console.warn(`[Agent] Failed to extract initial skills for "${args.slug}":`, err),
+    );
+
     await ctx.onEvent({
       type: 'tool_start',
       toolName: 'create_agent',
@@ -455,7 +503,7 @@ async function handleCreateAgent(
       success: true,
       agentId: agent.id,
       slug: agent.slug,
-      message: `Agent "${args.name}" created with slug "${args.slug}". It has a SOUL.md. You can use update_agent_files to add SKILLS.md if needed.${args.cron ? ` Scheduled: ${args.cron}` : ''}${args.domains?.length ? ` Domains: ${args.domains.join(', ')}` : ''}`,
+      message: `Agent "${args.name}" created with slug "${args.slug}". SOUL.md saved. Initial SKILLS.md is being generated.${args.cron ? ` Scheduled: ${args.cron}` : ''}${args.domains?.length ? ` Domains: ${args.domains.join(', ')}` : ''}`,
     });
   } catch (err) {
     return errorResult(block.id, err);
@@ -774,5 +822,54 @@ async function handleListLocalFiles(
     return successResult(block.id, { success: true, files: allFiles, count: allFiles.length });
   } catch (err) {
     return errorResult(block.id, err);
+  }
+}
+
+/**
+ * Auto-extract initial SKILLS.md for a newly created agent.
+ * Uses the fast model to generate skills based on the agent's purpose.
+ * Fire-and-forget — doesn't block agent creation.
+ */
+async function extractInitialSkills(
+  userId: string,
+  agentSlug: string,
+  agentName: string,
+  description: string,
+  soul: string,
+): Promise<void> {
+  const provider = getProvider();
+  const model = getFastModel();
+
+  const stream = provider.chat({
+    model,
+    system: 'You are a concise agent skills writer. Output only markdown.',
+    messages: [
+      {
+        role: 'user',
+        content: `An agent called "${agentName}" was just created.
+
+Description: ${description}
+Identity (SOUL.md): ${soul}
+
+Generate an initial SKILLS.md file for this agent. Include:
+1. The key workflows this agent should be able to perform (based on its purpose)
+2. Specific steps for each workflow (be concrete — include example selectors, URLs, navigation paths where applicable)
+3. Common pitfalls or tips for the domains this agent works on
+
+Format as markdown with ## headers for each skill. Keep it under 50 lines. Be specific and actionable, not generic.`,
+      },
+    ],
+    maxTokens: 1000,
+  });
+
+  const response = await collectStream(stream);
+  const skills = response.content
+    .filter((b: { type: string }) => b.type === 'text')
+    .map((b: { type: string; text?: string }) => (b as { text: string }).text)
+    .join('');
+
+  if (skills.trim()) {
+    await uploadAgentFile(userId, agentSlug, 'SKILLS.md', `# Skills\n\n${skills}`);
+    console.log(`[Agent] Auto-extracted SKILLS.md for "${agentSlug}" (${skills.length} chars)`);
   }
 }

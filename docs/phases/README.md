@@ -54,6 +54,8 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | 20    | [Agent Runtime Hardening](20-agent-runtime-hardening.md) | Swarm v2 (tab lifecycle, inter-agent data, named invocation), scheduler v2 (retry, alerts,                             |         |
 |       |                                                    | offline queue, jitter), agent lifecycle (auto-capture skills, approval gates, edit from chat),                                 |         |
 |       |                                                    | file I/O tools (download interception, read local files, clipboard).                                                          |         |
+| 21    | [Agent Intelligence Hardening](21-agent-intelligence-hardening.md) | Sub-agent scratchpad for data passing, approval gate on agent creation,                                        |         |
+|       |                                                    | auto-extract SKILLS.md, unified agent MEMORY.md (200-line index), run dashboard in web UI.                                    |         |
 
 ---
 

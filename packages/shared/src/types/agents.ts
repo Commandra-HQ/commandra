@@ -14,6 +14,7 @@ export interface AgentConfig {
   skills?: string;
   learnings?: string;
   errors?: string;
+  memory?: string;
   trigger?: { cron?: string; enabled?: boolean };
   autonomy?: AgentAutonomy;
 }

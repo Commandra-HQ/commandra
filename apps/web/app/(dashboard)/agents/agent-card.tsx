@@ -34,6 +34,15 @@ export interface AgentFile {
 	updatedAt: string;
 }
 
+export interface AgentRun {
+	id: string;
+	status: string;
+	toolCalls: number;
+	durationMs: number | null;
+	error: string | null;
+	createdAt: string;
+}
+
 const KNOWN_FILES = ['SOUL.md', 'SKILLS.md', 'LEARNINGS.md', 'ERRORS.md'];
 
 function getPlaceholder(filename: string): string {
@@ -66,6 +75,7 @@ export function AgentCard({
 	onEditContentChange,
 	onSaveFile,
 	onCancelEdit,
+	runs,
 }: {
 	agent: Agent;
 	isExpanded: boolean;
@@ -73,6 +83,7 @@ export function AgentCard({
 	editingFile: { agentId: string; filename: string } | null;
 	editContent: string;
 	saving: boolean;
+	runs?: AgentRun[];
 	onToggleExpand: () => void;
 	onDelete: () => void;
 	onToggleSchedule: () => void;
@@ -269,6 +280,59 @@ export function AgentCard({
 								<p className="text-xs text-foreground whitespace-pre-wrap line-clamp-4">
 									{agent.soul}
 								</p>
+							</div>
+						)}
+
+						{/* Recent runs */}
+						{runs && runs.length > 0 && (
+							<div className="space-y-2">
+								<h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+									Recent Runs
+								</h4>
+								<div className="space-y-1">
+									{runs.slice(0, 10).map((run) => (
+										<div
+											key={run.id}
+											className={`flex items-center justify-between p-2 rounded border text-xs ${
+												run.status === 'completed'
+													? 'border-green-500/20 bg-green-500/5'
+													: run.status === 'failed'
+														? 'border-red-500/20 bg-red-500/5'
+														: run.status === 'queued'
+															? 'border-yellow-500/20 bg-yellow-500/5'
+															: 'border-border'
+											}`}
+										>
+											<div className="flex items-center gap-2">
+												<span className={`inline-block w-2 h-2 rounded-full ${
+													run.status === 'completed' ? 'bg-green-500' :
+													run.status === 'failed' ? 'bg-red-500' :
+													run.status === 'queued' ? 'bg-yellow-500' :
+													'bg-muted-foreground'
+												}`} />
+												<span className="text-muted-foreground">
+													{new Date(run.createdAt).toLocaleString(undefined, {
+														month: 'short', day: 'numeric',
+														hour: '2-digit', minute: '2-digit',
+													})}
+												</span>
+												{run.durationMs && (
+													<span className="text-muted-foreground">
+														{run.durationMs < 60000
+															? `${Math.round(run.durationMs / 1000)}s`
+															: `${Math.round(run.durationMs / 60000)}m`}
+													</span>
+												)}
+												<span className="text-muted-foreground">{run.toolCalls} tools</span>
+											</div>
+											{run.error && (
+												<span className="text-red-400 truncate max-w-[200px]" title={run.error}>
+													{run.error.slice(0, 50)}
+												</span>
+											)}
+										</div>
+									))}
+								</div>
 							</div>
 						)}
 					</div>

@@ -10,8 +10,9 @@ Our agent system has the right concepts (file-based agents, sub-agents, self-imp
 
 1. **Sub-agents aren't truly independent** — they're miniature orchestrator runs, not isolated agents with their own identity, tools, and memory
 2. **Memory is fragmented** — domain knowledge in S3, user memory in Postgres, agent skills in files, conversation history in messages table. No unified "agent memory" that persists across sessions
-3. **No hooks/lifecycle system** — no way to run validation before tool execution, auto-format after edits, or enforce rules deterministically
-4. **Chat→Agent conversion is too implicit** — the LLM decides when to create agents with no approval gate and no skill extraction from the teaching conversation
+3. **No hooks/lifecycle system** — n
+
+o way to run validation before tool execution, auto-format after edits, or enforce rules deterministically 4. **Chat→Agent conversion is too implicit** — the LLM decides when to create agents with no approval gate and no skill extraction from the teaching conversation
 
 ---
 
@@ -41,15 +42,15 @@ Our agent system has the right concepts (file-based agents, sub-agents, self-imp
 
 ### Gaps
 
-| Claude Code Pattern | Commandra Status | Impact |
-|---|---|---|
-| **Per-agent tool restrictions** | Missing | A "reader" agent can still click/type/delete. No way to make a read-only sub-agent |
-| **Per-agent permissions** | Missing | All sub-agents inherit parent's autonomy level. Can't have a trusted reader + supervised writer |
-| **Persistent sub-agent memory** | Missing | Sub-agents start cold every time. The self-improvement loop writes to the agent's files, but sub-agents don't load these reliably |
-| **Sub-agent resumption** | Missing | Can't continue a sub-agent's work. Must re-spawn from scratch |
-| **Tool-level hooks** | Missing entirely | No way to validate commands before execution, auto-format after edits, or block dangerous operations deterministically |
-| **Scratchpad** | Just added (Phase 20) | Inter-agent data passing via S3 |
-| **Tab lifecycle** | Just fixed (Phase 20) | Tabs now close on success |
+| Claude Code Pattern             | Commandra Status      | Impact                                                                                                                            |
+| ------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Per-agent tool restrictions** | Missing               | A "reader" agent can still click/type/delete. No way to make a read-only sub-agent                                                |
+| **Per-agent permissions**       | Missing               | All sub-agents inherit parent's autonomy level. Can't have a trusted reader + supervised writer                                   |
+| **Persistent sub-agent memory** | Missing               | Sub-agents start cold every time. The self-improvement loop writes to the agent's files, but sub-agents don't load these reliably |
+| **Sub-agent resumption**        | Missing               | Can't continue a sub-agent's work. Must re-spawn from scratch                                                                     |
+| **Tool-level hooks**            | Missing entirely      | No way to validate commands before execution, auto-format after edits, or block dangerous operations deterministically            |
+| **Scratchpad**                  | Just added (Phase 20) | Inter-agent data passing via S3                                                                                                   |
+| **Tab lifecycle**               | Just fixed (Phase 20) | Tabs now close on success                                                                                                         |
 
 ### Recommended Fixes
 
@@ -78,23 +79,23 @@ Key insight: **one memory system per scope**, with a clear index file and on-dem
 
 We have **5 separate memory systems** that don't talk to each other:
 
-| System | Storage | Loaded when | Written by |
-|---|---|---|---|
-| **Domain knowledge** | S3: `domains/{userId}/{domain}/KNOWLEDGE.md`, `WORKFLOWS.md`, `MEMORY.md` | Chat route loads for the current domain | Agent via `save_knowledge` tool |
-| **User memory** | Postgres `user_memory` table | Chat route loads matching memories | Agent via `save_memory` tool |
-| **Agent files** | S3: `{userId}/{agentSlug}/SOUL.md`, `SKILLS.md`, `LEARNINGS.md`, `ERRORS.md` | Agent registry hydrates on resolve | Self-improvement loop (post-run) |
-| **Conversation history** | Postgres `messages` table + `messages.tool_data` | Chat route loads for conversationId | Orchestrator saves after each turn |
-| **Plans** | S3: `{userId}/plans/{convId}/PLAN.md` | Chat route loads (just added Phase 19) | `submit_plan` / `update_plan` tools |
+| System                   | Storage                                                                      | Loaded when                             | Written by                          |
+| ------------------------ | ---------------------------------------------------------------------------- | --------------------------------------- | ----------------------------------- |
+| **Domain knowledge**     | S3: `domains/{userId}/{domain}/KNOWLEDGE.md`, `WORKFLOWS.md`, `MEMORY.md`    | Chat route loads for the current domain | Agent via `save_knowledge` tool     |
+| **User memory**          | Postgres `user_memory` table                                                 | Chat route loads matching memories      | Agent via `save_memory` tool        |
+| **Agent files**          | S3: `{userId}/{agentSlug}/SOUL.md`, `SKILLS.md`, `LEARNINGS.md`, `ERRORS.md` | Agent registry hydrates on resolve      | Self-improvement loop (post-run)    |
+| **Conversation history** | Postgres `messages` table + `messages.tool_data`                             | Chat route loads for conversationId     | Orchestrator saves after each turn  |
+| **Plans**                | S3: `{userId}/plans/{convId}/PLAN.md`                                        | Chat route loads (just added Phase 19)  | `submit_plan` / `update_plan` tools |
 
 ### Gaps
 
-| Claude Code Pattern | Commandra Status | Impact |
-|---|---|---|
-| **Unified MEMORY.md index** | Missing | No single place where all knowledge is indexed. Agent has to call `list_knowledge` + `recall_memory` to find things |
-| **On-demand loading** | Partially done | Domain knowledge is loaded for the current domain only. But agent skills from OTHER agents aren't accessible |
-| **Memory scoping** (user/project/local) | Missing | All memory is global to the user. No way to scope knowledge to a project or team |
-| **Auto-memory** (Claude writes its own notes) | Partially done | `save_memory` and `save_knowledge` exist, but the agent doesn't proactively curate or prune its memory index |
-| **Memory size management** | Partially done | Self-improvement has SOFT_CAP/HARD_CAP for SKILLS.md pruning, but no overall memory budget |
+| Claude Code Pattern                           | Commandra Status | Impact                                                                                                              |
+| --------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Unified MEMORY.md index**                   | Missing          | No single place where all knowledge is indexed. Agent has to call `list_knowledge` + `recall_memory` to find things |
+| **On-demand loading**                         | Partially done   | Domain knowledge is loaded for the current domain only. But agent skills from OTHER agents aren't accessible        |
+| **Memory scoping** (user/project/local)       | Missing          | All memory is global to the user. No way to scope knowledge to a project or team                                    |
+| **Auto-memory** (Claude writes its own notes) | Partially done   | `save_memory` and `save_knowledge` exist, but the agent doesn't proactively curate or prune its memory index        |
+| **Memory size management**                    | Partially done   | Self-improvement has SOFT_CAP/HARD_CAP for SKILLS.md pruning, but no overall memory budget                          |
 
 ### Recommended Fixes
 
@@ -111,6 +112,7 @@ We have **5 separate memory systems** that don't talk to each other:
 ### What Claude Code does
 
 Hooks are **deterministic lifecycle events** that run shell commands at specific points:
+
 - `PreToolUse` — validate/block before a tool executes (e.g., block SQL writes)
 - `PostToolUse` — auto-format, lint, or log after a tool executes
 - `Stop` — verify all tasks are complete before letting the agent stop
@@ -195,25 +197,26 @@ This is a big architectural addition. Recommended approach:
 
 ## Priority Ranking
 
-| Fix | Impact | Effort | Phase |
-|---|---|---|---|
-| Per-agent tool restrictions | High | Low | 21 |
-| Approval gate on create_agent | High | Medium | 21 |
-| Auto-extract SKILLS.md on creation | High | Medium | 21 |
-| Agent-level MEMORY.md | Medium | Medium | 21 |
-| Run dashboard in web UI | Medium | Medium | 21 |
-| Pre/PostToolUse hooks | High | High | 22 |
-| Sub-agent resumption | Medium | High | 22 |
-| Per-agent permissions | Medium | Medium | 22 |
-| Agent export/import to disk | Low | Medium | 23 |
-| Cross-agent knowledge access | Medium | Medium | 23 |
-| Memory consolidation | Low | Medium | 23 |
+| Fix                                | Impact | Effort | Phase |
+| ---------------------------------- | ------ | ------ | ----- |
+| Per-agent tool restrictions        | High   | Low    | 21    |
+| Approval gate on create_agent      | High   | Medium | 21    |
+| Auto-extract SKILLS.md on creation | High   | Medium | 21    |
+| Agent-level MEMORY.md              | Medium | Medium | 21    |
+| Run dashboard in web UI            | Medium | Medium | 21    |
+| Pre/PostToolUse hooks              | High   | High   | 22    |
+| Sub-agent resumption               | Medium | High   | 22    |
+| Per-agent permissions              | Medium | Medium | 22    |
+| Agent export/import to disk        | Low    | Medium | 23    |
+| Cross-agent knowledge access       | Medium | Medium | 23    |
+| Memory consolidation               | Low    | Medium | 23    |
 
 ---
 
 ## Summary
 
 **What we do well:**
+
 - File-based agent identity (SOUL.md, SKILLS.md) — correct pattern
 - Self-improvement loop — agents learn from every run
 - Domain knowledge per-website — agents know the apps they work on
@@ -222,6 +225,7 @@ This is a big architectural addition. Recommended approach:
 - Tab-pinned conversations — agents work on the right tab
 
 **What we're missing:**
+
 - Sub-agents aren't truly isolated (no tool restrictions, no independent memory, no resumption)
 - No hook/lifecycle system for deterministic enforcement
 - Memory is scattered across 5 systems with no unified index

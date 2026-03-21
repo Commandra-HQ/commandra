@@ -254,6 +254,16 @@ Respond ONLY with valid JSON, no markdown fencing.`;
 			(analysis.learnings?.length ?? 0) +
 			(analysis.errors?.length ?? 0);
 
+		// Update MEMORY.md with a concise run summary (agent's own notes)
+		if (analysis.summary && insightCount > 0) {
+			await appendToAgentFile(
+				userId,
+				agentConfig.slug,
+				'MEMORY.md',
+				[`- [${today}] ${analysis.summary}`],
+			);
+		}
+
 		console.log(
 			`[SelfImprove] Agent "${agentConfig.slug}": +${analysis.skills?.length ?? 0} skills, +${analysis.learnings?.length ?? 0} learnings, +${analysis.errors?.length ?? 0} errors`,
 		);

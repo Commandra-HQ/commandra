@@ -133,6 +133,9 @@ When working with sub-agents, use the scratchpad to pass structured data:
 function buildBasePrompt(agentConfig?: AgentConfig): string {
 	const identity = agentConfig?.soul || IDENTITY_SECTION;
 	const skillsSection = agentConfig?.skills ? `\n\n## Agent Skills\n${agentConfig.skills}` : '';
+	const memorySection = agentConfig?.memory
+		? `\n\n## Agent Memory\nThese are your accumulated notes from past sessions. Update your MEMORY.md via save_knowledge(category: "agent", key: "${agentConfig.slug}", filename: "MEMORY.md") as you learn important facts.\n\n${agentConfig.memory}`
+		: '';
 	let learningsSection = '';
 	if (agentConfig?.learnings) {
 		const lines = agentConfig.learnings.split('\n').filter((l) => l.trim().startsWith('- '));
@@ -147,7 +150,7 @@ function buildBasePrompt(agentConfig?: AgentConfig): string {
 			errorsSection = `\n\n## Known Failure Patterns\n${lines.slice(-10).join('\n')}`;
 		}
 	}
-	return `${identity}\n\n${RULES_SECTION}${skillsSection}${learningsSection}${errorsSection}`;
+	return `${identity}\n\n${RULES_SECTION}${skillsSection}${learningsSection}${errorsSection}${memorySection}`;
 }
 
 interface SelectedElement {

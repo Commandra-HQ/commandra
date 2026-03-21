@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { apiFetch } from '@/lib/api';
 import { Bot, Plus, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { type Agent, type AgentFile, AgentCard } from './agent-card';
+import { type Agent, type AgentFile, type AgentRun, AgentCard } from './agent-card';
 import { type NewAgentData, EMPTY_AGENT, AgentCreateForm } from './agent-form';
 
 export default function AgentsPage() {
@@ -14,6 +14,7 @@ export default function AgentsPage() {
 	const [showCreate, setShowCreate] = useState(false);
 	const [expandedId, setExpandedId] = useState<string | null>(null);
 	const [agentFiles, setAgentFiles] = useState<Record<string, AgentFile[]>>({});
+	const [agentRuns, setAgentRuns] = useState<Record<string, AgentRun[]>>({});
 	const [fileContents, setFileContents] = useState<Record<string, string>>({});
 	const [editingFile, setEditingFile] = useState<{ agentId: string; filename: string } | null>(null);
 	const [editContent, setEditContent] = useState('');
@@ -86,9 +87,10 @@ export default function AgentsPage() {
 		}
 		setExpandedId(agent.id);
 		try {
-			const [agentRes, filesRes] = await Promise.all([
+			const [agentRes, filesRes, runsRes] = await Promise.all([
 				apiFetch(`/api/agents/${agent.id}`),
 				apiFetch(`/api/agents/${agent.id}/files`),
+				apiFetch(`/api/agents/${agent.id}/runs?limit=10`),
 			]);
 			if (agentRes.ok) {
 				const data = await agentRes.json();
@@ -97,6 +99,10 @@ export default function AgentsPage() {
 			if (filesRes.ok) {
 				const data = await filesRes.json();
 				setAgentFiles((prev) => ({ ...prev, [agent.id]: data.files || [] }));
+			}
+			if (runsRes.ok) {
+				const data = await runsRes.json();
+				setAgentRuns((prev) => ({ ...prev, [agent.id]: data.runs || [] }));
 			}
 		} catch (err) {
 			console.error('Failed to load agent details:', err);
@@ -226,6 +232,7 @@ export default function AgentsPage() {
 							onEditContentChange={setEditContent}
 							onSaveFile={saveFile}
 							onCancelEdit={() => setEditingFile(null)}
+						runs={agentRuns[agent.id]}
 						/>
 					))}
 				</div>

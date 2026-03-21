@@ -40,8 +40,16 @@ export type SSEEvent =
 			action: string;
 			label?: string;
 			reason: string;
-			approvalType: 'tool' | 'plan';
+			approvalType: 'tool' | 'plan' | 'agent';
 			planSteps?: string[];
+			agentPreview?: {
+				slug: string;
+				name: string;
+				description: string;
+				soul: string;
+				domains?: string[];
+				cron?: string;
+			};
 	  }
 	| {
 			type: 'plan_state';
