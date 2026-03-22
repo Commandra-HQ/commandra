@@ -119,39 +119,28 @@ We have **5 separate memory systems** that don't talk to each other:
 
 ---
 
-## 3. Hooks: Completely Missing
+## 3. Hooks: Implemented (Phase 22)
 
-### What Claude Code does
+### What Commandra now has
 
-Hooks are **deterministic lifecycle events** that run shell commands at specific points:
+Hooks system built in Phase 22 with three hook types:
 
-- `PreToolUse` — validate/block before a tool executes (e.g., block SQL writes)
-- `PostToolUse` — auto-format, lint, or log after a tool executes
-- `Stop` — verify all tasks are complete before letting the agent stop
-- `SessionStart` — inject context at session start
-- `Notification` — alert when Claude needs input
-- `SubagentStart`/`SubagentStop` — setup/teardown for sub-agent lifecycle
+- **PreToolUse** — rule-based pattern matching before tool execution. Blocks actions matching tool name, label regex, or URL regex. Zero latency. Example: "never click anything labeled 'delete' on this app."
+- **PostToolUse** — side effects after tool execution. Logging, auto-screenshot triggers. Zero latency.
+- **OnComplete** — LLM-driven verification when agent finishes. Fast model checks if task was actually completed. ~1s latency. Example: "verify the report was downloaded."
 
-Hooks are **deterministic**, not LLM-dependent. They always run. This is how you enforce rules.
+Hooks are stored in `agents.hooks` JSONB column, per-agent configurable. Evaluated in `apps/api/src/agent/hooks.ts`. Wired into `browser-tools.ts` (pre/post), `orchestrator.ts` (OnComplete), and available to sub-agents.
 
-### What Commandra does
+### Differences from Claude Code
 
-- **Safety classification** is our closest equivalent to `PreToolUse` hooks — classifies actions as safe/review/blocked. But it's hardcoded, not configurable per agent or per project.
-- **No post-tool hooks** — no auto-format, no lint, no validation after actions
-- **No stop hooks** — the agent decides when it's done, no external verification
-- **No notification hooks** — the extension handles this, but there's no webhook system for the backend
+| Claude Code | Commandra |
+|---|---|
+| Shell commands | Rule-based + LLM-driven (browser context, no shell) |
+| 16+ event types | 3 event types (PreToolUse, PostToolUse, OnComplete) |
+| File-based config | JSONB in agents table |
+| Prompt-based and agent-based hooks | LLM-check (OnComplete only) |
 
-### Recommended Fixes
-
-This is a big architectural addition. Recommended approach:
-
-1. **Phase 21: Hook System** — add a `hooks` field to the `agents` table (JSONB). Each agent can define pre/post tool hooks. Start with:
-   - `PreToolUse` — validate before browser action execution (e.g., "never click Delete on this app")
-   - `PostToolUse` — log, verify, or trigger side effects after actions
-   - `OnComplete` — verify task completion (e.g., "check that the email was actually sent")
-   - `OnFailure` — alert webhook (already added in Phase 20 scheduler)
-
-2. Hooks execute as **internal tool calls** — not shell commands (since we're in a browser context, not a terminal). They could be LLM-driven (like Claude's agent-based hooks) or rule-based.
+Sufficient for our use case. Additional event types can be added as needed.
 
 ---
 
@@ -201,15 +190,16 @@ This is a big architectural addition. Recommended approach:
 
 ## Remaining Work
 
-| Fix                           | Impact | Effort | Target Phase |
-| ----------------------------- | ------ | ------ | ------------ |
-| Pre/PostToolUse hooks         | High   | High   | 22           |
-| Sub-agent resumption          | Medium | High   | 22           |
-| Per-agent permissions         | Medium | Medium | 22           |
-| Quality gates (Stop hooks)    | Medium | Medium | 22           |
-| Agent export/import to disk   | Low    | Medium | 23           |
-| Cross-agent knowledge access  | Medium | Medium | 23           |
-| Memory scoping (user/project) | Low    | Medium | 23           |
+| Fix                           | Impact | Effort | Target Phase | Status       |
+| ----------------------------- | ------ | ------ | ------------ | ------------ |
+| Pre/PostToolUse hooks         | High   | High   | 22           | Done         |
+| OnComplete hooks (LLM-driven) | High   | Medium | 22           | Done         |
+| Quality gates (Stop hooks)    | Medium | Medium | 22           | Done (OnComplete) |
+| Sub-agent resumption          | Medium | High   | 23           | Future       |
+| Per-agent permissions         | Medium | Medium | 23           | Future       |
+| Agent export/import to disk   | Low    | Medium | 23           | Future       |
+| Cross-agent knowledge access  | Medium | Medium | 23           | Future       |
+| Memory scoping (user/project) | Low    | Medium | 23           | Future       |
 
 ---
 
@@ -230,9 +220,9 @@ This is a big architectural addition. Recommended approach:
 - Run observability — dashboard shows run history with status/duration/errors
 - OpenAI vision — screenshots properly passed as images, not serialized base64
 
-**What we're missing (Phase 22-23):**
+**What we're missing (Phase 23+):**
 
-- No hook/lifecycle system for deterministic enforcement (biggest remaining gap)
 - Sub-agents can't be resumed — must re-spawn fresh each time
 - Per-agent permissions not enforced independently on sub-agents
 - Agents not exportable to disk for version control/sharing
+- Memory not scoped to projects/teams (all global to user)

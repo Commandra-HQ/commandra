@@ -56,6 +56,8 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 |       |                                                    | file I/O tools (download interception, read local files, clipboard).                                                          |         |
 | 21    | [Agent Intelligence Hardening](21-agent-intelligence-hardening.md) | Sub-agent scratchpad for data passing, approval gate on agent creation,                                        |         |
 |       |                                                    | auto-extract SKILLS.md, unified agent MEMORY.md (200-line index), run dashboard in web UI.                                    |         |
+| 22    | [Hooks System](22-hooks-system.md)                 | Deterministic lifecycle hooks for browser agents: PreToolUse (block dangerous actions),                                        |         |
+|       |                                                    | PostToolUse (auto-screenshot, logging), OnComplete (LLM-driven task verification).                                             |         |
 
 ---
 

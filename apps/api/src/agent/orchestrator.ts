@@ -19,6 +19,7 @@ import { collectStream, getFastModel, getProvider, getStrongModel } from '../llm
 import { compressHistory } from '../memory/conversation.js';
 import { saveCompaction } from '../storage/compaction-files.js';
 import { isKilled } from '../ws/handler.js';
+import { evaluateOnComplete } from './hooks.js';
 import { buildSystemPrompt } from './prompts.js';
 import { buildToolList } from './tool-definitions.js';
 import { executeToolBlock, partitionToolsBySafety } from './browser-tools.js';
@@ -222,8 +223,23 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			allToolCalls,
 		);
 
-		// If no tool use or end_turn, we're done
+		// If no tool use or end_turn, check OnComplete hooks before stopping
 		if (!hasToolUse || response.stopReason === 'end_turn') {
+			// OnComplete hook — verify task completion if agent has hooks configured
+			if (agentConfig.hooks?.onComplete?.length) {
+				const toolSummary = allToolCalls.map((t) => `${t.name}: ${t.success ? 'ok' : 'failed'}`).join(', ');
+				const completionCheck = await evaluateOnComplete(agentConfig.hooks, fullResponse, toolSummary);
+				if (!completionCheck.done) {
+					// Hook says task isn't done — inject feedback and continue
+					currentMessages = [
+						...currentMessages,
+						{ role: 'assistant', content: response.content },
+						{ role: 'user', content: `[Hook verification failed] ${completionCheck.reason}. Please complete the remaining work.` },
+					];
+					await onEvent({ type: 'text_delta', text: `\n\n*Verifying completion... ${completionCheck.reason}*\n\n` });
+					continue; // Go back to the loop
+				}
+			}
 			break;
 		}
 
@@ -520,7 +536,7 @@ async function processToolCalls(
 				executeToolBlock(
 					block, context, userId, connectionId, domain, onEvent,
 					provider, domainMemory, userMemory, currentDepth, conversationId,
-					agentConfig.autonomy,
+					agentConfig.autonomy, agentConfig.hooks,
 				),
 			),
 		);

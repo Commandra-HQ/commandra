@@ -221,6 +221,7 @@ function rowToConfig(row: typeof agents.$inferSelect): AgentConfig {
 		tools: (row.tools as string[] | null) ?? undefined,
 		domains: (row.domains as string[] | null) ?? undefined,
 		trigger: (row.trigger as { cron?: string; enabled?: boolean } | null) ?? undefined,
+		hooks: (row.hooks as AgentConfig['hooks']) ?? undefined,
 		autonomy: parseAutonomy(row.autonomy),
 	};
 }

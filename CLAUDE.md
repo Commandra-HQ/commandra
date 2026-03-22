@@ -93,6 +93,7 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Never import a vendor SDK directly outside the provider adapter files
 - Use the strong model for planning and complex reasoning, fast model for data reads and navigation
 - Safety classification happens pre-execution in the orchestrator loop
+- **Agent hooks** (`apps/api/src/agent/hooks.ts`): deterministic lifecycle hooks per agent. `PreToolUse` (rule-based, blocks actions by tool/label/URL pattern), `PostToolUse` (logging, auto-screenshot), `OnComplete` (LLM-driven task verification). Stored in `agents.hooks` JSONB. Hooks run before safety classification (PreToolUse) and before loop exit (OnComplete).
 - Audit logging happens post-execution in the orchestrator loop
 - **Per-agent config**: orchestrator accepts `AgentConfig` — respects agent's model, tool allowlist, safety overrides, max iterations
 - **Parallel tool calling**: safe tools execute in parallel via `Promise.allSettled`, review tools sequential with approval gates, blocked tools rejected immediately
