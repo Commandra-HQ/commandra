@@ -6,7 +6,7 @@
 import { getToolDefinitions } from '../tools/registry.js';
 
 export function buildToolList(
-  agentConfig: { tools?: string[] },
+  agentConfig: { tools?: string[]; limits?: { maxDepth?: number } },
   currentDepth: number,
 ) {
   const browserTools = getToolDefinitions(agentConfig.tools);
@@ -430,8 +430,8 @@ export function buildToolList(
     saveKnowledgeTool,
     readKnowledgeTool,
     listKnowledgeTool,
-    // Exclude spawn/wait tools at depth >= 2 to prevent deep nesting
-    ...(currentDepth >= 2 ? [] : [spawnAgentTool, waitForAgentsTool]),
+    // Exclude spawn/wait tools at max depth to prevent deep nesting
+    ...(currentDepth >= (agentConfig.limits?.maxDepth ?? 2) ? [] : [spawnAgentTool, waitForAgentsTool]),
     saveToLocalTool,
     createAgentTool,
     updateAgentFilesTool,

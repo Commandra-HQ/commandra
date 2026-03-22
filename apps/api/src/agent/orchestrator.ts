@@ -182,9 +182,11 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			system: systemPrompt,
 			messages: currentMessages,
 			tools: connectionId ? tools : undefined,
-			maxTokens: 8000,
+			maxTokens: agentConfig.llm?.maxOutputTokens ?? 8000,
 			signal,
-			thinking: { budgetTokens: 4000 },
+			thinking: agentConfig.llm?.thinkingEnabled === false
+				? undefined
+				: { budgetTokens: agentConfig.llm?.thinkingBudget ?? 4000 },
 		});
 
 		// Stream text to client in real time while collecting tool calls
@@ -297,9 +299,11 @@ export async function runSimpleChat(params: {
 		model,
 		system: systemPrompt,
 		messages: params.messages.map((m) => ({ role: m.role, content: m.content })),
-		maxTokens: 8000,
+		maxTokens: params.agentConfig.llm?.maxOutputTokens ?? 8000,
 		signal: params.signal,
-		thinking: { budgetTokens: 3000 },
+		thinking: params.agentConfig.llm?.thinkingEnabled === false
+			? undefined
+			: { budgetTokens: params.agentConfig.llm?.thinkingBudget ?? 3000 },
 	});
 
 	try {
@@ -537,7 +541,7 @@ async function processToolCalls(
 	}
 
 	// Partition tools by safety level for parallel execution
-	const partitioned = partitionToolsBySafety(toolBlocks, domain, agentConfig.autonomy);
+	const partitioned = partitionToolsBySafety(toolBlocks, domain, agentConfig.autonomy, agentConfig.domainAutonomy);
 
 	// Phase 1: Execute all safe tools in parallel
 	if (partitioned.safe.length > 0) {

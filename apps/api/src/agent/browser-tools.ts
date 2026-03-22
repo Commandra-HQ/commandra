@@ -20,10 +20,14 @@ export function partitionToolsBySafety(
 	toolBlocks: ToolUseBlock[],
 	domain?: string,
 	autonomy?: 'supervised' | 'trusted' | 'autonomous',
+	domainAutonomy?: Record<string, 'supervised' | 'trusted' | 'autonomous'>,
 ): { safe: ToolUseBlock[]; review: ToolUseBlock[]; blocked: ToolUseBlock[] } {
 	const safe: ToolUseBlock[] = [];
 	const review: ToolUseBlock[] = [];
 	const blocked: ToolUseBlock[] = [];
+
+	// Resolve effective autonomy: domain-specific override > agent default
+	const effectiveAutonomy = (domain && domainAutonomy?.[domain]) || autonomy;
 
 	for (const block of toolBlocks) {
 		if (INTERNAL_TOOL_NAMES.has(block.name)) {
@@ -39,7 +43,7 @@ export function partitionToolsBySafety(
 			elementLabel,
 		});
 
-		if (autonomy === 'autonomous') {
+		if (effectiveAutonomy === 'autonomous') {
 			safe.push(block);
 		} else if (autonomy === 'trusted') {
 			if (classification.level === 'blocked') {

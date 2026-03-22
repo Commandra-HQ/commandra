@@ -24,6 +24,22 @@ export interface AgentHooks {
   onComplete?: HookRule[];
 }
 
+export interface AgentLLMConfig {
+  temperature?: number;
+  topP?: number;
+  maxOutputTokens?: number;
+  thinkingBudget?: number;
+  thinkingEnabled?: boolean;
+}
+
+export interface AgentLimits {
+  maxConcurrentSubAgents?: number;
+  maxDepth?: number;
+  maxRetries?: number;
+  retryDelays?: number[];
+  selfImproveCap?: number;
+}
+
 export interface AgentConfig {
   id: string;
   slug: string;
@@ -40,6 +56,9 @@ export interface AgentConfig {
   errors?: string;
   memory?: string;
   hooks?: AgentHooks;
+  llm?: AgentLLMConfig;
+  limits?: AgentLimits;
+  domainAutonomy?: Record<string, AgentAutonomy>;
   trigger?: { cron?: string; enabled?: boolean };
   autonomy?: AgentAutonomy;
 }

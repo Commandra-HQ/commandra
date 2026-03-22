@@ -17,9 +17,10 @@ import { downloadDomainFile, uploadDomainFile } from '../storage/domain-files.js
 import { writeRunLog } from '../storage/run-files.js';
 import type { ToolCallRecord } from './orchestrator.js';
 
-const SOFT_CAP = 40; // Trigger consolidation
-const HARD_CAP = 60; // Force-trim oldest before append
-const TARGET = 30; // Post-consolidation target
+// Defaults — overrideable per agent via agentConfig.limits.selfImproveCap
+const DEFAULT_SOFT_CAP = 40; // Trigger consolidation
+const DEFAULT_HARD_CAP = 60; // Force-trim oldest before append
+const DEFAULT_TARGET = 30; // Post-consolidation target
 
 /**
  * Insert a row into the agent_runs table.
