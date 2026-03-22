@@ -1,12 +1,12 @@
 import type { SSEEvent } from '@afe/shared';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, count, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { resolveAgent } from '../agent/agent-registry.js';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
 import { db } from '../db/index.js';
-import { conversations, messages, pages, sites } from '../db/schema.js';
+import { agents, conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { loadDomainKnowledgeFromS3, loadDomainMemory } from '../memory/domain.js';
 import { loadUserMemory } from '../memory/user.js';
@@ -356,6 +356,47 @@ chatRoutes.post('/', async (c) => {
 			// Send done event with conversation ID (only if client is still connected)
 			if (!signal.aborted) {
 				await onEvent({ type: 'done', conversationId: convId! });
+			}
+
+			// Auto-agent suggestion: if coordinator has worked on this domain 3+ times
+			// and no domain agent exists, nudge the system to suggest creating one
+			if (agentConfig.id === '_coordinator' && domain && (toolData?.tools?.length ?? 0) >= 2) {
+				try {
+					const domainConvCount = await db
+						.select({ count: count() })
+						.from(conversations)
+						.where(
+							and(
+								eq(conversations.userId, user.id),
+								sql`${conversations.title} ILIKE ${'%' + domain.split('.')[0] + '%'}`,
+							),
+						);
+					const convCount = domainConvCount[0]?.count ?? 0;
+
+					// Check if a domain agent already exists
+					const existingAgents = await db
+						.select({ id: agents.id })
+						.from(agents)
+						.where(
+							and(
+								eq(agents.userId, user.id),
+								sql`${agents.domains}::text LIKE ${'%' + domain + '%'}`,
+							),
+						)
+						.limit(1);
+
+					if (convCount >= 3 && existingAgents.length === 0) {
+						console.log(
+							`[Chat] Domain "${domain}" used ${convCount}x with no agent — consider auto-creating one`,
+						);
+						// Save a hint in domain knowledge so the agent sees it next time
+						const { uploadDomainFile } = await import('../storage/domain-files.js');
+						const agentHint = `## Agent Suggestion\n\nYou've worked on ${domain} ${convCount}+ times. Consider creating a specialized agent for this domain using create_agent. This will enable:\n- Persistent SKILLS.md with learned workflows\n- MEMORY.md with accumulated knowledge\n- Self-improvement after every run\n- Scheduled automation\n\nSuggest this to the user when appropriate.`;
+						await uploadDomainFile(user.id, domain, 'AGENT_HINT.md', agentHint);
+					}
+				} catch {
+					// Non-critical
+				}
 			}
 		} catch (err) {
 			if (signal.aborted) return;

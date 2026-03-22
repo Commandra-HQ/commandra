@@ -441,5 +441,21 @@ export function buildToolList(
     readScratchpadTool,
     readLocalFileTool,
     listLocalFilesTool,
+    {
+      name: 'browse_storage',
+      description:
+        'Browse your persistent S3 storage to discover what files and knowledge exist. Lists files and folders at any path. Use to discover domain knowledge, agent files, run logs, screenshots, and scratchpad data.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: {
+            type: 'string',
+            description:
+              'Path prefix to browse. Examples: "domains/{userId}" (all domains), "{userId}/screenshots" (screenshots), "{userId}/_coordinator" (coordinator files). Leave empty to see top-level.',
+          },
+        },
+        required: [],
+      },
+    },
   ];
 }
