@@ -621,7 +621,7 @@ async function handleSubmitPlan(
           type: 'plan_approval',
           planId,
           description: args.description,
-          steps: args.steps,
+          steps: plan.steps.map((s) => s.label),
         });
 
     if (approval.approved) {
