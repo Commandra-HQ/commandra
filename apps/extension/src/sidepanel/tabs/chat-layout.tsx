@@ -95,7 +95,7 @@ export function ContextBar({
 						<svg viewBox="0 0 24 24" className="w-6 h-6 -rotate-90">
 							<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" className="text-secondary" />
 							<circle
-								cx="12" cy="12" r="10" fill="none" strokeWidth="2.5"
+								cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5"
 								strokeDasharray={`${contextStatus.percent * 0.628} 62.8`}
 								strokeLinecap="round"
 								className={contextStatus.percent > 80 ? 'text-red-500' : contextStatus.percent > 60 ? 'text-yellow-500' : 'text-green-500'}
