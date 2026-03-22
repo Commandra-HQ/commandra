@@ -300,7 +300,10 @@ When the user refers to "these elements" or "the selected elements", they mean t
 
 	let domainKnowledgeSummary = '';
 	if (domainKnowledge) {
-		domainKnowledgeSummary = `\n\n## Domain Knowledge (from past sessions)\n${domainKnowledge}`;
+		domainKnowledgeSummary = `\n\n## Domain Knowledge (CRITICAL — from past sessions)
+**You MUST follow the instructions below.** This knowledge was learned from previous sessions on this app. It contains verified selectors, escape rules, and workflows. Following it prevents errors.
+
+${domainKnowledge}`;
 	}
 
 	let existingPlanSummary = '';

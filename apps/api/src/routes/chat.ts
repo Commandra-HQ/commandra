@@ -330,9 +330,14 @@ chatRoutes.post('/', async (c) => {
 
 			// Always save the assistant response — even if the client disconnected.
 			// This prevents orphaned conversations with user messages but no response.
-			const contentToSave =
-				fullResponse.trim() ||
-				(toolData ? `[Agent executed ${toolData.tools.length} actions]` : '');
+			// If no text response, generate a summary from tool calls for history readability.
+			let contentToSave = fullResponse.trim();
+			if (!contentToSave && toolData) {
+				const toolSummary = toolData.tools
+					.map((t) => `${t.success ? '✓' : '✗'} ${t.name}${t.args && typeof t.args === 'object' && 'selector' in t.args ? ` (${(t.args as Record<string, unknown>).selector})` : ''}`)
+					.join('\n');
+				contentToSave = `Executed ${toolData.tools.length} actions:\n${toolSummary}`;
+			}
 			if (contentToSave) {
 				await db.insert(messages).values({
 					conversationId: convId!,
