@@ -12,9 +12,19 @@ import type {
   ToolUseBlock,
 } from '../llm/types.js';
 
-// Rough token estimate: ~4 chars per token for English text, base64 images are ~3 chars per token
-export const MAX_INPUT_TOKENS = 200_000;
+// Rough token estimate: ~4 chars per token for English text
+// Images are counted by pixel dimensions, NOT by base64 string length
+// Anthropic: ~1,600 tokens per 1280x720 image. OpenAI: ~1,100 tokens for high detail.
+// We use a flat 2,000 tokens per image as a safe estimate.
+export const IMAGE_TOKEN_ESTIMATE = 2_000;
 export const CHARS_PER_TOKEN = 4;
+
+// Default context limit — overridden per provider/model in the orchestrator
+export let MAX_INPUT_TOKENS = 200_000;
+
+export function setMaxInputTokens(tokens: number): void {
+	MAX_INPUT_TOKENS = tokens;
+}
 
 /**
  * Estimate total character count across all messages (including content blocks).
@@ -27,15 +37,17 @@ export function estimateMessageChars(messages: Message[]): number {
     } else if (Array.isArray(m.content)) {
       for (const block of m.content) {
         if (block.type === 'text') total += (block as TextBlock).text.length;
-        else if (block.type === 'image')
-          total += (block as ImageBlock).data.length;
-        else if (block.type === 'tool_result') {
+        else if (block.type === 'image') {
+          // Images are counted by pixel dimensions, not base64 length.
+          // Use flat token estimate × CHARS_PER_TOKEN to stay in char units.
+          total += IMAGE_TOKEN_ESTIMATE * CHARS_PER_TOKEN;
+        } else if (block.type === 'tool_result') {
           const tr = block as ToolResultBlock;
           if (typeof tr.content === 'string') total += tr.content.length;
           else if (Array.isArray(tr.content)) {
             for (const sub of tr.content) {
               if (sub.type === 'text') total += sub.text.length;
-              else if (sub.type === 'image') total += sub.data.length;
+              else if (sub.type === 'image') total += IMAGE_TOKEN_ESTIMATE * CHARS_PER_TOKEN;
             }
           }
         } else if (block.type === 'tool_use') {

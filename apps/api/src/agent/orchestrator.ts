@@ -28,6 +28,7 @@ import {
 	estimateMessageChars,
 	MAX_INPUT_TOKENS,
 	CHARS_PER_TOKEN,
+	setMaxInputTokens,
 } from './token-budget.js';
 
 export interface OrchestratorParams {
@@ -94,6 +95,16 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 15;
 	const provider = getProvider();
 	const model = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
+
+	// Set context limit based on provider — Anthropic supports up to 1M, OpenAI varies
+	const providerName = process.env.LLM_PROVIDER || 'anthropic';
+	if (providerName === 'anthropic') {
+		setMaxInputTokens(800_000); // Claude supports 1M, leave 200K headroom for output
+	} else if (providerName === 'openai') {
+		setMaxInputTokens(120_000); // GPT-4o supports 128K
+	} else {
+		setMaxInputTokens(200_000); // Conservative default
+	}
 	const systemPrompt = buildSystemPrompt(
 		pageIndex,
 		selectedElements,
