@@ -252,13 +252,39 @@ chatRoutes.post('/', async (c) => {
 			}
 		}, 15000); // Every 15 seconds
 
+		// Capture stream blocks for full conversation replay (thinking, text, tool events)
+		const streamBlocks: { type: string; content?: string; toolName?: string; ts: number }[] = [];
+
 		const onEvent = async (event: SSEEvent) => {
 			if (signal.aborted) return;
+			// Record stream blocks for persistence
+			switch (event.type) {
+				case 'thinking_delta': {
+					const last = streamBlocks[streamBlocks.length - 1];
+					if (last?.type === 'thinking') { last.content = (last.content || '') + event.text; }
+					else { streamBlocks.push({ type: 'thinking', content: event.text, ts: Date.now() }); }
+					break;
+				}
+				case 'text_delta': {
+					const last = streamBlocks[streamBlocks.length - 1];
+					if (last?.type === 'text') { last.content = (last.content || '') + event.text; }
+					else { streamBlocks.push({ type: 'text', content: event.text, ts: Date.now() }); }
+					break;
+				}
+				case 'tool_start':
+					streamBlocks.push({ type: 'tool_start', toolName: event.toolName, content: event.label, ts: Date.now() });
+					break;
+				case 'tool_end':
+					streamBlocks.push({ type: 'tool_end', toolName: event.toolName, content: event.success ? 'ok' : (event.error || 'failed'), ts: Date.now() });
+					break;
+				case 'blocked':
+					streamBlocks.push({ type: 'blocked', toolName: event.toolName, content: event.reason, ts: Date.now() });
+					break;
+			}
 			await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });
 		};
 
 		// Emit conversationId immediately so the frontend can track it
-		// This prevents orphaned conversations when the stream errors or disconnects
 		await onEvent({ type: 'conversation_id', conversationId: convId! } as SSEEvent);
 
 		try {
@@ -345,11 +371,16 @@ chatRoutes.post('/', async (c) => {
 				contentToSave = `Executed ${toolData.tools.length} actions:\n${toolSummary}`;
 			}
 			if (contentToSave) {
+				// Merge tool data + stream blocks into a single JSONB payload
+				const fullToolData: Record<string, unknown> = {};
+				if (toolData) fullToolData.tools = toolData.tools;
+				if (streamBlocks.length > 0) fullToolData.streamBlocks = streamBlocks;
+
 				await db.insert(messages).values({
 					conversationId: convId!,
 					role: 'assistant',
 					content: contentToSave,
-					...(toolData && { toolData }),
+					...(Object.keys(fullToolData).length > 0 && { toolData: fullToolData }),
 				}).catch((err) => console.error('[Chat] Failed to save assistant message:', err));
 			}
 

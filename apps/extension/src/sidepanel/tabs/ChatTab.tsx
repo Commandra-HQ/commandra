@@ -386,10 +386,35 @@ export function ChatTab() {
 						content: string;
 						toolData?: {
 							tools: { name: string; args: unknown; result: unknown; success: boolean }[];
+							streamBlocks?: { type: string; content?: string; toolName?: string; ts: number }[];
 						};
 					}) => {
 						const blocks: MessageBlock[] = [];
-						if (m.role === 'assistant' && m.toolData?.tools?.length) {
+
+						// If we have stream blocks (full replay data), use them
+						if (m.role === 'assistant' && m.toolData?.streamBlocks?.length) {
+							for (const sb of m.toolData.streamBlocks) {
+								if (sb.type === 'thinking' && sb.content) {
+									blocks.push({ type: 'thinking', content: sb.content });
+								} else if (sb.type === 'text' && sb.content) {
+									blocks.push({ type: 'text', content: sb.content });
+								} else if (sb.type === 'tool_start' && sb.toolName) {
+									// Find matching tool_end to get status
+									const matchingTool = m.toolData?.tools?.find((t) => t.name === sb.toolName);
+									blocks.push({
+										type: 'tool_call',
+										toolName: sb.toolName,
+										label: sb.content || formatToolLabel(sb.toolName),
+										status: matchingTool ? (matchingTool.success ? 'success' : 'error') : 'success',
+										args: matchingTool?.args as Record<string, unknown>,
+										result: matchingTool?.result,
+									});
+								} else if (sb.type === 'blocked' && sb.toolName) {
+									blocks.push({ type: 'blocked', toolName: sb.toolName, reason: sb.content || '' });
+								}
+							}
+						} else if (m.role === 'assistant' && m.toolData?.tools?.length) {
+							// Fallback: reconstruct from tool data only (no thinking blocks)
 							for (const tool of m.toolData.tools) {
 								blocks.push({
 									type: 'tool_call',
