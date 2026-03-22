@@ -94,7 +94,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		domainKnowledge,
 	} = params;
 
-	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 15;
+	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 25;
 	const provider = getProvider();
 	const model = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
 
@@ -265,6 +265,13 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			{ role: 'assistant', content: assistantContent },
 			{ role: 'user', content: toolResults },
 		];
+	}
+
+	// If we exhausted all iterations without end_turn, let the user know
+	if (iterations >= maxIterations) {
+		const msg = `\n\n*Reached maximum iterations (${maxIterations}). The task may not be complete — send "continue" to keep going.*`;
+		fullResponse += msg;
+		await onEvent({ type: 'text_delta', text: msg });
 	}
 
 	return { response: fullResponse, toolCalls: allToolCalls };

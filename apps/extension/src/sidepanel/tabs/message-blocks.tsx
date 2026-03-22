@@ -174,7 +174,7 @@ export function ThinkingBlock({ content, isLast }: { content: string; isLast: bo
 			</button>
 			{showContent && hasContent && (
 				<div className="mt-1 ml-5 text-[11px] text-muted-foreground/70 max-h-[200px] overflow-y-auto leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-p:my-0.5 prose-headings:my-1 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-0.5 prose-code:text-[10px] prose-strong:text-muted-foreground/90">
-					<ReactMarkdown>{content}</ReactMarkdown>
+					<ReactMarkdown breaks>{content}</ReactMarkdown>
 				</div>
 			)}
 		</div>
