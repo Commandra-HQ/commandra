@@ -66,12 +66,6 @@ export interface ToolCallRecord {
 	durationMs?: number;
 }
 
-export interface StreamBlock {
-	type: 'thinking' | 'text' | 'tool_start' | 'tool_end' | 'blocked';
-	content?: string;
-	toolName?: string;
-	timestamp: number;
-}
 
 export interface OrchestratorResult {
 	response: string;

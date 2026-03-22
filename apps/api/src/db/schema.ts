@@ -84,7 +84,8 @@ export const messages = pgTable('messages', {
 	content: text('content').notNull(),
 	/** Structured tool call data (tool names, args, results) for multi-turn context */
 	toolData: jsonb('tool_data').$type<{
-		tools: { name: string; args: unknown; result: unknown; success: boolean }[];
+		tools?: { name: string; args: unknown; result: unknown; success: boolean }[];
+		streamBlocks?: { type: string; content?: string; toolName?: string; ts: number }[];
 	}>(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
