@@ -94,18 +94,18 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		domainKnowledge,
 	} = params;
 
-	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 25;
+	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 100;
 	const provider = getProvider();
 	const model = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
 
-	// Set context limit based on provider — Anthropic supports up to 1M, OpenAI varies
+	// Set context limit based on provider — higher limits = fewer compactions = better multi-step tasks
 	const providerName = process.env.LLM_PROVIDER || 'anthropic';
 	if (providerName === 'anthropic') {
 		setMaxInputTokens(800_000); // Claude supports 1M, leave 200K headroom for output
 	} else if (providerName === 'openai') {
-		setMaxInputTokens(120_000); // GPT-4o supports 128K
+		setMaxInputTokens(800_000); // GPT-4o/4.1/5+ all support 1M+, be generous
 	} else {
-		setMaxInputTokens(200_000); // Conservative default
+		setMaxInputTokens(400_000); // Conservative default for unknown providers
 	}
 	const systemPrompt = buildSystemPrompt(
 		pageIndex,
