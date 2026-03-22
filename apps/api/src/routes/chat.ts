@@ -257,6 +257,10 @@ chatRoutes.post('/', async (c) => {
 			await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });
 		};
 
+		// Emit conversationId immediately so the frontend can track it
+		// This prevents orphaned conversations when the stream errors or disconnects
+		await onEvent({ type: 'conversation_id', conversationId: convId! } as SSEEvent);
+
 		try {
 			let toolData:
 				| { tools: { name: string; args: unknown; result: unknown; success: boolean }[] }
@@ -324,10 +328,8 @@ chatRoutes.post('/', async (c) => {
 				});
 			}
 
-			if (signal.aborted) return;
-
-			// Store assistant response with structured tool data
-			// If no text response but tools were used, save a summary so the conversation isn't lost
+			// Always save the assistant response — even if the client disconnected.
+			// This prevents orphaned conversations with user messages but no response.
 			const contentToSave =
 				fullResponse.trim() ||
 				(toolData ? `[Agent executed ${toolData.tools.length} actions]` : '');
@@ -337,14 +339,13 @@ chatRoutes.post('/', async (c) => {
 					role: 'assistant',
 					content: contentToSave,
 					...(toolData && { toolData }),
-				});
+				}).catch((err) => console.error('[Chat] Failed to save assistant message:', err));
 			}
 
-			// Knowledge management is now agent-driven via save_knowledge/save_memory tools.
-			// No background LLM extraction calls — the agent decides what to save.
-
-			// Send done event with conversation ID
-			await onEvent({ type: 'done', conversationId: convId! });
+			// Send done event with conversation ID (only if client is still connected)
+			if (!signal.aborted) {
+				await onEvent({ type: 'done', conversationId: convId! });
+			}
 		} catch (err) {
 			if (signal.aborted) return;
 			console.error('Chat error:', err);

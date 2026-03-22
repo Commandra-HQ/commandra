@@ -4,6 +4,7 @@
  */
 
 export type SSEEvent =
+	| { type: 'conversation_id'; conversationId: string }
 	| { type: 'text_delta'; text: string }
 	| { type: 'thinking' }
 	| { type: 'thinking_delta'; text: string }

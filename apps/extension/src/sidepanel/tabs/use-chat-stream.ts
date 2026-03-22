@@ -82,6 +82,14 @@ export function useChatStream(options: UseChatStreamOptions) {
 
 	function processSSEEvent(event: SSEEvent) {
 		switch (event.type) {
+			case 'conversation_id':
+				// Capture conversationId immediately so follow-up messages continue this conversation
+				if (event.conversationId) {
+					conversationIdRef.current = event.conversationId;
+					console.log('[ChatStream] conversation_id received:', event.conversationId);
+				}
+				break;
+
 			case 'text_delta':
 				appendText(event.text);
 				scheduleFlush();
