@@ -198,7 +198,7 @@ export function buildToolList(
   const submitPlanTool = {
     name: 'submit_plan',
     description:
-      'Submit an execution plan for user approval BEFORE executing any multi-step task (3+ steps). This is MANDATORY — you must NOT execute a plan until the user approves it. The plan will be shown to the user and you must wait for their approval or rejection.',
+      'Submit an execution plan for user approval BEFORE executing any multi-step task (3+ steps). Before creating a plan, ALWAYS gather context first: read domain knowledge, check your memory, and review past workflows. This is MANDATORY — you must NOT execute a plan until the user approves it.',
     parameters: {
       type: 'object' as const,
       properties: {
@@ -206,11 +206,35 @@ export function buildToolList(
           type: 'string',
           description: 'Brief summary of what this plan accomplishes',
         },
-        steps: {
+        context: {
+          type: 'string',
+          description:
+            'Background context for this plan — what you know about the app, relevant domain knowledge, past workflows, user preferences. This helps you and the user understand WHY each step is chosen.',
+        },
+        references: {
           type: 'array',
           items: { type: 'string' },
           description:
-            'Ordered list of steps to execute. Each should be a clear, actionable description.',
+            'Knowledge sources you consulted: domain files, workflows, past runs, user memories. E.g. ["domain/mail.google.com/WORKFLOWS.md", "agent/gmail-helper/SKILLS.md"]',
+        },
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: {
+                type: 'string',
+                description: 'What this step does (shown in the plan UI)',
+              },
+              instructions: {
+                type: 'string',
+                description:
+                  'Detailed instructions for this step — specific selectors to use, values to type, what to verify. Include any relevant knowledge from domain files.',
+              },
+            },
+            required: ['label'],
+          },
+          description: 'Ordered list of steps to execute.',
         },
       },
       required: ['description', 'steps'],

@@ -312,14 +312,29 @@ When the user refers to "these elements" or "the selected elements", they mean t
 			pending: 'pending',
 		};
 		const stepList = existingPlan.steps
-			.map((s, i) => `${i + 1}. [${statusIcons[s.status] || s.status}] ${s.label}`)
+			.map((s, i) => {
+				let line = `${i + 1}. [${statusIcons[s.status] || s.status}] ${s.label}`;
+				if (s.instructions) line += `\n   Instructions: ${s.instructions}`;
+				return line;
+			})
 			.join('\n');
+
+		let planContext = '';
+		if (existingPlan.context) {
+			planContext = `\n\n**Context:** ${existingPlan.context}`;
+		}
+		let planRefs = '';
+		if (existingPlan.references?.length) {
+			planRefs = `\n**References:** ${existingPlan.references.join(', ')}`;
+		}
+
 		existingPlanSummary = `\n\n## Active Plan
-**${existingPlan.description}**
+**${existingPlan.description}**${planContext}${planRefs}
 
 ${stepList}
 
 You have an active plan from this conversation. Continue executing it — use \`update_plan\` to mark steps as you complete them.
+If you need more context during execution, call \`read_knowledge\` or \`refresh_page_state\` — don't guess.
 If the user asks for changes to the plan, use \`submit_plan\` to propose a revised plan.
 Do NOT start over or create a new plan from scratch unless the user explicitly asks for a completely different task.`;
 	}

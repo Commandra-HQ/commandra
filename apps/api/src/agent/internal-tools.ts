@@ -551,7 +551,12 @@ async function handleSubmitPlan(
   block: ToolUseBlock,
   ctx: InternalToolContext,
 ): Promise<ToolResultBlock> {
-  const args = block.input as { description: string; steps: string[] };
+  const args = block.input as {
+    description: string;
+    context?: string;
+    references?: string[];
+    steps: (string | { label: string; instructions?: string })[];
+  };
   try {
     // Check for existing in-progress plan
     if (ctx.conversationId) {
@@ -571,7 +576,12 @@ async function handleSubmitPlan(
 
     const plan: StoredPlan = {
       description: args.description,
-      steps: args.steps.map(label => ({ label, status: 'pending' as const })),
+      context: args.context,
+      references: args.references,
+      steps: args.steps.map((s) => {
+        if (typeof s === 'string') return { label: s, status: 'pending' as const };
+        return { label: s.label, instructions: s.instructions, status: 'pending' as const };
+      }),
     };
 
     if (ctx.conversationId) {
@@ -601,7 +611,7 @@ async function handleSubmitPlan(
         label: args.description,
         reason: `Plan with ${args.steps.length} steps`,
         approvalType: 'plan',
-        planSteps: args.steps,
+        planSteps: plan.steps.map((s) => s.label),
       });
     }
 
