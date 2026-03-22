@@ -164,20 +164,15 @@ This is a big architectural addition. Recommended approach:
 - Sub-agents have **skills** — preloaded knowledge injected at startup
 - Sub-agents have **persistent memory** — they accumulate knowledge across sessions
 
-### What Commandra does
+### What Commandra does (post Phase 21)
 
-- The LLM calls `create_agent` mid-conversation whenever it decides to
-- No approval gate (just added guidance in prompts in Phase 20c, but no actual approval flow)
-- SOUL.md is written immediately, but **SKILLS.md is not automatically extracted** from the teaching conversation
-- Agent files live in S3, not on disk — not version-controllable
+- `create_agent` tool requires **user approval** (approval_inline event with preview card) unless autonomous
+- SOUL.md written immediately, **SKILLS.md auto-extracted** from agent's purpose via fast model (fire-and-forget)
+- Agent files live in S3 — not yet version-controllable on disk
 
-### Recommended Fixes
+### Remaining Fixes
 
-1. **Approval gate on `create_agent`** — before creating, emit an approval event to the frontend. User sees: "Create agent 'invoice-checker'? Here's the SOUL.md preview..." and can approve/reject. Same pattern as plan approval.
-
-2. **Auto-extract SKILLS.md** — after `create_agent` succeeds, immediately call the fast model with the conversation history to extract skills. Write SKILLS.md automatically. The prompt guidance was added in Phase 20c, but it still relies on the LLM deciding to call `update_agent_files`. Make it automatic.
-
-3. **Agent-as-files on disk** — optional export: `commandra export-agent invoice-checker` → writes `invoice-checker/SOUL.md`, `SKILLS.md`, etc. to disk for version control. Import: `commandra import-agent ./invoice-checker/`. This enables the OpenClaw-style "agents are files" pattern for sharing and collaboration.
+1. **Agent-as-files on disk** — optional export: `commandra export-agent invoice-checker` → writes files to disk for version control. Import: `commandra import-agent ./invoice-checker/`. This enables sharing and collaboration.
 
 ---
 
@@ -190,58 +185,54 @@ This is a big architectural addition. Recommended approach:
 - Lead agent can **require plan approval** before teammates implement
 - Communication is **bidirectional** — teammates message each other
 
-### What Commandra does (Scheduler)
+### What Commandra does (post Phase 20-21)
 
-- Cron-based scheduling with 60s tick (works)
-- Run deduplication, retry with backoff, offline queue, jitter (just added Phase 20)
-- Alert webhooks on permanent failure (just added Phase 20)
-- But: **no task list**, **no inter-agent communication during scheduled runs**, **no quality gates**
+- Scheduler v2: dedup, retry 3x with backoff, offline queue, jitter, alert webhooks (Phase 20)
+- **Run dashboard** — agent card shows last 10 runs with status/duration/tools/errors (Phase 21e)
+- Extension notifications for scheduled runs (`scheduled_agent_start`/`scheduled_agent_end` events)
 
-### Recommended Fixes
+### Remaining Fixes
 
-1. **Run dashboard** — surface `agent_runs` table in the web dashboard. Show: last 10 runs per agent, status, duration, error, tool calls. Red badge on agents with failed runs.
+1. **Quality gates** — after a scheduled run completes, optionally run a verification step (like Claude's `Stop` hook): "Did the agent actually download the report?"
 
-2. **Run notifications in extension** — when a scheduled run completes/fails, show a toast notification in the side panel. Already partially done (`scheduled_agent_start`/`scheduled_agent_end` events), but the extension UI doesn't surface these prominently.
-
-3. **Quality gates** — after a scheduled run completes, optionally run a verification step (like Claude's `Stop` hook): "Did the agent actually download the report? Check if the file exists."
+2. **Run notifications in extension** — toast notifications in the side panel could be more prominent.
 
 ---
 
-## Priority Ranking
+## Remaining Work
 
-| Fix                                | Impact | Effort | Phase |
-| ---------------------------------- | ------ | ------ | ----- |
-| Per-agent tool restrictions        | High   | Low    | 21    |
-| Approval gate on create_agent      | High   | Medium | 21    |
-| Auto-extract SKILLS.md on creation | High   | Medium | 21    |
-| Agent-level MEMORY.md              | Medium | Medium | 21    |
-| Run dashboard in web UI            | Medium | Medium | 21    |
-| Pre/PostToolUse hooks              | High   | High   | 22    |
-| Sub-agent resumption               | Medium | High   | 22    |
-| Per-agent permissions              | Medium | Medium | 22    |
-| Agent export/import to disk        | Low    | Medium | 23    |
-| Cross-agent knowledge access       | Medium | Medium | 23    |
-| Memory consolidation               | Low    | Medium | 23    |
+| Fix                           | Impact | Effort | Target Phase |
+| ----------------------------- | ------ | ------ | ------------ |
+| Pre/PostToolUse hooks         | High   | High   | 22           |
+| Sub-agent resumption          | Medium | High   | 22           |
+| Per-agent permissions         | Medium | Medium | 22           |
+| Quality gates (Stop hooks)    | Medium | Medium | 22           |
+| Agent export/import to disk   | Low    | Medium | 23           |
+| Cross-agent knowledge access  | Medium | Medium | 23           |
+| Memory scoping (user/project) | Low    | Medium | 23           |
 
 ---
 
-## Summary
+## Summary (updated post Phase 19-21)
 
 **What we do well:**
 
-- File-based agent identity (SOUL.md, SKILLS.md) — correct pattern
-- Self-improvement loop — agents learn from every run
+- File-based agent identity (SOUL.md, SKILLS.md, MEMORY.md) — correct pattern, mirrors Claude Code
+- Self-improvement loop — agents learn from every run, write to MEMORY.md
+- Auto-extract SKILLS.md on creation — agents born with skills, not cold
+- Approval gate on agent creation — user confirms before agent is created
 - Domain knowledge per-website — agents know the apps they work on
-- Plan system — agents plan before executing
-- Scheduled execution — agents run on cron
-- Tab-pinned conversations — agents work on the right tab
+- Plan system with continuity — plans persist across messages, loaded into system prompt
+- Scheduled execution with retry/alerts/queue — production-grade scheduler
+- Tab-pinned conversations — agents work on the right tab, screenshots capture correct tab
+- Inter-agent data passing — scratchpad tools for structured data between coordinator and sub-agents
+- Per-agent tool restrictions — agents respect their tool allowlist
+- Run observability — dashboard shows run history with status/duration/errors
+- OpenAI vision — screenshots properly passed as images, not serialized base64
 
-**What we're missing:**
+**What we're missing (Phase 22-23):**
 
-- Sub-agents aren't truly isolated (no tool restrictions, no independent memory, no resumption)
-- No hook/lifecycle system for deterministic enforcement
-- Memory is scattered across 5 systems with no unified index
-- Agent creation is too implicit (no approval, no auto skill extraction)
-- No observability into scheduled runs from the dashboard
-
-The core architecture is sound. The gaps are about **hardening** — making the system reliable enough that agents can run 36 times a day without human intervention.
+- No hook/lifecycle system for deterministic enforcement (biggest remaining gap)
+- Sub-agents can't be resumed — must re-spawn fresh each time
+- Per-agent permissions not enforced independently on sub-agents
+- Agents not exportable to disk for version control/sharing
