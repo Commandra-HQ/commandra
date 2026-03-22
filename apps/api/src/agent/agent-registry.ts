@@ -48,8 +48,28 @@ export async function resolveAgent(
 		}
 	}
 
-	// Default coordinator
-	return { ...DEFAULT_COORDINATOR, userId };
+	// Default coordinator — hydrate from S3 if files exist (coordinator learns too)
+	const coordinator: AgentConfig = { ...DEFAULT_COORDINATOR, userId };
+	try {
+		const [soul, skills, learnings, errors, memory] = await Promise.all([
+			downloadAgentFile(userId, '_coordinator', 'SOUL.md'),
+			downloadAgentFile(userId, '_coordinator', 'SKILLS.md'),
+			downloadAgentFile(userId, '_coordinator', 'LEARNINGS.md'),
+			downloadAgentFile(userId, '_coordinator', 'ERRORS.md'),
+			downloadAgentFile(userId, '_coordinator', 'MEMORY.md'),
+		]);
+		if (soul) coordinator.soul = soul;
+		if (skills) coordinator.skills = skills;
+		if (learnings) coordinator.learnings = learnings;
+		if (errors) coordinator.errors = errors;
+		if (memory) {
+			const lines = memory.split('\n');
+			coordinator.memory = lines.slice(0, 200).join('\n');
+		}
+	} catch {
+		// No coordinator files yet — first run
+	}
+	return coordinator;
 }
 
 /**

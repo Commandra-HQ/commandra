@@ -156,6 +156,16 @@ function toAnthropicBlock(block: ContentBlock): Anthropic.ContentBlockParam {
 				signature: block.signature,
 			} as unknown as Anthropic.ContentBlockParam;
 		case 'image':
+			// Prefer URL over inline base64 — saves context and bandwidth
+			if (block.url) {
+				return {
+					type: 'image',
+					source: {
+						type: 'url',
+						url: block.url,
+					},
+				} as unknown as Anthropic.ContentBlockParam;
+			}
 			return {
 				type: 'image',
 				source: {

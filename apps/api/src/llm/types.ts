@@ -44,8 +44,9 @@ export interface TextBlock {
 
 export interface ImageBlock {
 	type: 'image';
-	data: string; // base64
+	data: string; // base64 (empty string if url is used)
 	mediaType: 'image/jpeg' | 'image/png' | 'image/webp';
+	url?: string; // S3 signed URL — preferred over inline base64
 }
 
 export interface ToolUseBlock {

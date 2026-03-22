@@ -289,9 +289,12 @@ chatRoutes.post('/', async (c) => {
 					toolData = { tools: result.toolCalls };
 				}
 
-				// Self-improvement: record run + analyze for non-coordinator agents
+				// Self-improvement: analyze EVERY conversation (including coordinator)
+				// This is what makes the system learn from every interaction.
+				const durationMs = Date.now() - startTime;
+
+				// Record run in DB (only for named agents — coordinator has no DB row)
 				if (agentConfig.id !== '_coordinator') {
-					const durationMs = Date.now() - startTime;
 					recordAgentRun({
 						agentId: agentConfig.id,
 						userId: user.id,
@@ -300,7 +303,10 @@ chatRoutes.post('/', async (c) => {
 						toolCalls: result.toolCalls.length,
 						durationMs,
 					}).catch((err) => console.warn('[SelfImprove] recordAgentRun failed:', err));
+				}
 
+				// Analyze and improve for ALL agents — coordinator writes to _coordinator/ in S3
+				if (result.toolCalls.length > 0 || fullResponse.length > 100) {
 					const transcript = [
 						...chatMessages.slice(-10).map((m) => `${m.role}: ${m.content}`),
 						`assistant: ${fullResponse}`,

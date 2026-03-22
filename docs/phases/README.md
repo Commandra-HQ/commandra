@@ -58,6 +58,8 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 |       |                                                    | auto-extract SKILLS.md, unified agent MEMORY.md (200-line index), run dashboard in web UI.                                    |         |
 | 22    | [Hooks System](22-hooks-system.md)                 | Deterministic lifecycle hooks for browser agents: PreToolUse (block dangerous actions),                                        |         |
 |       |                                                    | PostToolUse (auto-screenshot, logging), OnComplete (LLM-driven task verification).                                             |         |
+| 23    | [Agentic Storage Pipeline](23-agentic-storage-pipeline.md) | Enable self-improvement for ALL conversations (remove coordinator gate),                                               |         |
+|       |                                                    | screenshots to S3 with signed URLs, auto-create domain agents, S3 browsing tool, file_url support.                             |         |
 
 ---
 
