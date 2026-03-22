@@ -4,6 +4,7 @@
  */
 
 export type SSEEvent =
+	| { type: 'conversation_id'; conversationId: string }
 	| { type: 'text_delta'; text: string }
 	| { type: 'thinking' }
 	| { type: 'thinking_delta'; text: string }
@@ -40,8 +41,16 @@ export type SSEEvent =
 			action: string;
 			label?: string;
 			reason: string;
-			approvalType: 'tool' | 'plan';
+			approvalType: 'tool' | 'plan' | 'agent';
 			planSteps?: string[];
+			agentPreview?: {
+				slug: string;
+				name: string;
+				description: string;
+				soul: string;
+				domains?: string[];
+				cron?: string;
+			};
 	  }
 	| {
 			type: 'plan_state';

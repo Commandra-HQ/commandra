@@ -11,6 +11,7 @@ import { getOrgOrUserScope } from '../db/scope.js';
 import { loadDomainKnowledgeFromS3, loadDomainMemory } from '../memory/domain.js';
 import { loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
+import { loadPlan } from '../storage/plan-files.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 
 /**
@@ -231,6 +232,9 @@ chatRoutes.post('/', async (c) => {
 			.catch(() => {}); // fire-and-forget
 	}
 
+	// Load existing plan for this conversation (if any) so the agent knows where it left off
+	const existingPlan = convId ? await loadPlan(user.id, convId).catch(() => null) : null;
+
 	// Get the abort signal from the request (fires when client disconnects)
 	const signal = c.req.raw.signal;
 
@@ -253,6 +257,10 @@ chatRoutes.post('/', async (c) => {
 			await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });
 		};
 
+		// Emit conversationId immediately so the frontend can track it
+		// This prevents orphaned conversations when the stream errors or disconnects
+		await onEvent({ type: 'conversation_id', conversationId: convId! } as SSEEvent);
+
 		try {
 			let toolData:
 				| { tools: { name: string; args: unknown; result: unknown; success: boolean }[] }
@@ -274,6 +282,7 @@ chatRoutes.post('/', async (c) => {
 					agentConfig,
 					tabId,
 					domainKnowledge,
+					existingPlan,
 				});
 				fullResponse = result.response;
 				if (result.toolCalls.length > 0) {
@@ -319,27 +328,29 @@ chatRoutes.post('/', async (c) => {
 				});
 			}
 
-			if (signal.aborted) return;
-
-			// Store assistant response with structured tool data
-			// If no text response but tools were used, save a summary so the conversation isn't lost
-			const contentToSave =
-				fullResponse.trim() ||
-				(toolData ? `[Agent executed ${toolData.tools.length} actions]` : '');
+			// Always save the assistant response — even if the client disconnected.
+			// This prevents orphaned conversations with user messages but no response.
+			// If no text response, generate a summary from tool calls for history readability.
+			let contentToSave = fullResponse.trim();
+			if (!contentToSave && toolData) {
+				const toolSummary = toolData.tools
+					.map((t) => `${t.success ? '✓' : '✗'} ${t.name}${t.args && typeof t.args === 'object' && 'selector' in t.args ? ` (${(t.args as Record<string, unknown>).selector})` : ''}`)
+					.join('\n');
+				contentToSave = `Executed ${toolData.tools.length} actions:\n${toolSummary}`;
+			}
 			if (contentToSave) {
 				await db.insert(messages).values({
 					conversationId: convId!,
 					role: 'assistant',
 					content: contentToSave,
 					...(toolData && { toolData }),
-				});
+				}).catch((err) => console.error('[Chat] Failed to save assistant message:', err));
 			}
 
-			// Knowledge management is now agent-driven via save_knowledge/save_memory tools.
-			// No background LLM extraction calls — the agent decides what to save.
-
-			// Send done event with conversation ID
-			await onEvent({ type: 'done', conversationId: convId! });
+			// Send done event with conversation ID (only if client is still connected)
+			if (!signal.aborted) {
+				await onEvent({ type: 'done', conversationId: convId! });
+			}
 		} catch (err) {
 			if (signal.aborted) return;
 			console.error('Chat error:', err);

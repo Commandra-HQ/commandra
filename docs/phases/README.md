@@ -49,6 +49,15 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 |       |                                                    | plan always visible as checklist, inline HITL approval in messages.                                                           |         |
 | 18    | [Tab-Pinned Conversations](18-tab-pinned-conversations.md) | Conversations bound to tabs not domains, background task execution,                                                    |         |
 |       |                                                    | tab-aware tool dispatch, multi-conversation support, swarm tab management.                                                    |         |
+| 19    | [Reliability Improvements](19-reliability-improvements.md) | Screenshot tab targeting fix, plan continuity across messages, OpenAI vision for tool results,                          |         |
+|       |                                                    | codebase modularization (15 new modules), storage bucket cleanup, plan UI redesign.                                           |         |
+| 20    | [Agent Runtime Hardening](20-agent-runtime-hardening.md) | Swarm v2 (tab lifecycle, inter-agent data, named invocation), scheduler v2 (retry, alerts,                             |         |
+|       |                                                    | offline queue, jitter), agent lifecycle (auto-capture skills, approval gates, edit from chat),                                 |         |
+|       |                                                    | file I/O tools (download interception, read local files, clipboard).                                                          |         |
+| 21    | [Agent Intelligence Hardening](21-agent-intelligence-hardening.md) | Sub-agent scratchpad for data passing, approval gate on agent creation,                                        |         |
+|       |                                                    | auto-extract SKILLS.md, unified agent MEMORY.md (200-line index), run dashboard in web UI.                                    |         |
+| 22    | [Hooks System](22-hooks-system.md)                 | Deterministic lifecycle hooks for browser agents: PreToolUse (block dangerous actions),                                        |         |
+|       |                                                    | PostToolUse (auto-screenshot, logging), OnComplete (LLM-driven task verification).                                             |         |
 
 ---
 

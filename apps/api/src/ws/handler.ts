@@ -4,6 +4,7 @@ import { jwtVerify } from 'jose';
 import type { WebSocket } from 'ws';
 import { db } from '../db/index.js';
 import { sites } from '../db/schema.js';
+import { onUserReconnected } from '../agent/scheduler.js';
 import { updateSiteTotals, upsertPage } from '../routes/sites.js';
 
 interface Connection {
@@ -48,6 +49,10 @@ export function handleWsConnection(ws: WebSocket) {
 						conn.authenticated = true;
 						ws.send(JSON.stringify({ type: 'auth_result', success: true, timestamp: Date.now() }));
 						console.log(`WS authenticated: ${connectionId} (user: ${conn.userId})`);
+						// Process any queued scheduled runs for this user
+						onUserReconnected(conn.userId, connectionId).catch((err) =>
+							console.warn('[WS] Failed to process queued runs on reconnect:', err),
+						);
 					} catch {
 						ws.send(JSON.stringify({ type: 'auth_result', success: false, timestamp: Date.now() }));
 					}

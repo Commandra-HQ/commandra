@@ -20,6 +20,7 @@ import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '../ll
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
+import { writeScratchpad, readScratchpad } from '../storage/scratchpad.js';
 import { isKilled, sendActionRequest, sendApprovalRequest } from '../ws/handler.js';
 import { recordAgentRun } from './self-improve.js';
 
@@ -71,6 +72,7 @@ export async function spawnSubAgent(params: {
 	signal?: AbortSignal;
 	agentConfig?: AgentConfig;
 	depth?: number;
+	keepTab?: boolean;
 }): Promise<{ agentId: string; error?: string }> {
 	const { userId, connectionId, task, targetUrl, onEvent } = params;
 	const timeout = params.timeout ?? DEFAULT_SUBAGENT_TIMEOUT;
@@ -233,6 +235,7 @@ async function runSubAgent(params: {
 	signal?: AbortSignal;
 	agentConfig?: AgentConfig;
 	depth?: number;
+	keepTab?: boolean;
 }): Promise<void> {
 	const {
 		agentId,
@@ -257,8 +260,35 @@ async function runSubAgent(params: {
 	const provider = getProvider();
 	// Use agent's model preference, fallback to strong model
 	const model = agentConfig?.model === 'fast' ? getFastModel() : getStrongModel();
-	// Use agent's tool allowlist if specified
-	const tools = getToolDefinitions(agentConfig?.tools);
+	// Use agent's tool allowlist if specified — respects per-agent restrictions
+	const browserTools = getToolDefinitions(agentConfig?.tools);
+	// Sub-agents get scratchpad tools for inter-agent data passing
+	const scratchpadTools = [
+		{
+			name: 'write_scratchpad',
+			description: 'Write data to the shared scratchpad for other agents to read.',
+			parameters: {
+				type: 'object' as const,
+				properties: {
+					key: { type: 'string', description: 'Key name for this data' },
+					data: { type: 'string', description: 'The data to store (JSON or text)' },
+				},
+				required: ['key', 'data'],
+			},
+		},
+		{
+			name: 'read_scratchpad',
+			description: 'Read data from the shared scratchpad written by another agent.',
+			parameters: {
+				type: 'object' as const,
+				properties: {
+					key: { type: 'string', description: 'Key name of the data to read' },
+				},
+				required: ['key'],
+			},
+		},
+	];
+	const tools = [...browserTools, ...scratchpadTools];
 	const context = { connectionId, userId };
 	const actionsPerformed: string[] = [];
 
@@ -439,7 +469,44 @@ async function runSubAgent(params: {
 					}
 				}
 
-				// Execute tool — inject tabId so the extension targets the sub-agent's tab
+				// Handle internal tools (scratchpad) — these don't go through the browser tool registry
+				if (block.name === 'write_scratchpad' || block.name === 'read_scratchpad') {
+					try {
+						const convId = params.domain || agentId; // use domain or agentId as conversation scope
+						if (block.name === 'write_scratchpad') {
+							const args = block.input as { key: string; data: string };
+							let parsed: unknown;
+							try { parsed = JSON.parse(args.data); } catch { parsed = args.data; }
+							await writeScratchpad(userId, convId, args.key, parsed);
+							toolResults.push({
+								type: 'tool_result',
+								toolUseId: block.id,
+								content: JSON.stringify({ success: true, message: `Wrote "${args.key}" to scratchpad` }),
+								isError: false,
+							});
+						} else {
+							const args = block.input as { key: string };
+							const data = await readScratchpad(userId, convId, args.key);
+							toolResults.push({
+								type: 'tool_result',
+								toolUseId: block.id,
+								content: JSON.stringify({ success: true, exists: data !== null, data: data ?? '(not found)' }),
+								isError: false,
+							});
+						}
+						actionsPerformed.push(`${block.name}: ${(block.input as { key: string }).key}`);
+					} catch (err) {
+						toolResults.push({
+							type: 'tool_result',
+							toolUseId: block.id,
+							content: JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }),
+							isError: true,
+						});
+					}
+					continue;
+				}
+
+				// Execute browser tool — inject tabId so the extension targets the sub-agent's tab
 				try {
 					const argsWithTab = { ...block.input, tabId };
 					const result = await executeTool(block.name, argsWithTab, context);
@@ -539,8 +606,12 @@ async function runSubAgent(params: {
 		}
 	} finally {
 		clearTimeout(timer);
-		// Don't close the sub-agent's tab — let the user inspect it or close it manually.
-		// Tabs persist until the user closes them or requests cleanup.
+		// Close tab on success, keep open on failure for debugging
+		if (subAgent.status === 'completed' && tabId && !params.keepTab) {
+			sendActionRequest(params.connectionId, 'close_tab', { action: 'close_tab', tabId }, 5000).catch(
+				() => {},
+			);
+		}
 	}
 
 	// Record run for non-coordinator agents

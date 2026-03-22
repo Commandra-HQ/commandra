@@ -198,15 +198,17 @@ export function InlineApprovalBlock({
 	reason,
 	description,
 	steps,
+	agentPreview,
 	onApprove,
 }: {
 	requestId: string;
-	type: 'tool' | 'plan';
+	type: 'tool' | 'plan' | 'agent';
 	action?: string;
 	label?: string;
 	reason?: string;
 	description?: string;
 	steps?: string[];
+	agentPreview?: { slug: string; name: string; description: string; soul: string; domains?: string[]; cron?: string };
 	onApprove: (requestId: string, approved: boolean) => void;
 }) {
 	const [responded, setResponded] = useState<'approved' | 'rejected' | null>(null);
@@ -226,6 +228,7 @@ export function InlineApprovalBlock({
 				)}
 				{type === 'tool' && <span className="text-muted-foreground"> — {TOOL_LABELS[action || ''] || action}{label ? ` "${label}"` : ''}</span>}
 				{type === 'plan' && <span className="text-muted-foreground"> — {description}</span>}
+				{type === 'agent' && <span className="text-muted-foreground"> — Agent "{label}"</span>}
 			</div>
 		);
 	}
@@ -240,6 +243,23 @@ export function InlineApprovalBlock({
 						{label ? ` "${label}"` : ''}
 					</p>
 					{reason && <p className="text-[11px] text-muted-foreground">{reason}</p>}
+				</>
+			) : type === 'agent' ? (
+				<>
+					<p className="text-xs font-semibold text-foreground">Create Agent: {label}</p>
+					{reason && <p className="text-[11px] text-muted-foreground">{reason}</p>}
+					{agentPreview && (
+						<div className="mt-1 p-2 rounded bg-secondary/50 text-[11px] space-y-1">
+							<div><span className="text-muted-foreground">Slug:</span> <code className="font-mono">{agentPreview.slug}</code></div>
+							{agentPreview.domains?.length ? (
+								<div><span className="text-muted-foreground">Domains:</span> {agentPreview.domains.join(', ')}</div>
+							) : null}
+							{agentPreview.cron && (
+								<div><span className="text-muted-foreground">Schedule:</span> <code className="font-mono">{agentPreview.cron}</code></div>
+							)}
+							<div className="text-muted-foreground/70 line-clamp-3 whitespace-pre-wrap">{agentPreview.soul}</div>
+						</div>
+					)}
 				</>
 			) : (
 				<>
@@ -258,7 +278,7 @@ export function InlineApprovalBlock({
 					onClick={() => handleClick(true)}
 					className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
 				>
-					{type === 'plan' ? 'Approve Plan' : 'Approve'}
+					{type === 'plan' ? 'Approve Plan' : type === 'agent' ? 'Create Agent' : 'Approve'}
 				</button>
 				<button
 					onClick={() => handleClick(false)}

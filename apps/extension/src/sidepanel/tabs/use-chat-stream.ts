@@ -82,6 +82,14 @@ export function useChatStream(options: UseChatStreamOptions) {
 
 	function processSSEEvent(event: SSEEvent) {
 		switch (event.type) {
+			case 'conversation_id':
+				// Capture conversationId immediately so follow-up messages continue this conversation
+				if (event.conversationId) {
+					conversationIdRef.current = event.conversationId;
+					console.log('[ChatStream] conversation_id received:', event.conversationId);
+				}
+				break;
+
 			case 'text_delta':
 				appendText(event.text);
 				scheduleFlush();
@@ -351,11 +359,13 @@ export function useChatStream(options: UseChatStreamOptions) {
 					}
 				}
 			} catch (err) {
-				if (controller.signal.aborted) return;
-				blocksRef.current.push({
-					type: 'text',
-					content: 'Failed to get a response. Make sure the API is running.',
-				});
+				if (!controller.signal.aborted) {
+					// Only show error for non-abort errors (abort = user clicked Stop)
+					blocksRef.current.push({
+						type: 'text',
+						content: 'Failed to get a response. Make sure the API is running.',
+					});
+				}
 			} finally {
 				if (rafRef.current) {
 					cancelAnimationFrame(rafRef.current);

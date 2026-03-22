@@ -21,7 +21,7 @@ import {
   listDomainFiles,
   uploadDomainFile,
 } from '../storage/domain-files.js';
-import { saveLocalFile } from '../storage/local.js';
+import { getLocalFile, listLocalFiles, saveLocalFile } from '../storage/local.js';
 import {
   type StoredPlan,
   loadPlan,
@@ -29,6 +29,9 @@ import {
   updatePlanStep,
 } from '../storage/plan-files.js';
 import { sendApprovalRequest } from '../ws/handler.js';
+import { getFastModel, getProvider } from '../llm/index.js';
+import { collectStream } from '../llm/types.js';
+import { writeScratchpad, readScratchpad } from '../storage/scratchpad.js';
 import { createAgent, loadAgentBySlug } from './agent-registry.js';
 import { spawnSubAgent, waitForAgents } from './swarm.js';
 
@@ -46,6 +49,10 @@ export const INTERNAL_TOOL_NAMES = new Set([
   'update_agent_files',
   'submit_plan',
   'update_plan',
+  'write_scratchpad',
+  'read_scratchpad',
+  'read_local_file',
+  'list_local_files',
 ]);
 
 export interface InternalToolContext {
@@ -94,6 +101,14 @@ export async function executeInternalTool(
       return handleSubmitPlan(block, ctx);
     case 'update_plan':
       return handleUpdatePlan(block, ctx);
+    case 'write_scratchpad':
+      return handleWriteScratchpad(block, ctx);
+    case 'read_scratchpad':
+      return handleReadScratchpad(block, ctx);
+    case 'read_local_file':
+      return handleReadLocalFile(block, ctx);
+    case 'list_local_files':
+      return handleListLocalFiles(block, ctx);
     default:
       return null;
   }
@@ -275,6 +290,7 @@ async function handleSpawnAgent(
     targetUrl: string;
     agentSlug?: string;
     timeout?: number;
+    keepTab?: boolean;
   };
   try {
     let subAgentConfig: AgentConfig | undefined;
@@ -295,6 +311,7 @@ async function handleSpawnAgent(
       signal: undefined,
       agentConfig: subAgentConfig,
       depth: (ctx.depth ?? 0) + 1,
+      keepTab: args.keepTab,
     });
     return {
       type: 'tool_result',
@@ -416,6 +433,46 @@ async function handleCreateAgent(
     cron?: string;
   };
   try {
+    // Approval gate — ask user before creating an agent (skip for autonomous)
+    const autoApprove = ctx.autonomy === 'autonomous';
+    if (!autoApprove) {
+      await ctx.onEvent({
+        type: 'approval_inline',
+        requestId: `${block.id}-agent-approval`,
+        action: 'create_agent',
+        label: `Create agent "${args.name}" (${args.slug})`,
+        reason: args.description,
+        approvalType: 'agent',
+        agentPreview: {
+          slug: args.slug,
+          name: args.name,
+          description: args.description,
+          soul: args.soul.slice(0, 300),
+          domains: args.domains,
+          cron: args.cron,
+        },
+      });
+
+      const approval = await sendApprovalRequest(ctx.connectionId, {
+        type: 'agent_approval',
+        agentName: args.name,
+        agentSlug: args.slug,
+        description: args.description,
+        soul: args.soul.slice(0, 500),
+        domains: args.domains,
+        cron: args.cron,
+      });
+
+      if (!approval.approved) {
+        return successResult(block.id, {
+          success: false,
+          approved: false,
+          reason: approval.reason || 'User declined agent creation',
+          message: 'Agent creation was rejected by the user. Ask what they would like to change.',
+        });
+      }
+    }
+
     const agent = await createAgent(ctx.userId, {
       slug: args.slug,
       name: args.name,
@@ -424,6 +481,12 @@ async function handleCreateAgent(
       trigger: args.cron ? { cron: args.cron, enabled: true } : undefined,
     });
     await uploadAgentFile(ctx.userId, args.slug, 'SOUL.md', args.soul);
+
+    // Auto-extract initial SKILLS.md from the agent's purpose (fire-and-forget)
+    extractInitialSkills(ctx.userId, args.slug, args.name, args.description, args.soul).catch(
+      (err) => console.warn(`[Agent] Failed to extract initial skills for "${args.slug}":`, err),
+    );
+
     await ctx.onEvent({
       type: 'tool_start',
       toolName: 'create_agent',
@@ -440,7 +503,7 @@ async function handleCreateAgent(
       success: true,
       agentId: agent.id,
       slug: agent.slug,
-      message: `Agent "${args.name}" created with slug "${args.slug}". It has a SOUL.md. You can use update_agent_files to add SKILLS.md if needed.${args.cron ? ` Scheduled: ${args.cron}` : ''}${args.domains?.length ? ` Domains: ${args.domains.join(', ')}` : ''}`,
+      message: `Agent "${args.name}" created with slug "${args.slug}". SOUL.md saved. Initial SKILLS.md is being generated.${args.cron ? ` Scheduled: ${args.cron}` : ''}${args.domains?.length ? ` Domains: ${args.domains.join(', ')}` : ''}`,
     });
   } catch (err) {
     return errorResult(block.id, err);
@@ -488,7 +551,12 @@ async function handleSubmitPlan(
   block: ToolUseBlock,
   ctx: InternalToolContext,
 ): Promise<ToolResultBlock> {
-  const args = block.input as { description: string; steps: string[] };
+  const args = block.input as {
+    description: string;
+    context?: string;
+    references?: string[];
+    steps: (string | { label: string; instructions?: string })[];
+  };
   try {
     // Check for existing in-progress plan
     if (ctx.conversationId) {
@@ -508,7 +576,12 @@ async function handleSubmitPlan(
 
     const plan: StoredPlan = {
       description: args.description,
-      steps: args.steps.map(label => ({ label, status: 'pending' as const })),
+      context: args.context,
+      references: args.references,
+      steps: args.steps.map((s) => {
+        if (typeof s === 'string') return { label: s, status: 'pending' as const };
+        return { label: s.label, instructions: s.instructions, status: 'pending' as const };
+      }),
     };
 
     if (ctx.conversationId) {
@@ -538,7 +611,7 @@ async function handleSubmitPlan(
         label: args.description,
         reason: `Plan with ${args.steps.length} steps`,
         approvalType: 'plan',
-        planSteps: args.steps,
+        planSteps: plan.steps.map((s) => s.label),
       });
     }
 
@@ -548,7 +621,7 @@ async function handleSubmitPlan(
           type: 'plan_approval',
           planId,
           description: args.description,
-          steps: args.steps,
+          steps: plan.steps.map((s) => s.label),
         });
 
     if (approval.approved) {
@@ -680,5 +753,133 @@ async function handleUpdatePlan(
     });
   } catch (err) {
     return errorResult(block.id, err);
+  }
+}
+
+async function handleWriteScratchpad(
+  block: ToolUseBlock,
+  ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  if (!ctx.conversationId) {
+    return errorResult(block.id, 'No conversation context for scratchpad');
+  }
+  const args = block.input as { key: string; data: string };
+  try {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(args.data);
+    } catch {
+      parsed = args.data;
+    }
+    await writeScratchpad(ctx.userId, ctx.conversationId, args.key, parsed);
+    return successResult(block.id, {
+      success: true,
+      message: `Wrote "${args.key}" to scratchpad`,
+    });
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+async function handleReadScratchpad(
+  block: ToolUseBlock,
+  ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  if (!ctx.conversationId) {
+    return errorResult(block.id, 'No conversation context for scratchpad');
+  }
+  const args = block.input as { key: string };
+  try {
+    const data = await readScratchpad(ctx.userId, ctx.conversationId, args.key);
+    return successResult(block.id, {
+      success: true,
+      exists: data !== null,
+      data: data ?? '(not found)',
+    });
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+async function handleReadLocalFile(
+  block: ToolUseBlock,
+  _ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  const args = block.input as { path: string; maxBytes?: number };
+  try {
+    const result = getLocalFile(args.path);
+    if (!result) {
+      return successResult(block.id, { success: false, error: 'File not found' });
+    }
+    const maxBytes = args.maxBytes || 100_000;
+    const content = result.length > maxBytes ? result.slice(0, maxBytes) + '\n...[truncated]' : result;
+    return successResult(block.id, { success: true, content, sizeBytes: result.length });
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+async function handleListLocalFiles(
+  block: ToolUseBlock,
+  _ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  const args = block.input as { category?: string; domain?: string };
+  try {
+    const categories = args.category
+      ? [args.category as 'exports' | 'context' | 'screenshots']
+      : (['exports', 'context', 'screenshots'] as const);
+    const allFiles = categories.flatMap((cat) => listLocalFiles(cat, args.domain));
+    return successResult(block.id, { success: true, files: allFiles, count: allFiles.length });
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+/**
+ * Auto-extract initial SKILLS.md for a newly created agent.
+ * Uses the fast model to generate skills based on the agent's purpose.
+ * Fire-and-forget — doesn't block agent creation.
+ */
+async function extractInitialSkills(
+  userId: string,
+  agentSlug: string,
+  agentName: string,
+  description: string,
+  soul: string,
+): Promise<void> {
+  const provider = getProvider();
+  const model = getFastModel();
+
+  const stream = provider.chat({
+    model,
+    system: 'You are a concise agent skills writer. Output only markdown.',
+    messages: [
+      {
+        role: 'user',
+        content: `An agent called "${agentName}" was just created.
+
+Description: ${description}
+Identity (SOUL.md): ${soul}
+
+Generate an initial SKILLS.md file for this agent. Include:
+1. The key workflows this agent should be able to perform (based on its purpose)
+2. Specific steps for each workflow (be concrete — include example selectors, URLs, navigation paths where applicable)
+3. Common pitfalls or tips for the domains this agent works on
+
+Format as markdown with ## headers for each skill. Keep it under 50 lines. Be specific and actionable, not generic.`,
+      },
+    ],
+    maxTokens: 1000,
+  });
+
+  const response = await collectStream(stream);
+  const skills = response.content
+    .filter((b: { type: string }) => b.type === 'text')
+    .map((b: { type: string; text?: string }) => (b as { text: string }).text)
+    .join('');
+
+  if (skills.trim()) {
+    await uploadAgentFile(userId, agentSlug, 'SKILLS.md', `# Skills\n\n${skills}`);
+    console.log(`[Agent] Auto-extracted SKILLS.md for "${agentSlug}" (${skills.length} chars)`);
   }
 }

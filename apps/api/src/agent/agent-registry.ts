@@ -221,6 +221,7 @@ function rowToConfig(row: typeof agents.$inferSelect): AgentConfig {
 		tools: (row.tools as string[] | null) ?? undefined,
 		domains: (row.domains as string[] | null) ?? undefined,
 		trigger: (row.trigger as { cron?: string; enabled?: boolean } | null) ?? undefined,
+		hooks: (row.hooks as AgentConfig['hooks']) ?? undefined,
 		autonomy: parseAutonomy(row.autonomy),
 	};
 }
@@ -230,16 +231,22 @@ async function hydrateAgent(row: typeof agents.$inferSelect): Promise<AgentConfi
 
 	// Load agent files from Supabase Storage
 	try {
-		const [soul, skills, learnings, errors] = await Promise.all([
+		const [soul, skills, learnings, errors, memory] = await Promise.all([
 			downloadAgentFile(row.userId, row.slug, 'SOUL.md'),
 			downloadAgentFile(row.userId, row.slug, 'SKILLS.md'),
 			downloadAgentFile(row.userId, row.slug, 'LEARNINGS.md'),
 			downloadAgentFile(row.userId, row.slug, 'ERRORS.md'),
+			downloadAgentFile(row.userId, row.slug, 'MEMORY.md'),
 		]);
 		if (soul) config.soul = soul;
 		if (skills) config.skills = skills;
 		if (learnings) config.learnings = learnings;
 		if (errors) config.errors = errors;
+		if (memory) {
+			// Load first 200 lines of MEMORY.md (like Claude Code's auto-memory)
+			const lines = memory.split('\n');
+			config.memory = lines.slice(0, 200).join('\n');
+		}
 	} catch {
 		// Storage not configured or files don't exist — agent works without them
 	}

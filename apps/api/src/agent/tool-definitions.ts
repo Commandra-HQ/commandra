@@ -75,6 +75,11 @@ export function buildToolList(
           type: 'number',
           description: 'Max execution time in milliseconds (default: 60000)',
         },
+        keepTab: {
+          type: 'boolean',
+          description:
+            'Keep the tab open after completion for inspection (default: false — tabs close on success)',
+        },
       },
       required: ['task', 'targetUrl'],
     },
@@ -193,7 +198,7 @@ export function buildToolList(
   const submitPlanTool = {
     name: 'submit_plan',
     description:
-      'Submit an execution plan for user approval BEFORE executing any multi-step task (3+ steps). This is MANDATORY — you must NOT execute a plan until the user approves it. The plan will be shown to the user and you must wait for their approval or rejection.',
+      'Submit an execution plan for user approval BEFORE executing any multi-step task (3+ steps). Before creating a plan, ALWAYS gather context first: read domain knowledge, check your memory, and review past workflows. This is MANDATORY — you must NOT execute a plan until the user approves it.',
     parameters: {
       type: 'object' as const,
       properties: {
@@ -201,11 +206,35 @@ export function buildToolList(
           type: 'string',
           description: 'Brief summary of what this plan accomplishes',
         },
-        steps: {
+        context: {
+          type: 'string',
+          description:
+            'Background context for this plan — what you know about the app, relevant domain knowledge, past workflows, user preferences. This helps you and the user understand WHY each step is chosen.',
+        },
+        references: {
           type: 'array',
           items: { type: 'string' },
           description:
-            'Ordered list of steps to execute. Each should be a clear, actionable description.',
+            'Knowledge sources you consulted: domain files, workflows, past runs, user memories. E.g. ["domain/mail.google.com/WORKFLOWS.md", "agent/gmail-helper/SKILLS.md"]',
+        },
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: {
+                type: 'string',
+                description: 'What this step does (shown in the plan UI)',
+              },
+              instructions: {
+                type: 'string',
+                description:
+                  'Detailed instructions for this step — specific selectors to use, values to type, what to verify. Include any relevant knowledge from domain files.',
+              },
+            },
+            required: ['label'],
+          },
+          description: 'Ordered list of steps to execute.',
         },
       },
       required: ['description', 'steps'],
@@ -316,6 +345,84 @@ export function buildToolList(
     },
   };
 
+  const readLocalFileTool = {
+    name: 'read_local_file',
+    description:
+      'Read a file from local storage (~/.commandra/). Use to read previously saved exports, context files, or downloaded data.',
+    parameters: {
+      type: 'object' as const,
+      properties: {
+        path: {
+          type: 'string',
+          description:
+            'Path relative to ~/.commandra/ (e.g. "exports/mail.google.com/report.csv")',
+        },
+        maxBytes: {
+          type: 'number',
+          description: 'Max bytes to read (default: 100000). Use smaller values for large files.',
+        },
+      },
+      required: ['path'],
+    },
+  };
+
+  const listLocalFilesTool = {
+    name: 'list_local_files',
+    description:
+      'List files in local storage (~/.commandra/). Use to discover what exports, context files, or downloads are available.',
+    parameters: {
+      type: 'object' as const,
+      properties: {
+        category: {
+          type: 'string',
+          enum: ['exports', 'context', 'screenshots'],
+          description: 'Category of files to list (optional — lists all if omitted)',
+        },
+        domain: {
+          type: 'string',
+          description: 'Filter by domain (optional)',
+        },
+      },
+      required: [],
+    },
+  };
+
+  const writeScratchpadTool = {
+    name: 'write_scratchpad',
+    description:
+      'Write structured data to a shared scratchpad that other agents (coordinator or sub-agents) in this conversation can read. Use for passing extracted tables, parsed data, or intermediate results between agents.',
+    parameters: {
+      type: 'object' as const,
+      properties: {
+        key: {
+          type: 'string',
+          description: 'A short key name for this data (e.g. "instamart-sales", "parsed-report")',
+        },
+        data: {
+          type: 'string',
+          description: 'The data to store (JSON string, CSV text, or plain text)',
+        },
+      },
+      required: ['key', 'data'],
+    },
+  };
+
+  const readScratchpadTool = {
+    name: 'read_scratchpad',
+    description:
+      'Read data from the shared scratchpad that was written by another agent in this conversation. Use to retrieve results from sub-agents or data left by the coordinator.',
+    parameters: {
+      type: 'object' as const,
+      properties: {
+        key: {
+          type: 'string',
+          description: 'The key name of the data to read',
+        },
+      },
+      required: ['key'],
+    },
+  };
+
   return [
     ...browserTools,
     saveMemoryTool,
@@ -330,5 +437,9 @@ export function buildToolList(
     updateAgentFilesTool,
     submitPlanTool,
     updatePlanTool,
+    writeScratchpadTool,
+    readScratchpadTool,
+    readLocalFileTool,
+    listLocalFilesTool,
   ];
 }

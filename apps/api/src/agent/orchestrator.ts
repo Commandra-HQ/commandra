@@ -19,6 +19,7 @@ import { collectStream, getFastModel, getProvider, getStrongModel } from '../llm
 import { compressHistory } from '../memory/conversation.js';
 import { saveCompaction } from '../storage/compaction-files.js';
 import { isKilled } from '../ws/handler.js';
+import { evaluateOnComplete } from './hooks.js';
 import { buildSystemPrompt } from './prompts.js';
 import { buildToolList } from './tool-definitions.js';
 import { executeToolBlock, partitionToolsBySafety } from './browser-tools.js';
@@ -27,6 +28,7 @@ import {
 	estimateMessageChars,
 	MAX_INPUT_TOKENS,
 	CHARS_PER_TOKEN,
+	setMaxInputTokens,
 } from './token-budget.js';
 
 export interface OrchestratorParams {
@@ -53,6 +55,7 @@ export interface OrchestratorParams {
 	depth?: number;
 	domainKnowledge?: string;
 	tabId?: number;
+	existingPlan?: import('../storage/plan-files.js').StoredPlan | null;
 }
 
 export interface ToolCallRecord {
@@ -92,6 +95,16 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 15;
 	const provider = getProvider();
 	const model = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
+
+	// Set context limit based on provider — Anthropic supports up to 1M, OpenAI varies
+	const providerName = process.env.LLM_PROVIDER || 'anthropic';
+	if (providerName === 'anthropic') {
+		setMaxInputTokens(800_000); // Claude supports 1M, leave 200K headroom for output
+	} else if (providerName === 'openai') {
+		setMaxInputTokens(120_000); // GPT-4o supports 128K
+	} else {
+		setMaxInputTokens(200_000); // Conservative default
+	}
 	const systemPrompt = buildSystemPrompt(
 		pageIndex,
 		selectedElements,
@@ -99,6 +112,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		userMemory,
 		agentConfig,
 		domainKnowledge,
+		params.existingPlan,
 	);
 
 	const currentDepth = params.depth ?? 0;
@@ -220,8 +234,23 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			allToolCalls,
 		);
 
-		// If no tool use or end_turn, we're done
+		// If no tool use or end_turn, check OnComplete hooks before stopping
 		if (!hasToolUse || response.stopReason === 'end_turn') {
+			// OnComplete hook — verify task completion if agent has hooks configured
+			if (agentConfig.hooks?.onComplete?.length) {
+				const toolSummary = allToolCalls.map((t) => `${t.name}: ${t.success ? 'ok' : 'failed'}`).join(', ');
+				const completionCheck = await evaluateOnComplete(agentConfig.hooks, fullResponse, toolSummary);
+				if (!completionCheck.done) {
+					// Hook says task isn't done — inject feedback and continue
+					currentMessages = [
+						...currentMessages,
+						{ role: 'assistant', content: response.content },
+						{ role: 'user', content: `[Hook verification failed] ${completionCheck.reason}. Please complete the remaining work.` },
+					];
+					await onEvent({ type: 'text_delta', text: `\n\n*Verifying completion... ${completionCheck.reason}*\n\n` });
+					continue; // Go back to the loop
+				}
+			}
 			break;
 		}
 
@@ -518,7 +547,7 @@ async function processToolCalls(
 				executeToolBlock(
 					block, context, userId, connectionId, domain, onEvent,
 					provider, domainMemory, userMemory, currentDepth, conversationId,
-					agentConfig.autonomy,
+					agentConfig.autonomy, agentConfig.hooks,
 				),
 			),
 		);

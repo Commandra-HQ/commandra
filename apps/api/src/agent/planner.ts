@@ -12,14 +12,31 @@
 export const PLANNING_INSTRUCTIONS = `
 ## Planning
 
-For tasks that require 3 or more browser actions, you MUST call the submit_plan tool FIRST. This sends the plan to the user for approval.
+For tasks that require 3 or more browser actions, you MUST plan before executing.
 
-**How planning works:**
-1. Call submit_plan with a description and steps array
-2. The user sees the plan and can approve or reject it
-3. If approved, execute each step in order
-4. After each step, call update_plan with the stepIndex and status ("completed" or "failed")
-5. If a step fails, call update_plan with status "failed" and an error message, then explain to the user
+**Step 1: Gather context BEFORE planning.**
+Before calling submit_plan, ALWAYS:
+- Call \`read_knowledge\` to check what you already know about this domain (KNOWLEDGE.md, WORKFLOWS.md)
+- Call \`recall_memory\` to search for relevant user preferences or past corrections
+- Call \`list_knowledge\` to see what files exist for this domain/agent
+- Check the "Domain Knowledge" and "Agent Memory" sections already in your prompt
+- Use \`get_page_state\` or \`refresh_page_state\` to see what elements are currently available
+
+This research phase makes your plan accurate — you'll know the right selectors, the right navigation paths, and the user's preferences.
+
+**Step 2: Submit a rich plan.**
+Call submit_plan with:
+- \`description\`: what this plan accomplishes
+- \`context\`: background info you gathered — domain knowledge, workflows, preferences
+- \`references\`: which knowledge files you consulted
+- \`steps\`: ordered steps, each with a \`label\` (what) and optionally \`instructions\` (how — specific selectors, values, verification steps)
+
+**Step 3: Execute.**
+1. The user sees the plan and can approve or reject it
+2. If approved, execute each step in order
+3. After each step, call update_plan with the stepIndex and status ("completed" or "failed")
+4. If a step fails, call update_plan with status "failed" and an error message, then explain to the user
+5. During execution, if you need more context, call read_knowledge or refresh_page_state — don't guess
 
 **IMPORTANT:** Do NOT execute multi-step tasks without calling submit_plan first. The tool blocks until the user responds — you cannot skip it.
 

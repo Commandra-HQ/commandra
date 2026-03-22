@@ -2,13 +2,14 @@
  * Browser tool execution — safety classification, approval gates, and WS-routed execution.
  */
 
-import type { SSEEvent } from '@afe/shared';
+import type { AgentHooks, SSEEvent } from '@afe/shared';
 import type { ImageBlock, TextBlock, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
 import { executeTool } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { evaluatePreToolUse, evaluatePostToolUse } from './hooks.js';
 import { INTERNAL_TOOL_NAMES } from './internal-tools.js';
 
 /**
@@ -75,6 +76,7 @@ export async function handleBrowserToolCall(
 	connectionId: string,
 	onEvent: (event: SSEEvent) => Promise<void>,
 	autonomy?: 'supervised' | 'trusted' | 'autonomous',
+	hooks?: AgentHooks,
 ): Promise<ToolCallResult> {
 	const { name, input: toolArgs } = block;
 	const elementLabel = (toolArgs.description as string) || (toolArgs.selector as string) || '';
@@ -83,6 +85,16 @@ export async function handleBrowserToolCall(
 	if (isKilled(connectionId)) {
 		return {
 			data: { success: false, error: 'Agent stopped by user' },
+			isError: true,
+		};
+	}
+
+	// Agent hooks: PreToolUse — deterministic rule-based check before safety classification
+	const hookCheck = evaluatePreToolUse(hooks, name, toolArgs as Record<string, unknown>);
+	if (!hookCheck.allowed) {
+		await onEvent({ type: 'blocked', toolName: name, reason: hookCheck.reason || 'Blocked by agent hook' });
+		return {
+			data: { success: false, error: `Hook blocked: ${hookCheck.reason}` },
 			isError: true,
 		};
 	}
@@ -249,6 +261,12 @@ export async function handleBrowserToolCall(
 			error: toolSucceeded ? undefined : (resultData?.error as string) || 'Action failed',
 		});
 
+		// Agent hooks: PostToolUse — side effects after execution
+		const postHook = evaluatePostToolUse(hooks, name, toolArgs as Record<string, unknown>);
+		for (const msg of postHook.logMessages) {
+			console.log(`[Hooks] PostToolUse log: ${msg}`);
+		}
+
 		return { data: enrichedResult, isError: !toolSucceeded };
 	} catch (err) {
 		const errorMsg = err instanceof Error ? err.message : String(err);
@@ -289,6 +307,7 @@ export async function executeToolBlock(
 	depth?: number,
 	conversationId?: string,
 	autonomy?: 'supervised' | 'trusted' | 'autonomous',
+	hooks?: AgentHooks,
 ): Promise<ToolResultBlock> {
 	// Try internal tools first
 	const { executeInternalTool } = await import('./internal-tools.js');
@@ -306,7 +325,7 @@ export async function executeToolBlock(
 	if (internalResult) return internalResult;
 
 	// Browser tool — classify, approve, execute
-	const result = await handleBrowserToolCall(block, context, userId, connectionId, onEvent, autonomy);
+	const result = await handleBrowserToolCall(block, context, userId, connectionId, onEvent, autonomy, hooks);
 
 	// Build tool result content — save screenshots to disk, keep compressed version for LLM
 	let toolContent: string | (TextBlock | ImageBlock)[];
