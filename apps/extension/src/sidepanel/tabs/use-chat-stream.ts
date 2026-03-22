@@ -359,11 +359,13 @@ export function useChatStream(options: UseChatStreamOptions) {
 					}
 				}
 			} catch (err) {
-				if (controller.signal.aborted) return;
-				blocksRef.current.push({
-					type: 'text',
-					content: 'Failed to get a response. Make sure the API is running.',
-				});
+				if (!controller.signal.aborted) {
+					// Only show error for non-abort errors (abort = user clicked Stop)
+					blocksRef.current.push({
+						type: 'text',
+						content: 'Failed to get a response. Make sure the API is running.',
+					});
+				}
 			} finally {
 				if (rafRef.current) {
 					cancelAnimationFrame(rafRef.current);
