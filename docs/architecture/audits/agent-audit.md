@@ -1,15 +1,17 @@
 # Agent Architecture Audit — Commandra vs Claude Code Best Practices
 
 > Audit of our agent/sub-agent/memory/scheduler system against Claude's official patterns for building production agent systems.
+> Updated post Phase 23 — most items resolved.
 
 ---
 
 ## Executive Summary
 
-Audit conducted against Claude Code's sub-agent, agent teams, hooks, and memory docs. Phase 21 addressed the highest-priority items. Remaining gaps are tracked for Phase 22-23.
+Audit conducted against Claude Code's sub-agent, agent teams, hooks, and memory docs. Phases 19-23 addressed the critical and high-priority items. The system is now ~85% aligned with Claude Code's patterns.
 
-### Fixed (Phase 19-21)
-- Per-agent tool restrictions — already working, verified
+### Fixed (Phases 19-23)
+
+- Per-agent tool restrictions — agents respect `tools` allowlist
 - Approval gate on agent creation — same pattern as plan approval
 - Auto-extract SKILLS.md on creation — fast model generates skills from purpose
 - Unified agent MEMORY.md — 200-line index loaded into prompt, written by self-improve
@@ -17,212 +19,196 @@ Audit conducted against Claude Code's sub-agent, agent teams, hooks, and memory 
 - Inter-agent data passing — scratchpad tools for sub-agents
 - Screenshot tab targeting — captures correct tab when user switches
 - Plan continuity — existing plans loaded into system prompt on follow-up messages
-- OpenAI vision — images extracted from tool results for proper vision processing
+- OpenAI vision — images extracted from tool results, S3 URLs used
 - Scheduler resilience — dedup, retry 3x, alerts, offline queue, jitter
+- Hooks system — PreToolUse (block), PostToolUse (log), OnComplete (LLM verify)
+- Self-improvement for ALL conversations — coordinator included (Phase 23a)
+- Screenshots to S3 — signed URLs, no inline base64 (Phase 23b)
+- Auto domain agent suggestions — AGENT_HINT.md after 3+ interactions (Phase 23c)
+- S3 browsing tool — agents freely discover their files (Phase 23d)
+- file_url support — both Anthropic and OpenAI use S3 URLs (Phase 23e)
+- Configurable constants — thinking budget, depth, concurrency, LLM config all per-agent
+- Domain-specific autonomy — different autonomy per domain
+- Context-aware planning — agents gather knowledge before planning
 
-### Remaining Gaps (Phase 22-23)
-1. **No hooks/lifecycle system** — no way to run deterministic validation before/after tool execution
-2. **Sub-agent resumption** — can't continue a sub-agent's work, must re-spawn fresh
-3. **Per-agent permissions** — autonomy field exists but sub-agents don't enforce it independently
-4. **Agent export/import** — agents live in S3, not version-controllable on disk
+### Remaining (deferred — low priority)
+
+1. Sub-agent resumption — can't continue, must re-spawn fresh
+2. Agent export/import to disk — for version control/sharing
+3. Memory scoping (user/project/local) — all global to user
+4. Dynamic tool registration — agents can't define custom tools
+5. Prompt cache strategy — always ephemeral
 
 ---
 
-## 1. Sub-Agents: Are they truly sub-agents?
+## 1. Sub-Agents
 
-### What Claude Code does (the gold standard)
+### What Claude Code does
 
-- Each sub-agent runs in **its own context window** with a **custom system prompt**
-- Sub-agents have **specific tool access** — you can restrict what tools they can use
-- Sub-agents have **independent permissions** — read-only, write-enabled, or bypassed
-- Sub-agents have **persistent memory** — they can accumulate learnings across sessions
-- Sub-agents **cannot spawn other sub-agents** (prevents infinite nesting)
-- Sub-agents can be **resumed** — continue where they left off with full history
-- Sub-agents support **hooks** — pre/post tool validation scoped to that agent
-- The parent receives only a **summary**, keeping its context clean
+- Own context window + custom system prompt
+- Per-agent tool restrictions + independent permissions
+- Persistent memory across sessions
+- Cannot spawn other sub-agents (depth gated)
+- Resumable — continue where left off
+- Lifecycle hooks scoped to agent
 
-### What Commandra does (post Phase 21)
+### What Commandra does (post Phase 23)
 
-- Sub-agents run `runSubAgent()` in `swarm.ts` — own context window with custom system prompt
-- Custom system prompt via `buildSubAgentPrompt()` (SOUL.md + SKILLS.md + LEARNINGS.md + ERRORS.md + domain memory)
-- **Tool restrictions respected** — `getToolDefinitions(agentConfig?.tools)` filters browser tools per agent
-- **Scratchpad tools** — `write_scratchpad`/`read_scratchpad` for inter-agent structured data passing
-- **MEMORY.md loaded** — agent's accumulated notes injected into prompt (first 200 lines)
-- Depth gated: spawn_agent excluded at depth >= 2
-- Cannot be resumed — each spawn is fresh
-- No hooks — no pre/post validation
+- Own context window + custom system prompt (SOUL + SKILLS + LEARNINGS + ERRORS + MEMORY)
+- **Tool restrictions** — `getToolDefinitions(agentConfig?.tools)` filters per agent
+- **Scratchpad** — `write_scratchpad`/`read_scratchpad` for structured data passing
+- **MEMORY.md** — loaded into prompt, written by self-improve
+- **Configurable depth** — `agentConfig.limits?.maxDepth` (default 2)
+- **Configurable concurrency** — `agentConfig.limits?.maxConcurrentSubAgents`
+- **Domain autonomy** — `agentConfig.domainAutonomy` per domain
+- **Hooks** — PreToolUse/PostToolUse/OnComplete evaluated for sub-agents
 - Tabs close on success, stay open on failure
-- Results come back as `summary` + `actionsPerformed` (good)
+- Cannot be resumed — each spawn is fresh
 
-### Gaps (remaining)
-
-| Claude Code Pattern             | Commandra Status           | Impact                                                                          |
-| ------------------------------- | -------------------------- | ------------------------------------------------------------------------------- |
-| **Per-agent tool restrictions** | Done (Phase 21a)           | Agents respect `tools` allowlist from DB                                        |
-| **Per-agent permissions**       | Partial                    | `autonomy` field exists but sub-agents don't enforce it independently            |
-| **Persistent sub-agent memory** | Done (Phase 21d)           | MEMORY.md loaded + written by self-improve loop                                 |
-| **Sub-agent resumption**        | Missing                    | Can't continue a sub-agent's work. Must re-spawn from scratch                   |
-| **Tool-level hooks**            | Missing                    | No deterministic pre/post validation on tool use                                |
-| **Scratchpad**                  | Done (Phase 20a + 21a)     | Sub-agents have scratchpad tools for data passing                               |
-| **Tab lifecycle**               | Done (Phase 20a)           | Tabs close on success, stay open on failure                                     |
-
-### Recommended Fixes
-
-1. **Add `tools` allowlist to AgentConfig** — when spawning with `agentSlug`, use the agent's `tools` array to restrict what the sub-agent can access. Already in schema (`agents.tools`), just not enforced in `runSubAgent`.
-
-2. **Add `permissionMode` to AgentConfig** — `'readonly' | 'supervised' | 'trusted' | 'autonomous'`. Sub-agents respect this independently.
-
-3. **Sub-agent memory persistence** — after a sub-agent completes, run `analyzeAndImprove()` on its transcript (already done for non-coordinator agents). But also: load the agent's SKILLS.md + LEARNINGS.md into the sub-agent's system prompt at spawn time (partially done, needs hardening).
-
-4. **Sub-agent resumption** — store sub-agent conversation history in S3 (`agents/{userId}/sessions/{agentId}.jsonl`). Allow `spawn_agent` with `resumeId` to continue from where it left off.
+| Claude Code Pattern         | Status                    |
+| --------------------------- | ------------------------- |
+| Per-agent tool restrictions | **Done**                  |
+| Per-agent permissions       | **Done** (domainAutonomy) |
+| Persistent sub-agent memory | **Done** (MEMORY.md)      |
+| Sub-agent resumption        | Not done                  |
+| Tool-level hooks            | **Done** (Phase 22)       |
+| Inter-agent data            | **Done** (scratchpad)     |
+| Tab lifecycle               | **Done**                  |
 
 ---
 
-## 2. Memory: Fragmented across 4 systems
+## 2. Memory
 
-### What Claude Code does
+### What Commandra has (post Phase 23)
 
-- **CLAUDE.md** — project-level instructions, loaded every session, version-controlled
-- **Auto memory** — Claude writes notes to `~/.claude/projects/{project}/memory/`. MEMORY.md index (200 lines) loaded at start, topic files loaded on demand
-- **Subagent memory** — each subagent has its own persistent memory directory
-- **Rules** — `.claude/rules/*.md` files with path-scoped instructions
+| System                   | Storage                                      | Loaded when                | Written by                         |
+| ------------------------ | -------------------------------------------- | -------------------------- | ---------------------------------- |
+| **Domain knowledge**     | S3: `domains/{userId}/{domain}/`             | Chat route                 | Agent tools + self-improve         |
+| **User memory**          | Postgres `user_memory`                       | Chat route                 | Agent `save_memory` tool           |
+| **Agent files**          | S3: `{userId}/{slug}/` (incl. \_coordinator) | Agent registry             | Self-improve loop (ALL agents now) |
+| **Agent MEMORY.md**      | S3: `{userId}/{slug}/MEMORY.md`              | Agent registry (200 lines) | Self-improve loop                  |
+| **Conversation history** | Postgres `messages` + `tool_data`            | Chat route                 | Orchestrator                       |
+| **Plans**                | S3: `{userId}/plans/{convId}/PLAN.md`        | Chat route                 | Plan tools                         |
+| **Screenshots**          | S3: `{userId}/screenshots/{id}.jpg`          | N/A (URL reference)        | Screenshot tool                    |
+| **Scratchpad**           | S3: `{userId}/scratchpad/{convId}/`          | Agent tools                | Scratchpad tools                   |
 
-Key insight: **one memory system per scope**, with a clear index file and on-demand loading.
-
-### What Commandra does
-
-We have **5 separate memory systems** that don't talk to each other:
-
-| System                   | Storage                                                                      | Loaded when                             | Written by                          |
-| ------------------------ | ---------------------------------------------------------------------------- | --------------------------------------- | ----------------------------------- |
-| **Domain knowledge**     | S3: `domains/{userId}/{domain}/KNOWLEDGE.md`, `WORKFLOWS.md`, `MEMORY.md`    | Chat route loads for the current domain | Agent via `save_knowledge` tool     |
-| **User memory**          | Postgres `user_memory` table                                                 | Chat route loads matching memories      | Agent via `save_memory` tool        |
-| **Agent files**          | S3: `{userId}/{agentSlug}/SOUL.md`, `SKILLS.md`, `LEARNINGS.md`, `ERRORS.md` | Agent registry hydrates on resolve      | Self-improvement loop (post-run)    |
-| **Conversation history** | Postgres `messages` table + `messages.tool_data`                             | Chat route loads for conversationId     | Orchestrator saves after each turn  |
-| **Plans**                | S3: `{userId}/plans/{convId}/PLAN.md`                                        | Chat route loads (just added Phase 19)  | `submit_plan` / `update_plan` tools |
-
-### Gaps (remaining)
-
-| Claude Code Pattern                           | Commandra Status       | Impact                                                                                     |
-| --------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
-| **Unified MEMORY.md index**                   | Done (Phase 21d)       | Each agent has MEMORY.md, first 200 lines loaded into prompt, written by self-improve      |
-| **On-demand loading**                         | Partially done         | Domain knowledge loaded for current domain. Cross-agent knowledge not yet accessible       |
-| **Memory scoping** (user/project/local)       | Missing                | All memory is global to the user. No project/team scoping                                  |
-| **Auto-memory** (Claude writes its own notes) | Done (Phase 21d)       | MEMORY.md updated after every meaningful run via self-improve loop                         |
-| **Memory size management**                    | Done                   | SOFT_CAP/HARD_CAP consolidation applies to MEMORY.md (same as SKILLS.md)                  |
-
-### Remaining Fixes
-
-1. **Cross-agent knowledge access** — when the coordinator invokes a sub-agent, include domain knowledge for the target domain. Partially done in `buildSubAgentPrompt`, but could be more thorough.
-
-2. **Memory scoping** — consider user/project/org scopes for memory, mirroring Claude Code's user/project/local pattern.
+| Claude Code Pattern     | Status                                      |
+| ----------------------- | ------------------------------------------- |
+| Unified MEMORY.md index | **Done**                                    |
+| On-demand loading       | **Done** (domain + agent files)             |
+| Auto-memory             | **Done** (self-improve writes to MEMORY.md) |
+| Memory size management  | **Done** (consolidation caps, configurable) |
+| Memory scoping          | Not done (all global to user)               |
 
 ---
 
-## 3. Hooks: Implemented (Phase 22)
+## 3. Hooks — Done (Phase 22)
 
-### What Commandra now has
+Three hook types, stored in `agents.hooks` JSONB, per-agent configurable:
 
-Hooks system built in Phase 22 with three hook types:
+- **PreToolUse** — rule-based pattern matching (tool name, label regex, URL regex). Zero latency.
+- **PostToolUse** — side effects (logging). Zero latency.
+- **OnComplete** — LLM-driven verification. Fast model yes/no check. ~1s latency.
 
-- **PreToolUse** — rule-based pattern matching before tool execution. Blocks actions matching tool name, label regex, or URL regex. Zero latency. Example: "never click anything labeled 'delete' on this app."
-- **PostToolUse** — side effects after tool execution. Logging, auto-screenshot triggers. Zero latency.
-- **OnComplete** — LLM-driven verification when agent finishes. Fast model checks if task was actually completed. ~1s latency. Example: "verify the report was downloaded."
-
-Hooks are stored in `agents.hooks` JSONB column, per-agent configurable. Evaluated in `apps/api/src/agent/hooks.ts`. Wired into `browser-tools.ts` (pre/post), `orchestrator.ts` (OnComplete), and available to sub-agents.
-
-### Differences from Claude Code
-
-| Claude Code | Commandra |
-|---|---|
-| Shell commands | Rule-based + LLM-driven (browser context, no shell) |
-| 16+ event types | 3 event types (PreToolUse, PostToolUse, OnComplete) |
-| File-based config | JSONB in agents table |
-| Prompt-based and agent-based hooks | LLM-check (OnComplete only) |
-
-Sufficient for our use case. Additional event types can be added as needed.
+| Claude Code       | Commandra               |
+| ----------------- | ----------------------- |
+| Shell commands    | Rule-based + LLM-driven |
+| 16+ event types   | 3 event types           |
+| File-based config | JSONB in agents table   |
 
 ---
 
-## 4. Chat→Agent: Too Implicit, No Skill Extraction
+## 4. Chat → Agent — Done (Phases 21-23)
 
-### What Claude Code does
+- **Approval gate** on `create_agent` with UI preview card
+- **Auto-extract SKILLS.md** from agent's purpose via fast model
+- **Auto-suggest domain agents** after 3+ coordinator interactions (AGENT_HINT.md)
+- **Self-improvement for coordinator** — \_coordinator gets SKILLS/LEARNINGS/ERRORS/MEMORY just like named agents
 
-- Sub-agents are **defined as Markdown files** with YAML frontmatter — explicit, version-controlled, reviewable
-- Creating a sub-agent is a **deliberate act** (via `/agents` command or manually creating a file)
-- Sub-agents have **skills** — preloaded knowledge injected at startup
-- Sub-agents have **persistent memory** — they accumulate knowledge across sessions
-
-### What Commandra does (post Phase 21)
-
-- `create_agent` tool requires **user approval** (approval_inline event with preview card) unless autonomous
-- SOUL.md written immediately, **SKILLS.md auto-extracted** from agent's purpose via fast model (fire-and-forget)
-- Agent files live in S3 — not yet version-controllable on disk
-
-### Remaining Fixes
-
-1. **Agent-as-files on disk** — optional export: `commandra export-agent invoice-checker` → writes files to disk for version control. Import: `commandra import-agent ./invoice-checker/`. This enables sharing and collaboration.
+| Claude Code Pattern         | Status                              |
+| --------------------------- | ----------------------------------- |
+| Deliberate agent creation   | **Done** (approval gate)            |
+| Skills preloaded at startup | **Done** (auto-extracted, hydrated) |
+| Persistent memory           | **Done** (MEMORY.md)                |
+| Agent export/import         | Not done                            |
 
 ---
 
-## 5. Scheduler: Good Foundation, Missing Observability
+## 5. Scheduler — Done (Phases 20-21)
 
-### What Claude Code does (Agent Teams, not scheduler)
-
-- Agent teams have a **shared task list** — agents claim and complete tasks
-- Teams have **TeammateIdle** and **TaskCompleted** hooks — enforce quality gates
-- Lead agent can **require plan approval** before teammates implement
-- Communication is **bidirectional** — teammates message each other
-
-### What Commandra does (post Phase 20-21)
-
-- Scheduler v2: dedup, retry 3x with backoff, offline queue, jitter, alert webhooks (Phase 20)
-- **Run dashboard** — agent card shows last 10 runs with status/duration/tools/errors (Phase 21e)
-- Extension notifications for scheduled runs (`scheduled_agent_start`/`scheduled_agent_end` events)
-
-### Remaining Fixes
-
-1. **Quality gates** — after a scheduled run completes, optionally run a verification step (like Claude's `Stop` hook): "Did the agent actually download the report?"
-
-2. **Run notifications in extension** — toast notifications in the side panel could be more prominent.
+- Scheduler v2: dedup, retry 3x with backoff, offline queue, jitter, alert webhooks
+- Run dashboard in web UI
+- Configurable retry policy via `agentConfig.limits`
+- OnComplete hooks serve as quality gates
 
 ---
 
-## Remaining Work
+## 6. Configuration — Done (Phase 23)
 
-| Fix                           | Impact | Effort | Target Phase | Status       |
-| ----------------------------- | ------ | ------ | ------------ | ------------ |
-| Pre/PostToolUse hooks         | High   | High   | 22           | Done         |
-| OnComplete hooks (LLM-driven) | High   | Medium | 22           | Done         |
-| Quality gates (Stop hooks)    | Medium | Medium | 22           | Done (OnComplete) |
-| Sub-agent resumption          | Medium | High   | 23           | Future       |
-| Per-agent permissions         | Medium | Medium | 23           | Future       |
-| Agent export/import to disk   | Low    | Medium | 23           | Future       |
-| Cross-agent knowledge access  | Medium | Medium | 23           | Future       |
-| Memory scoping (user/project) | Low    | Medium | 23           | Future       |
+All previously hardcoded constants now configurable per agent:
+
+```typescript
+AgentConfig {
+  llm?: {
+    temperature?: number;
+    topP?: number;
+    maxOutputTokens?: number;    // was hardcoded 8000
+    thinkingBudget?: number;     // was hardcoded 4000
+    thinkingEnabled?: boolean;   // was always on
+  };
+  limits?: {
+    maxConcurrentSubAgents?: number;  // was hardcoded 3
+    maxDepth?: number;                // was hardcoded 2
+    maxRetries?: number;              // was hardcoded 3
+    retryDelays?: number[];           // was hardcoded [5m, 15m, 60m]
+    selfImproveCap?: number;          // was hardcoded 40
+  };
+  domainAutonomy?: Record<string, AgentAutonomy>;  // per-domain overrides
+}
+```
 
 ---
 
-## Summary (updated post Phase 19-21)
+## Remaining Work (low priority, deferred)
 
-**What we do well:**
+| Item                      | Impact | Effort | Why deferred                                       |
+| ------------------------- | ------ | ------ | -------------------------------------------------- |
+| Sub-agent resumption      | Medium | High   | Rare use case, 2-min timeout covers most workflows |
+| Agent export/import       | Low    | Medium | No marketplace or sharing mechanism yet            |
+| Memory scoping            | Low    | Medium | Single-user product, teams not built yet           |
+| Dynamic tool registration | Low    | High   | Static tools cover all browser actions             |
+| Prompt cache strategy     | Low    | Low    | Cost optimization, not functionality               |
 
-- File-based agent identity (SOUL.md, SKILLS.md, MEMORY.md) — correct pattern, mirrors Claude Code
-- Self-improvement loop — agents learn from every run, write to MEMORY.md
-- Auto-extract SKILLS.md on creation — agents born with skills, not cold
-- Approval gate on agent creation — user confirms before agent is created
-- Domain knowledge per-website — agents know the apps they work on
-- Plan system with continuity — plans persist across messages, loaded into system prompt
-- Scheduled execution with retry/alerts/queue — production-grade scheduler
-- Tab-pinned conversations — agents work on the right tab, screenshots capture correct tab
-- Inter-agent data passing — scratchpad tools for structured data between coordinator and sub-agents
-- Per-agent tool restrictions — agents respect their tool allowlist
-- Run observability — dashboard shows run history with status/duration/errors
-- OpenAI vision — screenshots properly passed as images, not serialized base64
+---
 
-**What we're missing (Phase 23+):**
+## Summary (post Phase 23)
 
-- Sub-agents can't be resumed — must re-spawn fresh each time
-- Per-agent permissions not enforced independently on sub-agents
-- Agents not exportable to disk for version control/sharing
-- Memory not scoped to projects/teams (all global to user)
+**What we do well (aligned with Claude Code):**
+
+- File-based agent identity (SOUL.md, SKILLS.md, MEMORY.md)
+- Self-improvement for ALL conversations (coordinator included)
+- Auto-extract SKILLS.md on creation — agents born with skills
+- Approval gate on agent creation
+- Domain knowledge per-website with CRITICAL enforcement
+- Context-aware planning (gather knowledge → plan → execute)
+- Plan continuity across messages
+- Screenshots in S3 with signed URLs (no inline base64)
+- file_url support for both Anthropic and OpenAI
+- Hooks system (PreToolUse, PostToolUse, OnComplete)
+- Scheduled execution with retry/alerts/queue
+- Tab-pinned conversations
+- Inter-agent data passing (scratchpad)
+- Per-agent tool restrictions + domain-specific autonomy
+- Configurable LLM params (thinking, temperature, output tokens)
+- Configurable limits (depth, concurrency, retry, self-improve caps)
+- Run observability in dashboard
+- S3 browsing tool for agents
+- Auto domain agent suggestions after repeated use
+
+**What we're missing (low priority):**
+
+- Sub-agent resumption
+- Agent export/import to disk
+- Memory scoping (user/project/local)
+- Dynamic tool registration
+- Prompt cache tuning
