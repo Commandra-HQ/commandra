@@ -53,6 +53,7 @@ export const INTERNAL_TOOL_NAMES = new Set([
   'read_scratchpad',
   'read_local_file',
   'list_local_files',
+  'browse_storage',
 ]);
 
 export interface InternalToolContext {
@@ -109,6 +110,8 @@ export async function executeInternalTool(
       return handleReadLocalFile(block, ctx);
     case 'list_local_files':
       return handleListLocalFiles(block, ctx);
+    case 'browse_storage':
+      return handleBrowseStorage(block, ctx);
     default:
       return null;
   }
@@ -881,5 +884,40 @@ Format as markdown with ## headers for each skill. Keep it under 50 lines. Be sp
   if (skills.trim()) {
     await uploadAgentFile(userId, agentSlug, 'SKILLS.md', `# Skills\n\n${skills}`);
     console.log(`[Agent] Auto-extracted SKILLS.md for "${agentSlug}" (${skills.length} chars)`);
+  }
+}
+
+async function handleBrowseStorage(
+  block: ToolUseBlock,
+  ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  const args = block.input as { path?: string };
+  try {
+    const { getSupabase } = await import('../storage/supabase.js');
+    const supabase = getSupabase();
+    const prefix = args.path || '';
+
+    const { data, error } = await supabase.storage.from('agents').list(prefix, {
+      limit: 100,
+      sortBy: { column: 'updated_at', order: 'desc' },
+    });
+
+    if (error) throw error;
+
+    const items = (data || []).map((f) => ({
+      name: f.name,
+      isFolder: !f.id, // Folders have null id
+      size: f.metadata?.size,
+      updatedAt: f.updated_at,
+    }));
+
+    return successResult(block.id, {
+      success: true,
+      path: prefix || '(root)',
+      items,
+      count: items.length,
+    });
+  } catch (err) {
+    return errorResult(block.id, err);
   }
 }

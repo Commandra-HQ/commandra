@@ -84,7 +84,8 @@ export const messages = pgTable('messages', {
 	content: text('content').notNull(),
 	/** Structured tool call data (tool names, args, results) for multi-turn context */
 	toolData: jsonb('tool_data').$type<{
-		tools: { name: string; args: unknown; result: unknown; success: boolean }[];
+		tools?: { name: string; args: unknown; result: unknown; success: boolean }[];
+		streamBlocks?: { type: string; content?: string; toolName?: string; ts: number }[];
 	}>(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
@@ -144,6 +145,9 @@ export const agents = pgTable('agents', {
 	domains: jsonb('domains').$type<string[]>(),
 	trigger: jsonb('trigger').$type<{ cron?: string; enabled?: boolean; alertWebhook?: string }>(),
 	hooks: jsonb('hooks').$type<import('@afe/shared').AgentHooks>(),
+	llmConfig: jsonb('llm_config').$type<import('@afe/shared').AgentLLMConfig>(),
+	limits: jsonb('limits').$type<import('@afe/shared').AgentLimits>(),
+	domainAutonomy: jsonb('domain_autonomy').$type<Record<string, import('@afe/shared').AgentAutonomy>>(),
 	autonomy: text('autonomy').default('supervised'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),

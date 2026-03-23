@@ -246,13 +246,14 @@ function toResponsesInput(
             // Extract text parts for function output, images separately
             const textParts: string[] = [];
             for (const sub of toolResult.content) {
-              const subBlock = sub as { type: string; text?: string; data?: string; mediaType?: string };
+              const subBlock = sub as { type: string; text?: string; data?: string; mediaType?: string; url?: string };
               if (subBlock.type === 'text' && subBlock.text) {
                 textParts.push(subBlock.text);
-              } else if (subBlock.type === 'image' && subBlock.data) {
+              } else if (subBlock.type === 'image' && (subBlock.url || subBlock.data)) {
+                const imgUrl = subBlock.url || `data:${subBlock.mediaType || 'image/jpeg'};base64,${subBlock.data}`;
                 toolResultImages.push({
                   type: 'input_image',
-                  image_url: `data:${subBlock.mediaType || 'image/jpeg'};base64,${subBlock.data}`,
+                  image_url: imgUrl,
                   detail: 'auto',
                 });
               }
@@ -289,9 +290,10 @@ function toResponsesInput(
           if (block.type === 'text') {
             contentParts.push({ type: 'input_text', text: block.text });
           } else if (block.type === 'image') {
+            const imgUrl = (block as { url?: string }).url || `data:${block.mediaType};base64,${block.data}`;
             contentParts.push({
               type: 'input_image',
-              image_url: `data:${block.mediaType};base64,${block.data}`,
+              image_url: imgUrl,
               detail: 'auto',
             });
           }

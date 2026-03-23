@@ -24,8 +24,9 @@ import { writeScratchpad, readScratchpad } from '../storage/scratchpad.js';
 import { isKilled, sendActionRequest, sendApprovalRequest } from '../ws/handler.js';
 import { recordAgentRun } from './self-improve.js';
 
-const MAX_CONCURRENT_SUBAGENTS = 3;
-const MAX_SUBAGENT_ITERATIONS = 10;
+// Defaults — overrideable per agent via agentConfig.limits
+const DEFAULT_MAX_CONCURRENT = 3;
+const DEFAULT_MAX_ITERATIONS = 10;
 const DEFAULT_SUBAGENT_TIMEOUT = 120_000; // 2 minutes
 
 interface SubAgent {
@@ -79,10 +80,10 @@ export async function spawnSubAgent(params: {
 	const userAgents = getUserSubAgents(userId);
 
 	const runningCount = [...userAgents.values()].filter((a) => a.status === 'running').length;
-	if (runningCount >= MAX_CONCURRENT_SUBAGENTS) {
+	if (runningCount >= DEFAULT_MAX_CONCURRENT) {
 		return {
 			agentId: '',
-			error: `Maximum ${MAX_CONCURRENT_SUBAGENTS} concurrent sub-agents. Wait for existing agents to complete.`,
+			error: `Maximum ${DEFAULT_MAX_CONCURRENT} concurrent sub-agents. Wait for existing agents to complete.`,
 		};
 	}
 
@@ -361,7 +362,8 @@ async function runSubAgent(params: {
 		: timeoutController.signal;
 
 	try {
-		while (iterations < MAX_SUBAGENT_ITERATIONS) {
+		const maxIter = agentConfig?.limits?.maxConcurrentSubAgents ?? agentConfig?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+		while (iterations < maxIter) {
 			if (isKilled(connectionId) || combinedSignal.aborted) break;
 
 			iterations++;

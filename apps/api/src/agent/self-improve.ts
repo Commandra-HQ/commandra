@@ -17,9 +17,10 @@ import { downloadDomainFile, uploadDomainFile } from '../storage/domain-files.js
 import { writeRunLog } from '../storage/run-files.js';
 import type { ToolCallRecord } from './orchestrator.js';
 
-const SOFT_CAP = 40; // Trigger consolidation
-const HARD_CAP = 60; // Force-trim oldest before append
-const TARGET = 30; // Post-consolidation target
+// Defaults — overrideable per agent via agentConfig.limits.selfImproveCap
+const DEFAULT_SOFT_CAP = 40; // Trigger consolidation
+const DEFAULT_HARD_CAP = 60; // Force-trim oldest before append
+const DEFAULT_TARGET = 30; // Post-consolidation target
 
 /**
  * Insert a row into the agent_runs table.
@@ -115,7 +116,7 @@ async function consolidateFile(
 			messages: [
 				{
 					role: 'user',
-					content: `Merge these ${entries.length} entries into the ${TARGET} most valuable. Remove duplicates, merge overlapping entries, drop outdated ones. Keep the most specific and actionable entries.\n\nEntries:\n${entries.join('\n')}`,
+					content: `Merge these ${entries.length} entries into the ${DEFAULT_TARGET} most valuable. Remove duplicates, merge overlapping entries, drop outdated ones. Keep the most specific and actionable entries.\n\nEntries:\n${entries.join('\n')}`,
 				},
 			],
 			maxTokens: 2000,
@@ -130,7 +131,7 @@ async function consolidateFile(
 		const consolidated = text
 			.split('\n')
 			.filter((l) => l.trim().startsWith('- '))
-			.slice(0, TARGET);
+			.slice(0, DEFAULT_TARGET);
 
 		if (consolidated.length === 0) return;
 
@@ -349,14 +350,14 @@ async function appendToAgentFile(
 	const allEntries = [...existingEntries, ...dedupedNewLines];
 
 	// Check if consolidation is needed
-	if (allEntries.length > SOFT_CAP) {
+	if (allEntries.length > DEFAULT_SOFT_CAP) {
 		await consolidateFile(userId, agentSlug, filename, allEntries);
 		return;
 	}
 
 	// Hard cap: drop oldest entries if too many
 	const trimmedEntries =
-		allEntries.length > HARD_CAP ? allEntries.slice(allEntries.length - HARD_CAP) : allEntries;
+		allEntries.length > DEFAULT_HARD_CAP ? allEntries.slice(allEntries.length - DEFAULT_HARD_CAP) : allEntries;
 
 	const header = `# ${filename.replace('.md', '')}`;
 	const updated = `${header}\n\n${trimmedEntries.join('\n')}\n`;

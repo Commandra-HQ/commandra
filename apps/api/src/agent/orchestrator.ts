@@ -63,7 +63,9 @@ export interface ToolCallRecord {
 	args: unknown;
 	result: unknown;
 	success: boolean;
+	durationMs?: number;
 }
+
 
 export interface OrchestratorResult {
 	response: string;
@@ -92,18 +94,18 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		domainKnowledge,
 	} = params;
 
-	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 15;
+	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 100;
 	const provider = getProvider();
 	const model = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
 
-	// Set context limit based on provider — Anthropic supports up to 1M, OpenAI varies
+	// Set context limit based on provider — higher limits = fewer compactions = better multi-step tasks
 	const providerName = process.env.LLM_PROVIDER || 'anthropic';
 	if (providerName === 'anthropic') {
 		setMaxInputTokens(800_000); // Claude supports 1M, leave 200K headroom for output
 	} else if (providerName === 'openai') {
-		setMaxInputTokens(120_000); // GPT-4o supports 128K
+		setMaxInputTokens(800_000); // GPT-4o/4.1/5+ all support 1M+, be generous
 	} else {
-		setMaxInputTokens(200_000); // Conservative default
+		setMaxInputTokens(400_000); // Conservative default for unknown providers
 	}
 	const systemPrompt = buildSystemPrompt(
 		pageIndex,
@@ -182,9 +184,11 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			system: systemPrompt,
 			messages: currentMessages,
 			tools: connectionId ? tools : undefined,
-			maxTokens: 8000,
+			maxTokens: agentConfig.llm?.maxOutputTokens ?? 8000,
 			signal,
-			thinking: { budgetTokens: 4000 },
+			thinking: agentConfig.llm?.thinkingEnabled === false
+				? undefined
+				: { budgetTokens: agentConfig.llm?.thinkingBudget ?? 4000 },
 		});
 
 		// Stream text to client in real time while collecting tool calls
@@ -263,6 +267,13 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		];
 	}
 
+	// If we exhausted all iterations without end_turn, let the user know
+	if (iterations >= maxIterations) {
+		const msg = `\n\n*Reached maximum iterations (${maxIterations}). The task may not be complete — send "continue" to keep going.*`;
+		fullResponse += msg;
+		await onEvent({ type: 'text_delta', text: msg });
+	}
+
 	return { response: fullResponse, toolCalls: allToolCalls };
 }
 
@@ -297,9 +308,11 @@ export async function runSimpleChat(params: {
 		model,
 		system: systemPrompt,
 		messages: params.messages.map((m) => ({ role: m.role, content: m.content })),
-		maxTokens: 8000,
+		maxTokens: params.agentConfig.llm?.maxOutputTokens ?? 8000,
 		signal: params.signal,
-		thinking: { budgetTokens: 3000 },
+		thinking: params.agentConfig.llm?.thinkingEnabled === false
+			? undefined
+			: { budgetTokens: params.agentConfig.llm?.thinkingBudget ?? 3000 },
 	});
 
 	try {
@@ -537,7 +550,7 @@ async function processToolCalls(
 	}
 
 	// Partition tools by safety level for parallel execution
-	const partitioned = partitionToolsBySafety(toolBlocks, domain, agentConfig.autonomy);
+	const partitioned = partitionToolsBySafety(toolBlocks, domain, agentConfig.autonomy, agentConfig.domainAutonomy);
 
 	// Phase 1: Execute all safe tools in parallel
 	if (partitioned.safe.length > 0) {

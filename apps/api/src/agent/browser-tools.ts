@@ -6,7 +6,7 @@ import type { AgentHooks, SSEEvent } from '@afe/shared';
 import type { ImageBlock, TextBlock, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
-import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
+import { persistScreenshot, saveScreenshot, uploadScreenshotToS3 } from '../screenshots/manager.js';
 import { executeTool } from '../tools/registry.js';
 import { isKilled, sendApprovalRequest } from '../ws/handler.js';
 import { evaluatePreToolUse, evaluatePostToolUse } from './hooks.js';
@@ -20,10 +20,14 @@ export function partitionToolsBySafety(
 	toolBlocks: ToolUseBlock[],
 	domain?: string,
 	autonomy?: 'supervised' | 'trusted' | 'autonomous',
+	domainAutonomy?: Record<string, 'supervised' | 'trusted' | 'autonomous'>,
 ): { safe: ToolUseBlock[]; review: ToolUseBlock[]; blocked: ToolUseBlock[] } {
 	const safe: ToolUseBlock[] = [];
 	const review: ToolUseBlock[] = [];
 	const blocked: ToolUseBlock[] = [];
+
+	// Resolve effective autonomy: domain-specific override > agent default
+	const effectiveAutonomy = (domain && domainAutonomy?.[domain]) || autonomy;
 
 	for (const block of toolBlocks) {
 		if (INTERNAL_TOOL_NAMES.has(block.name)) {
@@ -39,7 +43,7 @@ export function partitionToolsBySafety(
 			elementLabel,
 		});
 
-		if (autonomy === 'autonomous') {
+		if (effectiveAutonomy === 'autonomous') {
 			safe.push(block);
 		} else if (autonomy === 'trusted') {
 			if (classification.level === 'blocked') {
@@ -339,10 +343,22 @@ export async function executeToolBlock(
 		provider.supportsVision
 	) {
 		const { image, ...rest } = imageData;
-		const saved = saveScreenshot(image as string);
-		console.log(
-			`[Orchestrator] Screenshot saved: ${saved.id} (${Math.round(saved.sizeBytes / 1024)}KB)`,
-		);
+
+		// Upload to S3 and get signed URL — persistent, referenceable, no inline base64 bloat
+		let screenshotUrl: string | undefined;
+		let screenshotId: string;
+		try {
+			const s3Result = await uploadScreenshotToS3(image as string, userId, { domain, conversationId });
+			screenshotUrl = s3Result.url;
+			screenshotId = s3Result.id;
+		} catch (err) {
+			// Fallback to local save if S3 fails
+			console.warn('[Orchestrator] S3 screenshot upload failed, using local:', err);
+			const saved = saveScreenshot(image as string);
+			screenshotId = saved.id;
+		}
+
+		// Also persist locally for long-term storage
 		if (domain) {
 			try {
 				persistScreenshot(image as string, domain, `${userId.slice(0, 8)}-${Date.now()}`);
@@ -350,17 +366,36 @@ export async function executeToolBlock(
 				// Non-critical
 			}
 		}
-		toolContent = [
-			{
-				type: 'text' as const,
-				text: JSON.stringify({ success: true, data: { ...rest, screenshotId: saved.id } }),
-			},
-			{
-				type: 'image' as const,
-				data: saved.base64,
-				mediaType: 'image/jpeg' as const,
-			},
-		];
+
+		if (screenshotUrl) {
+			// Use URL reference — no inline base64, minimal context usage
+			toolContent = [
+				{
+					type: 'text' as const,
+					text: JSON.stringify({ success: true, data: { ...rest, screenshotId, screenshotUrl } }),
+				},
+				{
+					type: 'image' as const,
+					data: '', // Empty — URL is used instead
+					mediaType: 'image/jpeg' as const,
+					url: screenshotUrl,
+				},
+			];
+		} else {
+			// Fallback: inline base64 (S3 unavailable)
+			const saved = saveScreenshot(image as string);
+			toolContent = [
+				{
+					type: 'text' as const,
+					text: JSON.stringify({ success: true, data: { ...rest, screenshotId: saved.id } }),
+				},
+				{
+					type: 'image' as const,
+					data: saved.base64,
+					mediaType: 'image/jpeg' as const,
+				},
+			];
+		}
 	} else {
 		toolContent = JSON.stringify(result.data);
 	}

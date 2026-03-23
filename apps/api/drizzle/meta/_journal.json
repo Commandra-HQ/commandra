@@ -141,6 +141,13 @@
       "when": 1774761600000,
       "tag": "0019_agent_hooks",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1774848000000,
+      "tag": "0020_agent_config",
+      "breakpoints": true
     }
   ]
 }

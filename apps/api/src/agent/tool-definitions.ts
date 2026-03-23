@@ -6,7 +6,7 @@
 import { getToolDefinitions } from '../tools/registry.js';
 
 export function buildToolList(
-  agentConfig: { tools?: string[] },
+  agentConfig: { tools?: string[]; limits?: { maxDepth?: number } },
   currentDepth: number,
 ) {
   const browserTools = getToolDefinitions(agentConfig.tools);
@@ -430,8 +430,8 @@ export function buildToolList(
     saveKnowledgeTool,
     readKnowledgeTool,
     listKnowledgeTool,
-    // Exclude spawn/wait tools at depth >= 2 to prevent deep nesting
-    ...(currentDepth >= 2 ? [] : [spawnAgentTool, waitForAgentsTool]),
+    // Exclude spawn/wait tools at max depth to prevent deep nesting
+    ...(currentDepth >= (agentConfig.limits?.maxDepth ?? 2) ? [] : [spawnAgentTool, waitForAgentsTool]),
     saveToLocalTool,
     createAgentTool,
     updateAgentFilesTool,
@@ -441,5 +441,21 @@ export function buildToolList(
     readScratchpadTool,
     readLocalFileTool,
     listLocalFilesTool,
+    {
+      name: 'browse_storage',
+      description:
+        'Browse your persistent S3 storage to discover what files and knowledge exist. Lists files and folders at any path. Use to discover domain knowledge, agent files, run logs, screenshots, and scratchpad data.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: {
+            type: 'string',
+            description:
+              'Path prefix to browse. Examples: "domains/{userId}" (all domains), "{userId}/screenshots" (screenshots), "{userId}/_coordinator" (coordinator files). Leave empty to see top-level.',
+          },
+        },
+        required: [],
+      },
+    },
   ];
 }
