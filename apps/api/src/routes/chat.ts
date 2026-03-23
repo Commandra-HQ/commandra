@@ -280,6 +280,15 @@ chatRoutes.post('/', async (c) => {
 				case 'blocked':
 					streamBlocks.push({ type: 'blocked', toolName: event.toolName, content: event.reason, ts: Date.now() });
 					break;
+				case 'sub_agent_start':
+					streamBlocks.push({ type: 'sub_agent_start', toolName: event.agentId, content: `${event.task} → ${event.targetUrl}`, ts: Date.now() });
+					break;
+				case 'sub_agent_action':
+					streamBlocks.push({ type: 'sub_agent_action', toolName: event.toolName, content: event.success ? (event.label || 'ok') : (event.error || 'failed'), ts: Date.now() });
+					break;
+				case 'sub_agent_end':
+					streamBlocks.push({ type: 'sub_agent_end', toolName: event.agentId, content: event.success ? (event.summary || 'done') : 'failed', ts: Date.now() });
+					break;
 			}
 			await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });
 		};

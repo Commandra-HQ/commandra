@@ -411,7 +411,41 @@ export function ChatTab() {
 									});
 								} else if (sb.type === 'blocked' && sb.toolName) {
 									blocks.push({ type: 'blocked', toolName: sb.toolName, reason: sb.content || '' });
+								} else if (sb.type === 'sub_agent_start' && sb.toolName) {
+									// Reconstruct sub-agent block — collect subsequent sub_agent_action/end events
+									const agentId = sb.toolName;
+									const actions: { toolName: string; label: string; status: 'success' | 'error'; }[] = [];
+									let summary: string | undefined;
+									let agentStatus: 'running' | 'success' | 'error' = 'success';
+									// Look ahead for sub_agent_action and sub_agent_end events with same agentId
+									const remaining = m.toolData!.streamBlocks!;
+									const startIdx = remaining.indexOf(sb);
+									for (let j = startIdx + 1; j < remaining.length; j++) {
+										const next = remaining[j];
+										if (next.type === 'sub_agent_action') {
+											actions.push({
+												toolName: next.toolName || '',
+												label: next.content || '',
+												status: next.content?.includes('failed') ? 'error' : 'success',
+											});
+										} else if (next.type === 'sub_agent_end' && next.toolName === agentId) {
+											summary = next.content;
+											agentStatus = next.content?.includes('failed') ? 'error' : 'success';
+											break;
+										}
+									}
+									const [task, targetUrl] = (sb.content || '').split(' → ');
+									blocks.push({
+										type: 'sub_agent',
+										agentId,
+										task: task || '',
+										targetUrl: targetUrl || '',
+										status: agentStatus,
+										actions,
+										summary,
+									});
 								}
+								// Skip sub_agent_action and sub_agent_end — already consumed by sub_agent_start
 							}
 						} else if (m.role === 'assistant' && m.toolData?.tools?.length) {
 							// Fallback: reconstruct from tool data only (no thinking blocks)
