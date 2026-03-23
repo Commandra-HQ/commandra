@@ -8,13 +8,13 @@ Every company runs on internal web apps — ERPs, CRMs, HR portals, billing dash
 
 ## How It Works
 
+Started as "Cursor for non-technical employees that lives in their browser" — an AI assistant that understands any web app and helps you operate it. Evolved into a fully OpenClaw-ified autonomous agent system: self-improving agents that live in the company's browser, learn from every run, and are fully secure because the entire platform is self-hosted.
+
 A Chrome extension sits in the employee's browser. They tell it what to do in plain English. The agent clicks buttons, fills forms, reads tables, exports data — just like a human would. Across multiple apps if needed.
 
 **"Find all overdue invoices over $5K and export them"** → agent filters the table, reads it, clicks export. Done.
 
 **"Do the monthly close across the ERP, HR portal, and project tracker"** → agent spawns 3 sub-agents in parallel browser tabs, each pulling data from a different app, then combines the results.
-
-The agents learn from every run. They remember your app's layout, your corrections, your preferences. Run 10 is dramatically better than run 1.
 
 ---
 
@@ -56,15 +56,12 @@ This is the Supabase / GitLab model — open-source core, cloud adds convenience
 
 ## What's Built
 
-The platform is functional end-to-end across 23 shipped engineering phases:
+The platform is functional end-to-end across 23 shipped engineering phases.
 
-- Chrome extension (chat UI, page indexing, action execution)
-- Custom AI orchestrator (provider-agnostic — Claude, GPT-4, local models)
-- 20+ browser tools (click, type, navigate, read tables, export, screenshots)
-- Multi-agent system (parallel agents across browser tabs)
-- Self-improving agents (learn skills, remember corrections, avoid past errors)
-- Scheduled runs (cron-based)
-- Safety engine (every action classified before execution, audit trail)
-- Team support (orgs, roles, shared data)
-- Dashboard (agent management, history, audit logs)
-- Docker deployment + SSO bridge (OIDC/SAML ready)
+**The browser layer:** Chrome extension that indexes every page (buttons, forms, tables, navigation), executes actions on command, and provides a chat UI in the side panel. 20+ browser tools — click, type, navigate, read tables, export data, screenshots, and more.
+
+**The brain:** Custom AI orchestrator, provider-agnostic (Claude, GPT-4, local models). Safety engine classifies every action before execution. Full audit trail.
+
+**The agent system (OpenClaw-inspired):** Each agent is a set of human-readable files — SOUL.md (personality and rules), SKILLS.md (learned capabilities), LEARNINGS.md (corrections from past runs), ERRORS.md (failure patterns to avoid). Agents are persistent. They accumulate knowledge over time. They get better at your specific apps with every run. They can run on a schedule, invoke other agents in parallel across browser tabs, and be created from natural language. This is the self-improving loop that makes the 10th run dramatically better than the 1st.
+
+**Enterprise-ready:** Org support (teams, roles, shared data), web dashboard (agent management, history, audit logs), Docker deployment, SSO bridge (OIDC/SAML ready).
