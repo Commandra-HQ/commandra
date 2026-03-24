@@ -178,10 +178,10 @@ export function Sidebar() {
           {collapsed && (
             <button
               onClick={toggleCollapsed}
-              className={`absolute top-3 left-1/2 -translate-x-1/2 p-1 ${collapsed ? 'opacity-100 hover:opacity-100' : 'opacity-0 hover:opacity-100'} hover:text-foreground text-muted-foreground transition-opacity`}
-              title="Expand"
+              className="w-full flex items-center justify-center p-3 text-muted-foreground hover:text-foreground hover:bg-elevated transition-colors"
+              title="Expand sidebar"
             >
-              <ChevronsRight size={14} strokeWidth={1.5} />
+              <ChevronsRight size={16} strokeWidth={1.5} />
             </button>
           )}
         </div>

@@ -1,4 +1,5 @@
 import {
+  Copy,
   ExternalLink,
   Globe,
   History,
@@ -102,8 +103,14 @@ export function HubLayout() {
             >
               <History size={13} strokeWidth={1.5} />
             </button>
-            <button onClick={startNewChat} className="p-1">
+            <button
+              onClick={startNewChat}
+              className="py-1 flex items-center gap-2"
+            >
               <VoxelLogo size={14} className="text-foreground" />
+              <span className="font-mono text-xs font-medium tracking-wide text-foreground">
+                Commandra
+              </span>
             </button>
           </div>
           <div className="flex items-center gap-0.5">
@@ -247,14 +254,27 @@ export function HubLayout() {
             style={{ top: '76px' }}
           >
             <button
-              onClick={() => dispatchAction('reindex')}
+              onClick={() => dispatchAction('copy-chat')}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-elevated"
+            >
+              <Copy size={11} strokeWidth={1.5} /> Copy chat
+            </button>
+            <button
+              onClick={() => { setTabMenuOpen(null); startNewChat(); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-elevated"
+            >
+              <Plus size={11} strokeWidth={1.5} /> New chat
+            </button>
+            <div className="my-1 h-px bg-border" />
+            <button
+              onClick={() => dispatchAction('reindex')}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-elevated"
             >
               <RefreshCw size={11} strokeWidth={1.5} /> Re-index page
             </button>
             <button
               onClick={() => dispatchAction('deep-index')}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-elevated"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-elevated"
             >
               <Globe size={11} strokeWidth={1.5} /> Deep index site
             </button>
