@@ -32,7 +32,12 @@ export class AnthropicProvider implements LLMProvider {
 	private client: Anthropic;
 
 	constructor(apiKey: string) {
-		this.client = new Anthropic({ apiKey });
+		this.client = new Anthropic({
+			apiKey,
+			defaultHeaders: {
+				'anthropic-beta': 'files-api-2025-04-14',
+			},
+		});
 	}
 
 	async *chat(params: ChatParams): AsyncIterable<StreamEvent> {
@@ -156,7 +161,17 @@ function toAnthropicBlock(block: ContentBlock): Anthropic.ContentBlockParam {
 				signature: block.signature,
 			} as unknown as Anthropic.ContentBlockParam;
 		case 'image':
-			// Prefer URL over inline base64 — saves context and bandwidth
+			// Priority: file_id > URL > base64
+			// file_id is best — uploaded once to Anthropic Files API, zero base64 in context
+			if (block.fileId) {
+				return {
+					type: 'image',
+					source: {
+						type: 'file',
+						file_id: block.fileId,
+					},
+				} as unknown as Anthropic.ContentBlockParam;
+			}
 			if (block.url) {
 				return {
 					type: 'image',

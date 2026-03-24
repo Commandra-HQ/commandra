@@ -44,9 +44,11 @@ export interface TextBlock {
 
 export interface ImageBlock {
 	type: 'image';
-	data: string; // base64 (empty string if url is used)
+	data: string; // base64 — kept for S3 upload and fallback only, NOT sent to LLM
 	mediaType: 'image/jpeg' | 'image/png' | 'image/webp';
-	url?: string; // S3 signed URL — preferred over inline base64
+	url?: string; // S3 signed URL
+	/** Provider file ID — preferred over base64/URL. Upload once, reference by ID. */
+	fileId?: string;
 }
 
 export interface ToolUseBlock {

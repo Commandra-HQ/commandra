@@ -233,7 +233,7 @@ function toResponsesInput(
         // Tool results → function_call_output items
         // For array content (e.g. screenshot results with [TextBlock, ImageBlock]),
         // extract text for the output string and images for a follow-up user message.
-        const toolResultImages: Array<{ type: 'input_image'; image_url: string; detail: 'auto' }> = [];
+        const toolResultImages: Array<{ type: 'input_image'; image_url: string; detail: 'low' }> = [];
         for (const tr of toolResults) {
           const toolResult = tr as {
             toolUseId: string;
@@ -249,13 +249,23 @@ function toResponsesInput(
               const subBlock = sub as { type: string; text?: string; data?: string; mediaType?: string; url?: string };
               if (subBlock.type === 'text' && subBlock.text) {
                 textParts.push(subBlock.text);
-              } else if (subBlock.type === 'image' && (subBlock.url || subBlock.data)) {
-                const imgUrl = subBlock.url || `data:${subBlock.mediaType || 'image/jpeg'};base64,${subBlock.data}`;
-                toolResultImages.push({
-                  type: 'input_image',
-                  image_url: imgUrl,
-                  detail: 'auto',
-                });
+              } else if (subBlock.type === 'image') {
+                const imgBlock = subBlock as { fileId?: string; data?: string; mediaType?: string; url?: string };
+                if (imgBlock.fileId) {
+                  // Best: file_id on input_image — uploaded once, no base64 in context
+                  toolResultImages.push({
+                    type: 'input_image',
+                    file_id: imgBlock.fileId,
+                    detail: 'low',
+                  } as unknown as typeof toolResultImages[number]);
+                } else if (imgBlock.data) {
+                  // Fallback: base64 data URL
+                  toolResultImages.push({
+                    type: 'input_image',
+                    image_url: `data:${imgBlock.mediaType || 'image/jpeg'};base64,${imgBlock.data}`,
+                    detail: 'low',
+                  });
+                }
               }
             }
             output = textParts.join('\n') || JSON.stringify(toolResult.content);
@@ -284,18 +294,26 @@ function toResponsesInput(
         // Text + image blocks → user message
         const contentParts: Array<
           | { type: 'input_text'; text: string }
-          | { type: 'input_image'; image_url: string; detail: 'auto' }
+          | { type: 'input_image'; image_url: string; detail: 'low' }
         > = [];
         for (const block of otherBlocks) {
           if (block.type === 'text') {
             contentParts.push({ type: 'input_text', text: block.text });
           } else if (block.type === 'image') {
-            const imgUrl = (block as { url?: string }).url || `data:${block.mediaType};base64,${block.data}`;
-            contentParts.push({
-              type: 'input_image',
-              image_url: imgUrl,
-              detail: 'auto',
-            });
+            const imgBlock = block as { fileId?: string; data?: string; mediaType?: string; url?: string };
+            if (imgBlock.fileId) {
+              contentParts.push({
+                type: 'input_image',
+                file_id: imgBlock.fileId,
+                detail: 'low',
+              } as unknown as typeof contentParts[number]);
+            } else if (imgBlock.data) {
+              contentParts.push({
+                type: 'input_image',
+                image_url: `data:${imgBlock.mediaType || 'image/jpeg'};base64,${imgBlock.data}`,
+                detail: 'low',
+              });
+            }
           }
         }
         if (contentParts.length > 0) {
