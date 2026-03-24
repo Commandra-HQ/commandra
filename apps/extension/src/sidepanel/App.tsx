@@ -1,10 +1,20 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { useTheme } from './theme.js';
 import { useAuth } from './contexts/auth.js';
 import { LoginScreen } from './screens/LoginScreen.js';
 import { ChatTab } from './tabs/ChatTab.js';
 import { SettingsTab } from './tabs/SettingsTab.js';
 import { HubLayout } from './layouts/HubLayout.js';
+
+/**
+ * Wrapper that forces ChatTab to fully remount when the conversation changes.
+ * Without this, React reuses the same ChatTab instance when switching between
+ * /chat/abc and /chat/def, leaving stale messages from the previous conversation.
+ */
+function KeyedChatTab() {
+	const { conversationId } = useParams<{ conversationId?: string }>();
+	return <ChatTab key={conversationId || '__new__'} />;
+}
 
 export function App() {
 	const { user, loading } = useAuth();
@@ -27,9 +37,8 @@ export function App() {
 				{user ? (
 					<>
 						<Route element={<HubLayout />}>
-							{/* Default route is now a fresh chat */}
-							<Route index element={<ChatTab />} />
-							<Route path="/chat/:conversationId" element={<ChatTab />} />
+							<Route index element={<KeyedChatTab />} />
+							<Route path="/chat/:conversationId" element={<KeyedChatTab />} />
 						</Route>
 						<Route path="/settings" element={<SettingsTab />} />
 						<Route path="*" element={<Navigate to="/" replace />} />

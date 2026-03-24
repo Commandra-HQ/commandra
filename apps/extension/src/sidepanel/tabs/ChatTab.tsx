@@ -162,21 +162,14 @@ export function ChatTab() {
 		isActiveRef.current = isActive;
 	}, [isActive]);
 
-	// Load conversation when parent passes a conversationId
+	// Load conversation on mount when we have a conversationId.
+	// KeyedChatTab forces a full remount on conversation switch, so chatMessages
+	// is always empty here — no need to guard against mid-stream reloads.
 	useEffect(() => {
-		console.log('[ChatTab] externalConvId changed:', externalConvId, 'isActive:', isActiveRef.current, 'messages:', chatMessages.length);
 		if (externalConvId) {
 			setMode('chat');
-			// Only reload from DB if we have no messages yet (opening from history).
-			// If we already have messages, we're mid-stream and the live blocks are more
-			// complete than the DB. The done event just updated our URL.
-			if (chatMessages.length === 0) {
-				loadConversation(externalConvId);
-			} else {
-				console.log('[ChatTab] Already have messages, skipping DB reload');
-			}
+			loadConversation(externalConvId);
 		}
-		// Never clear messages here — only handleNewConversation does that explicitly
 	}, [externalConvId]);
 
 	useEffect(() => {
