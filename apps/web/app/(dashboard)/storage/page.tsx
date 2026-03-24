@@ -114,15 +114,12 @@ export default function StoragePage() {
 	}, {});
 
 	return (
-		<div className="space-y-6">
-			<div>
-				<h1 className="text-2xl font-bold tracking-tight">Storage</h1>
-				<p className="text-sm text-muted-foreground font-mono mt-1">
-					{stats
-						? `${stats.totalFiles} files · ${formatSize(stats.totalSizeBytes)} / ${formatSize(stats.maxSizeBytes)}`
-						: 'Loading...'}
+		<div className="space-y-4">
+			{stats && (
+				<p className="text-xs font-mono text-muted-foreground">
+					{stats.totalFiles} files · {formatSize(stats.totalSizeBytes)} / {formatSize(stats.maxSizeBytes)}
 				</p>
-			</div>
+			)}
 
 			{/* Category tabs */}
 			<div className="flex gap-0 border-b border-border">

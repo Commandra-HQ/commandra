@@ -258,125 +258,106 @@ export default function HistoryPage() {
 
 	if (isLoading) {
 		return (
-			<div className="space-y-4">
-				<h1 className="text-2xl font-bold tracking-tight">History</h1>
-				<div className="flex items-center gap-2">
-					<div className="status-pixel bg-muted-foreground animate-pulse" />
-					<p className="text-sm font-mono text-muted-foreground">Loading...</p>
-				</div>
+			<div className="flex items-center gap-2 py-8">
+				<div className="status-pixel bg-muted-foreground animate-pulse" />
+				<p className="text-sm font-mono text-muted-foreground">Loading...</p>
 			</div>
 		);
 	}
 
-	return (
-		<div className="space-y-6">
-			<div>
-				<h1 className="text-2xl font-bold tracking-tight">History</h1>
-				<p className="text-sm text-muted-foreground mt-1 font-mono">
-					Browse past conversations.
+	return conversations.length === 0 && offset === 0 ? (
+		<Card>
+			<CardContent className="py-12 text-center">
+				<MessageSquare size={32} className="mx-auto text-muted-foreground mb-3" />
+				<p className="text-sm text-muted-foreground font-mono">
+					No conversations yet. Start chatting in the extension.
 				</p>
-			</div>
-
-			{conversations.length === 0 && offset === 0 ? (
-				<Card>
-					<CardContent className="py-12 text-center">
-						<MessageSquare size={32} className="mx-auto text-muted-foreground mb-3" />
-						<p className="text-sm text-muted-foreground font-mono">
-							No conversations yet. Start chatting in the extension.
-						</p>
-					</CardContent>
-				</Card>
-			) : (
-				<div className="grid gap-1 lg:grid-cols-[300px_1fr]">
-					{/* Conversation list */}
-					<div>
-						<div className="space-y-0 max-h-[calc(100vh-260px)] overflow-y-auto border border-border">
-							{conversations.map((conv) => (
-								<button
-									key={conv.id}
-									onClick={() => setSelectedId(conv.id)}
-									className={`w-full text-left p-3 border-b border-border last:border-0 transition-colors ${
-										selectedId === conv.id
-											? 'bg-elevated'
-											: 'hover:bg-elevated/50'
-									}`}
-								>
-									<div className="flex items-center gap-2">
-										{conv.outcome && (
-											<div
-												className={`status-pixel ${outcomeStyles[conv.outcome] || 'bg-muted-foreground'}`}
-											/>
-										)}
-										<p className="text-sm font-mono truncate flex-1">
-											{conv.title || 'Untitled'}
-										</p>
-									</div>
-									<div className="flex items-center gap-2 mt-1.5 ml-[10px]">
-										<span className="text-[10px] font-mono text-muted-foreground">
-											{conv.messageCount} msgs
-										</span>
-										<span className="text-[10px] font-mono text-muted-foreground">
-											{formatRelative(conv.updatedAt)}
-										</span>
-									</div>
-								</button>
-							))}
-						</div>
-						<Pagination
-							offset={offset}
-							limit={limit}
-							total={total}
-							onPageChange={setOffset}
-						/>
-					</div>
-
-					{/* Chat thread */}
-					<div className="border border-border max-h-[calc(100vh-200px)] flex flex-col">
-						{selectedId && (
-							<div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-surface flex-shrink-0">
-								<span className="text-sm font-mono font-medium truncate">
-									{conversations.find((c) => c.id === selectedId)?.title || 'Untitled'}
+			</CardContent>
+		</Card>
+	) : (
+		<div className="grid gap-1 lg:grid-cols-[300px_1fr] flex-1 min-h-0">
+			{/* Conversation list — flex column: scrollable list + sticky pagination */}
+			<div className="flex flex-col border border-border">
+				<div className="flex-1 overflow-y-auto">
+					{conversations.map((conv) => (
+						<button
+							key={conv.id}
+							onClick={() => setSelectedId(conv.id)}
+							className={`w-full text-left p-3 border-b border-border last:border-0 transition-colors ${
+								selectedId === conv.id ? 'bg-elevated' : 'hover:bg-elevated/50'
+							}`}
+						>
+							<div className="flex items-center gap-2">
+								{conv.outcome && (
+									<div
+										className={`status-pixel ${outcomeStyles[conv.outcome] || 'bg-muted-foreground'}`}
+									/>
+								)}
+								<p className="text-sm font-mono truncate flex-1">
+									{conv.title || 'Untitled'}
+								</p>
+							</div>
+							<div className="flex items-center gap-2 mt-1.5 ml-[10px]">
+								<span className="text-[10px] font-mono text-muted-foreground">
+									{conv.messageCount} msgs
 								</span>
-								<span className="text-[10px] font-mono text-muted-foreground ml-auto">
-									{conversations.find((c) => c.id === selectedId)?.messageCount} messages
+								<span className="text-[10px] font-mono text-muted-foreground">
+									{formatRelative(conv.updatedAt)}
 								</span>
 							</div>
-						)}
-
-						<div className="flex-1 overflow-y-auto p-4 space-y-3">
-							{!selectedId ? (
-								<div className="flex items-center justify-center h-full">
-									<p className="text-sm text-muted-foreground font-mono">
-										Select a conversation to view.
-									</p>
-								</div>
-							) : loadingMessages ? (
-								<div className="flex items-center justify-center h-full">
-									<div className="flex items-center gap-2">
-										<div className="status-pixel bg-muted-foreground animate-pulse" />
-										<p className="text-sm font-mono text-muted-foreground">Loading...</p>
-									</div>
-								</div>
-							) : messages.length === 0 ? (
-								<div className="flex items-center justify-center h-full">
-									<p className="text-sm text-muted-foreground font-mono">No messages found.</p>
-								</div>
-							) : (
-								<>
-									{messages.map((msg) =>
-										msg.role === 'user' ? (
-											<UserBubble key={msg.id} msg={msg} />
-										) : (
-											<AssistantBubble key={msg.id} msg={msg} />
-										),
-									)}
-									<div ref={messagesEndRef} />
-								</>
-							)}
-						</div>
-					</div>
+						</button>
+					))}
 				</div>
-			)}
+				<div className="flex-shrink-0 border-t border-border px-3 py-2 bg-surface">
+					<Pagination offset={offset} limit={limit} total={total} onPageChange={setOffset} />
+				</div>
+			</div>
+
+			{/* Chat thread — flex column: sticky header + scrollable messages */}
+			<div className="border border-border flex flex-col">
+				{selectedId && (
+					<div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-surface flex-shrink-0">
+						<span className="text-sm font-mono font-medium truncate">
+							{conversations.find((c) => c.id === selectedId)?.title || 'Untitled'}
+						</span>
+						<span className="text-[10px] font-mono text-muted-foreground ml-auto">
+							{conversations.find((c) => c.id === selectedId)?.messageCount} messages
+						</span>
+					</div>
+				)}
+
+				<div className="flex-1 overflow-y-auto p-4 space-y-3">
+					{!selectedId ? (
+						<div className="flex items-center justify-center h-full">
+							<p className="text-sm text-muted-foreground font-mono">
+								Select a conversation to view.
+							</p>
+						</div>
+					) : loadingMessages ? (
+						<div className="flex items-center justify-center h-full">
+							<div className="flex items-center gap-2">
+								<div className="status-pixel bg-muted-foreground animate-pulse" />
+								<p className="text-sm font-mono text-muted-foreground">Loading...</p>
+							</div>
+						</div>
+					) : messages.length === 0 ? (
+						<div className="flex items-center justify-center h-full">
+							<p className="text-sm text-muted-foreground font-mono">No messages found.</p>
+						</div>
+					) : (
+						<>
+							{messages.map((msg) =>
+								msg.role === 'user' ? (
+									<UserBubble key={msg.id} msg={msg} />
+								) : (
+									<AssistantBubble key={msg.id} msg={msg} />
+								),
+							)}
+							<div ref={messagesEndRef} />
+						</>
+					)}
+				</div>
+			</div>
 		</div>
 	);
 }

@@ -170,27 +170,20 @@ export default function SitesPage() {
 
 	if (loading) {
 		return (
-			<div className="space-y-4">
-				<h1 className="text-2xl font-bold tracking-tight">Sites</h1>
-				<div className="flex items-center gap-2 py-8">
-					<span className="status-pixel bg-muted-foreground animate-pulse" />
-					<p className="text-sm font-mono text-muted-foreground">Loading...</p>
-				</div>
+			<div className="flex items-center gap-2 py-8">
+				<span className="status-pixel bg-muted-foreground animate-pulse" />
+				<p className="text-sm font-mono text-muted-foreground">Loading...</p>
 			</div>
 		);
 	}
 
 	return (
-		<div className="space-y-6">
-			{/* Header */}
-			<div>
-				<h1 className="text-2xl font-bold tracking-tight">Sites</h1>
-				<p className="text-sm text-muted-foreground mt-1">
-					{sites.length > 0
-						? `${sites.length} sites · ${totalPages} pages · ${totalElements} elements`
-						: 'Web applications your agent knows about.'}
+		<div className="space-y-4">
+			{sites.length > 0 && (
+				<p className="text-xs font-mono text-muted-foreground">
+					{sites.length} sites · {totalPages} pages · {totalElements} elements
 				</p>
-			</div>
+			)}
 
 			{sites.length === 0 ? (
 				<div className="border border-border py-16 text-center">

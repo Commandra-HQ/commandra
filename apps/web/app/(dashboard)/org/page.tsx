@@ -67,35 +67,24 @@ export default function OrgPage() {
 
 	if (!user?.orgId) {
 		return (
-			<div className="space-y-6">
-				<h1 className="text-2xl font-bold tracking-tight">Organization</h1>
-				<p className="text-muted-foreground">
-					You are not part of an organization. Organizations are created through team plans or by
-					your administrator.
-				</p>
-			</div>
+			<p className="text-sm text-muted-foreground py-8">
+				You are not part of an organization. Organizations are created through team plans or by
+				your administrator.
+			</p>
 		);
 	}
 
 	if (isLoading) {
 		return (
-			<div className="flex items-center justify-center py-12">
-				<div className="flex items-center gap-2">
-					<span className="status-pixel bg-muted-foreground animate-pulse" />
-					<p className="text-sm font-mono text-muted-foreground">Loading...</p>
-				</div>
+			<div className="flex items-center gap-2 py-8">
+				<span className="status-pixel bg-muted-foreground animate-pulse" />
+				<p className="text-sm font-mono text-muted-foreground">Loading...</p>
 			</div>
 		);
 	}
 
 	return (
 		<div className="space-y-6">
-			<div>
-				<h1 className="text-2xl font-bold tracking-tight">Organization</h1>
-				<p className="text-sm text-muted-foreground font-mono mt-1">
-					{user.orgName || 'Your organization'}
-				</p>
-			</div>
 
 			{error && (
 				<div className="flex items-center gap-2 border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">

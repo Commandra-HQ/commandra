@@ -83,27 +83,17 @@ export default function AuditPage() {
 
 	if (isLoading && offset === 0) {
 		return (
-			<div className="space-y-4">
-				<h1 className="text-2xl font-bold tracking-tight">Audit Log</h1>
-				<div className="flex items-center gap-2">
-					<div className="status-pixel bg-muted-foreground animate-pulse" />
-					<p className="text-sm font-mono text-muted-foreground">Loading...</p>
-				</div>
+			<div className="flex items-center gap-2 py-8">
+				<div className="status-pixel bg-muted-foreground animate-pulse" />
+				<p className="text-sm font-mono text-muted-foreground">Loading...</p>
 			</div>
 		);
 	}
 
 	return (
-		<div className="space-y-6">
-			<div>
-				<h1 className="text-2xl font-bold tracking-tight">Audit Log</h1>
-				<p className="text-sm text-muted-foreground mt-1 font-mono">
-					Every action the agent has taken.
-				</p>
-			</div>
-
-			{/* Filters */}
-			<div className="flex gap-1">
+		<div className="flex flex-col flex-1 min-h-0">
+			{/* Filters — sticky top */}
+			<div className="flex gap-1 flex-shrink-0 pb-3">
 				{['all', 'safe', 'review', 'blocked'].map((f) => (
 					<button
 						key={f}
@@ -135,6 +125,7 @@ export default function AuditPage() {
 					limit={limit}
 					onPageChange={setOffset}
 					emptyMessage="No audit logs found."
+					fillHeight
 				/>
 			)}
 		</div>

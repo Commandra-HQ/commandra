@@ -118,25 +118,16 @@ export default function AgentsPage() {
 
 	if (isLoading && offset === 0) {
 		return (
-			<div className="space-y-4">
-				<h1 className="text-2xl font-bold tracking-tight">Agents</h1>
-				<div className="flex items-center gap-2">
-					<div className="status-pixel bg-muted-foreground animate-pulse" />
-					<p className="text-sm font-mono text-muted-foreground">Loading...</p>
-				</div>
+			<div className="flex items-center gap-2 py-8">
+				<div className="status-pixel bg-muted-foreground animate-pulse" />
+				<p className="text-sm font-mono text-muted-foreground">Loading...</p>
 			</div>
 		);
 	}
 
 	return (
-		<div className="space-y-6">
-			<div className="flex items-center justify-between">
-				<div>
-					<h1 className="text-2xl font-bold tracking-tight">Agents</h1>
-					<p className="text-sm text-muted-foreground mt-1 font-mono">
-						Specialized agents with custom identities, tools, and domains.
-					</p>
-				</div>
+		<div className="space-y-4">
+			<div className="flex items-center justify-end">
 				<Button size="sm" onClick={() => setShowCreate(!showCreate)}>
 					{showCreate ? <X size={14} className="mr-1.5" /> : <Plus size={14} className="mr-1.5" />}
 					{showCreate ? 'Cancel' : 'Create Agent'}

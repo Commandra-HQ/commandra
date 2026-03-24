@@ -81,26 +81,20 @@ export default function MemoryPage() {
 
 	if (isLoading && offset === 0) {
 		return (
-			<div className="space-y-4">
-				<h1 className="text-2xl font-bold tracking-tight">Agent Memory</h1>
-				<div className="flex items-center gap-2 py-8">
-					<span className="status-pixel bg-muted-foreground animate-pulse" />
-					<p className="text-sm font-mono text-muted-foreground">Loading...</p>
-				</div>
+			<div className="flex items-center gap-2 py-8">
+				<span className="status-pixel bg-muted-foreground animate-pulse" />
+				<p className="text-sm font-mono text-muted-foreground">Loading...</p>
 			</div>
 		);
 	}
 
 	return (
-		<div className="space-y-6">
-			{/* Header */}
+		<div className="space-y-4">
+			{/* Header actions */}
 			<div className="flex items-center justify-between">
-				<div>
-					<h1 className="text-2xl font-bold tracking-tight">Agent Memory</h1>
-					<p className="text-sm text-muted-foreground mt-1 font-mono">
-						{total} memories across sessions
-					</p>
-				</div>
+				<p className="text-xs font-mono text-muted-foreground">
+					{total} memories across sessions
+				</p>
 				<Button size="sm" onClick={() => setShowAdd(!showAdd)}>
 					{showAdd ? <X size={14} className="mr-1.5" /> : <Plus size={14} className="mr-1.5" />}
 					{showAdd ? 'Cancel' : 'Add Memory'}

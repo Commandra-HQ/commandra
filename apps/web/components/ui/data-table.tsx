@@ -16,6 +16,8 @@ interface DataTableProps<TData> {
 	limit?: number;
 	onPageChange?: (offset: number) => void;
 	emptyMessage?: string;
+	/** Fill available height with scrollable body + sticky header/pagination */
+	fillHeight?: boolean;
 }
 
 export function DataTable<TData>({
@@ -26,6 +28,7 @@ export function DataTable<TData>({
 	limit = 25,
 	onPageChange,
 	emptyMessage = 'No data.',
+	fillHeight = false,
 }: DataTableProps<TData>) {
 	const table = useReactTable({
 		data,
@@ -35,11 +38,14 @@ export function DataTable<TData>({
 		rowCount: total,
 	});
 
+	const hasPagination = total != null && onPageChange;
+
 	return (
-		<div>
-			<div className="border border-border">
+		<div className={fillHeight ? 'flex flex-col flex-1 min-h-0' : ''}>
+			{/* Scrollable table area */}
+			<div className={`border border-border ${fillHeight ? 'flex-1 min-h-0 overflow-y-auto' : ''}`}>
 				<table className="w-full">
-					<thead>
+					<thead className={fillHeight ? 'sticky top-0 z-10' : ''}>
 						{table.getHeaderGroups().map((headerGroup) => (
 							<tr key={headerGroup.id} className="border-b border-border bg-surface">
 								{headerGroup.headers.map((header) => (
@@ -67,7 +73,10 @@ export function DataTable<TData>({
 							</tr>
 						) : (
 							table.getRowModel().rows.map((row) => (
-								<tr key={row.id} className="border-b border-border last:border-0 hover:bg-elevated/50">
+								<tr
+									key={row.id}
+									className="border-b border-border last:border-0 hover:bg-elevated/50"
+								>
 									{row.getVisibleCells().map((cell) => (
 										<td key={cell.id} className="px-3 py-2 text-sm">
 											{flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -79,8 +88,12 @@ export function DataTable<TData>({
 					</tbody>
 				</table>
 			</div>
-			{total != null && onPageChange && (
-				<Pagination offset={offset} limit={limit} total={total} onPageChange={onPageChange} />
+
+			{/* Sticky pagination at bottom */}
+			{hasPagination && (
+				<div className={fillHeight ? 'flex-shrink-0 border-x border-b border-border px-3 py-2 bg-surface' : ''}>
+					<Pagination offset={offset} limit={limit} total={total} onPageChange={onPageChange} />
+				</div>
 			)}
 		</div>
 	);
