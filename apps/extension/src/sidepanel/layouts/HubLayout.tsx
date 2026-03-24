@@ -154,7 +154,7 @@ export function HubLayout() {
                         setGlobalMenuOpen(false);
                         window.close();
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:bg-elevated"
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-elevated"
                     >
                       <X size={12} strokeWidth={1.5} /> Close
                     </button>
@@ -260,7 +260,10 @@ export function HubLayout() {
               <Copy size={11} strokeWidth={1.5} /> Copy chat
             </button>
             <button
-              onClick={() => { setTabMenuOpen(null); startNewChat(); }}
+              onClick={() => {
+                setTabMenuOpen(null);
+                startNewChat();
+              }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-elevated"
             >
               <Plus size={11} strokeWidth={1.5} /> New chat
