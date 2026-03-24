@@ -21,6 +21,7 @@ import {
   listDomainFiles,
   uploadDomainFile,
 } from '../storage/domain-files.js';
+import { deduplicateLines } from '../utils/text-similarity.js';
 import { getLocalFile, listLocalFiles, saveLocalFile } from '../storage/local.js';
 import {
   type StoredPlan,
@@ -182,30 +183,123 @@ async function handleSaveKnowledge(
     key: string;
     filename: string;
     content: string;
+    mode?: 'append' | 'rewrite' | 'merge';
   };
+  const mode = args.mode || 'append';
+
   try {
-    if (args.category === 'domain') {
-      await uploadDomainFile(ctx.userId, args.key, args.filename, args.content);
-    } else if (args.category === 'agent') {
-      await uploadAgentFile(ctx.userId, args.key, args.filename, args.content);
-    } else if (args.category === 'run') {
+    const download =
+      args.category === 'domain'
+        ? () => downloadDomainFile(ctx.userId, args.key, args.filename)
+        : args.category === 'agent'
+          ? () => downloadAgentFile(ctx.userId, args.key, args.filename)
+          : null;
+
+    const upload =
+      args.category === 'domain'
+        ? (content: string) => uploadDomainFile(ctx.userId, args.key, args.filename, content)
+        : args.category === 'agent'
+          ? (content: string) => uploadAgentFile(ctx.userId, args.key, args.filename, content)
+          : null;
+
+    if (args.category === 'run' || !upload) {
+      // Run logs always overwrite (each run is unique)
       const { getSupabase } = await import('../storage/supabase.js');
       const supabase = getSupabase();
       const path = `runs/${ctx.userId}/${args.key}/${args.filename}`;
       await supabase.storage
         .from('agents')
-        .upload(path, args.content, {
-          upsert: true,
-          contentType: 'text/plain',
-        });
+        .upload(path, args.content, { upsert: true, contentType: 'text/plain' });
+      return successResult(block.id, {
+        success: true,
+        mode: 'rewrite',
+        saved: `${args.category}/${args.key}/${args.filename}`,
+      });
     }
+
+    const finalContent = await resolveWriteMode(mode, download!, args.content);
+    await upload(finalContent);
+
     return successResult(block.id, {
       success: true,
+      mode,
+      linesWritten: finalContent.split('\n').filter((l) => l.trim().startsWith('- ')).length,
       saved: `${args.category}/${args.key}/${args.filename}`,
     });
   } catch (err) {
     return errorResult(block.id, err);
   }
+}
+
+const MAX_FILE_LINES = 500;
+
+/**
+ * Resolve content based on the agent's chosen write mode.
+ * - append: add new content after existing content (safe default)
+ * - rewrite: replace entirely (agent must read first)
+ * - merge: deduplicate new entries against existing using similarity
+ */
+async function resolveWriteMode(
+  mode: 'append' | 'rewrite' | 'merge',
+  download: () => Promise<string | null>,
+  newContent: string,
+): Promise<string> {
+  if (mode === 'rewrite') return newContent;
+
+  let existing: string | null = null;
+  try {
+    existing = await download();
+  } catch {
+    // File doesn't exist — write as-is
+  }
+  if (!existing) return newContent;
+
+  const existingLines = existing.split('\n');
+  const newLines = newContent.split('\n');
+  const existingEntries = existingLines.filter((l) => l.trim().startsWith('- '));
+  const newEntries = newLines.filter((l) => l.trim().startsWith('- '));
+
+  // Extract header (lines before first entry) from existing file
+  const firstEntryIdx = existingLines.findIndex((l) => l.trim().startsWith('- '));
+  const headerLines = firstEntryIdx >= 0 ? existingLines.slice(0, firstEntryIdx) : existingLines;
+
+  if (mode === 'merge') {
+    // Deduplicate: only add entries that are genuinely new
+    if (existingEntries.length > 0 && newEntries.length > 0) {
+      const genuinelyNew = deduplicateLines(existingEntries, newEntries);
+      if (genuinelyNew.length === 0) return existing;
+      const allEntries = [...existingEntries, ...genuinelyNew];
+      const capped = allEntries.length > MAX_FILE_LINES
+        ? allEntries.slice(allEntries.length - MAX_FILE_LINES)
+        : allEntries;
+      return [...headerLines, ...capped, ''].join('\n');
+    }
+    // Non-list content: append with separator if not already contained
+    if (newContent.trim() && !existing.includes(newContent.trim())) {
+      return capLines(`${existing.trimEnd()}\n\n---\n\n${newContent.trimStart()}`);
+    }
+    return existing;
+  }
+
+  // mode === 'append' (default)
+  if (existingEntries.length > 0 && newEntries.length > 0) {
+    // List-based: append new entries after existing ones
+    const allEntries = [...existingEntries, ...newEntries];
+    const capped = allEntries.length > MAX_FILE_LINES
+      ? allEntries.slice(allEntries.length - MAX_FILE_LINES)
+      : allEntries;
+    return [...headerLines, ...capped, ''].join('\n');
+  }
+  // Freeform: append with separator
+  return capLines(`${existing.trimEnd()}\n\n${newContent.trimStart()}`);
+}
+
+function capLines(content: string): string {
+  const lines = content.split('\n');
+  if (lines.length > MAX_FILE_LINES) {
+    return lines.slice(lines.length - MAX_FILE_LINES).join('\n');
+  }
+  return content;
 }
 
 async function handleReadKnowledge(
@@ -315,6 +409,7 @@ async function handleSpawnAgent(
       agentConfig: subAgentConfig,
       depth: (ctx.depth ?? 0) + 1,
       keepTab: args.keepTab,
+      conversationId: ctx.conversationId,
     });
     return {
       type: 'tool_result',

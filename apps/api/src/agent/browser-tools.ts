@@ -222,7 +222,7 @@ export async function handleBrowserToolCall(
 				? ((resultData.data as Record<string, unknown>)?.image as string | undefined)
 				: undefined;
 
-		// Merge page state update into the result
+		// Merge page state update into the result — compact format to save context
 		let enrichedResult: unknown = result;
 		if (pageStateUpdate && resultData?.success) {
 			const ps = pageStateUpdate as {
@@ -235,21 +235,36 @@ export async function handleBrowserToolCall(
 				const otherEls = ps.elements.filter((e) => !e.inOverlay);
 
 				const formatEl = (e: { type: string; label: string; selector: string }) =>
-					`[${e.type}] "${e.label}" → selector: ${e.selector}`;
+					`[${e.type}] "${e.label}" → ${e.selector}`;
 
-				const elementSummary = [
-					...(overlayEls.length > 0
-						? ['MODAL/DIALOG ELEMENTS (use these first):', ...overlayEls.slice(0, 20).map(formatEl)]
-						: []),
-					'PAGE ELEMENTS:',
-					...otherEls.slice(0, 30).map(formatEl),
-					...(otherEls.length > 30 ? [`...and ${otherEls.length - 30} more`] : []),
-				].join('\n');
+				// Group by type for a compact count summary
+				const typeCounts: Record<string, number> = {};
+				for (const el of otherEls) {
+					typeCounts[el.type] = (typeCounts[el.type] || 0) + 1;
+				}
+				const countSummary = Object.entries(typeCounts)
+					.map(([type, count]) => `${count} ${type}s`)
+					.join(', ');
+
+				const lines: string[] = [];
+
+				// Overlay elements always shown in full (they're immediately actionable)
+				if (overlayEls.length > 0) {
+					lines.push('MODAL/DIALOG ELEMENTS (use these first):');
+					lines.push(...overlayEls.slice(0, 20).map(formatEl));
+				}
+
+				// Regular elements: compact summary + only top 10 for context
+				lines.push(`PAGE UPDATED: ${ps.elements.length} elements (${countSummary})`);
+				lines.push(...otherEls.slice(0, 10).map(formatEl));
+				if (otherEls.length > 10) {
+					lines.push(`...and ${otherEls.length - 10} more — use refresh_page_state to see all`);
+				}
 
 				enrichedResult = {
 					...resultData,
-					updatedPageElements: elementSummary,
-					note: 'USE ONLY the selectors listed above. Do NOT invent selectors.',
+					updatedPageElements: lines.join('\n'),
+					note: 'USE ONLY selectors from above or call refresh_page_state for the full list.',
 				};
 			} else {
 				enrichedResult = { ...resultData, pageState: pageStateUpdate };

@@ -1,9 +1,8 @@
 'use client';
 
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch } from '@/lib/api';
-import { ChevronDown, ChevronRight, FileText, Globe } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Globe, Layers } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface SitePage {
@@ -62,61 +61,72 @@ function SiteCard({ site }: { site: Site }) {
 	}
 
 	return (
-		<Card>
-			<CardHeader className="pb-3">
-				<CardTitle
-					className="text-base flex items-center gap-2 cursor-pointer select-none"
-					onClick={loadPages}
-				>
+		<div className="border border-border hover:border-foreground/10 transition-colors">
+			{/* Header */}
+			<button
+				onClick={loadPages}
+				className="w-full p-4 flex items-start gap-3 text-left"
+			>
+				<div className="mt-0.5">
 					{expanded ? (
-						<ChevronDown size={16} className="text-muted-foreground" />
+						<ChevronDown size={14} className="text-muted-foreground" />
 					) : (
-						<ChevronRight size={16} className="text-muted-foreground" />
+						<ChevronRight size={14} className="text-muted-foreground" />
 					)}
-					<Globe size={16} className="text-muted-foreground" />
-					{site.domain}
-				</CardTitle>
-			</CardHeader>
-			<CardContent className="space-y-3">
-				<div className="flex gap-2">
-					<Badge variant="secondary">{site.totalPages} pages</Badge>
-					<Badge variant="secondary">{site.totalElements} elements</Badge>
 				</div>
-				<p className="text-xs text-muted-foreground">
-					{site.lastCrawledAt
-						? `Last indexed ${timeAgo(site.lastCrawledAt)}`
-						: 'Never fully crawled'}
-				</p>
+				<div className="flex-1 min-w-0">
+					<div className="flex items-center gap-2">
+						<Globe size={14} className="text-muted-foreground shrink-0" />
+						<span className="font-medium text-sm font-mono">{site.domain}</span>
+					</div>
+					<div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground font-mono">
+						<span>{site.totalPages} pages</span>
+						<span className="text-border">|</span>
+						<span>{site.totalElements} elements</span>
+						<span className="text-border">|</span>
+						<span>
+							{site.lastCrawledAt
+								? `indexed ${timeAgo(site.lastCrawledAt)}`
+								: 'not crawled'}
+						</span>
+					</div>
+				</div>
+			</button>
 
-				{expanded && (
-					<div className="border-t pt-3 mt-2 space-y-2">
-						{loadingPages ? (
-							<p className="text-xs text-muted-foreground">Loading pages...</p>
-						) : pages.length === 0 ? (
-							<p className="text-xs text-muted-foreground">No pages indexed yet.</p>
-						) : (
-							pages.map((page) => {
+			{/* Expanded pages */}
+			{expanded && (
+				<div className="border-t border-border">
+					{loadingPages ? (
+						<div className="flex items-center gap-2 px-4 py-3">
+							<span className="status-pixel bg-muted-foreground animate-pulse" />
+							<p className="text-xs font-mono text-muted-foreground">Loading pages...</p>
+						</div>
+					) : pages.length === 0 ? (
+						<p className="text-xs text-muted-foreground px-4 py-3">No pages indexed yet.</p>
+					) : (
+						<div className="divide-y divide-border/50">
+							{pages.map((page) => {
 								const elemCount = Array.isArray(page.elements) ? page.elements.length : 0;
 								return (
 									<div
 										key={page.id}
-										className="flex items-start gap-2 text-xs p-2 rounded bg-muted/50"
+										className="flex items-start gap-2.5 text-xs px-4 py-2.5 hover:bg-surface/50 transition-colors"
 									>
 										<FileText size={12} className="text-muted-foreground mt-0.5 shrink-0" />
 										<div className="min-w-0 flex-1">
-											<p className="font-medium truncate">
+											<p className="font-medium truncate text-sm">
 												{page.title || page.urlPattern || page.url}
 											</p>
-											<p className="text-muted-foreground truncate">
+											<p className="text-muted-foreground truncate font-mono text-[11px] mt-0.5">
 												{page.urlPattern || page.url}
 											</p>
-											<div className="flex gap-2 mt-1">
-												<Badge variant="outline" className="text-[10px] px-1 py-0">
+											<div className="flex items-center gap-2 mt-1.5">
+												<Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
 													{page.pageType || 'other'}
 												</Badge>
-												<span className="text-muted-foreground">{elemCount} elements</span>
+												<span className="text-muted-foreground font-mono">{elemCount} elements</span>
 												{page.lastIndexedAt && (
-													<span className="text-muted-foreground">
+													<span className="text-muted-foreground font-mono">
 														{timeAgo(page.lastIndexedAt)}
 													</span>
 												)}
@@ -124,12 +134,12 @@ function SiteCard({ site }: { site: Site }) {
 										</div>
 									</div>
 								);
-							})
-						)}
-					</div>
-				)}
-			</CardContent>
-		</Card>
+							})}
+						</div>
+					)}
+				</div>
+			)}
+		</div>
 	);
 }
 
@@ -155,33 +165,42 @@ export default function SitesPage() {
 		}
 	}
 
+	const totalPages = sites.reduce((sum, s) => sum + s.totalPages, 0);
+	const totalElements = sites.reduce((sum, s) => sum + s.totalElements, 0);
+
 	if (loading) {
 		return (
 			<div className="space-y-4">
 				<h1 className="text-2xl font-bold tracking-tight">Sites</h1>
-				<p className="text-muted-foreground">Loading...</p>
+				<div className="flex items-center gap-2 py-8">
+					<span className="status-pixel bg-muted-foreground animate-pulse" />
+					<p className="text-sm font-mono text-muted-foreground">Loading...</p>
+				</div>
 			</div>
 		);
 	}
 
 	return (
 		<div className="space-y-6">
+			{/* Header */}
 			<div>
 				<h1 className="text-2xl font-bold tracking-tight">Sites</h1>
-				<p className="text-muted-foreground mt-1">Web applications your agent knows about.</p>
+				<p className="text-sm text-muted-foreground mt-1">
+					{sites.length > 0
+						? `${sites.length} sites · ${totalPages} pages · ${totalElements} elements`
+						: 'Web applications your agent knows about.'}
+				</p>
 			</div>
 
 			{sites.length === 0 ? (
-				<Card>
-					<CardContent className="py-12 text-center">
-						<Globe size={32} className="mx-auto text-muted-foreground mb-3" />
-						<p className="text-sm text-muted-foreground">
-							No sites indexed yet. Open the extension on any web app to get started.
-						</p>
-					</CardContent>
-				</Card>
+				<div className="border border-border py-16 text-center">
+					<Globe size={24} strokeWidth={1.5} className="mx-auto text-muted-foreground mb-3" />
+					<p className="text-sm text-muted-foreground">
+						No sites indexed yet. Open the extension on any web app to get started.
+					</p>
+				</div>
 			) : (
-				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				<div className="space-y-2">
 					{sites.map((site) => (
 						<SiteCard key={site.id} site={site} />
 					))}

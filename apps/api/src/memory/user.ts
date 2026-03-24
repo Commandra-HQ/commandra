@@ -14,6 +14,7 @@ import { db } from '../db/index.js';
 import { userMemory } from '../db/schema.js';
 import { collectStream } from '../llm/index.js';
 import type { LLMProvider } from '../llm/types.js';
+import { normalizeEntry, similarity } from '../utils/text-similarity.js';
 
 export type MemoryCategory = 'preference' | 'correction' | 'terminology' | 'workflow';
 
@@ -149,18 +150,20 @@ export async function saveUserMemory(
 		.from(userMemory)
 		.where(and(eq(userMemory.userId, userId), eq(userMemory.domain, domain)));
 
-	// Simple duplicate check — exact match
+	// Similarity-based duplicate check — catches near-identical phrasing
+	const normalizedContent = normalizeEntry(content);
 	const duplicate = existing.find(
-		(e) => e.content.toLowerCase().trim() === content.toLowerCase().trim(),
+		(e) => similarity(normalizedContent, normalizeEntry(e.content)) > 0.75,
 	);
 	if (duplicate) {
-		// Reinforce existing memory
+		// Reinforce existing memory; update content if new version is more detailed
 		await db
 			.update(userMemory)
 			.set({
 				timesReinforced: (duplicate.timesReinforced ?? 1) + 1,
 				confidence: Math.min((duplicate.confidence ?? 1) + 1, 5),
 				updatedAt: new Date(),
+				...(content.length > duplicate.content.length ? { content } : {}),
 			})
 			.where(eq(userMemory.id, duplicate.id));
 		return;
