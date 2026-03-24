@@ -41,6 +41,7 @@ const baseNavItems = [
 ];
 
 const MIN_WIDTH = 56;
+const COLLAPSE_THRESHOLD = 140;
 const MAX_WIDTH = 280;
 const DEFAULT_WIDTH = 220;
 
@@ -63,7 +64,15 @@ export function Sidebar() {
     const saved = localStorage.getItem('sidebar-collapsed');
     const savedWidth = localStorage.getItem('sidebar-width');
     if (saved === 'true') setCollapsed(true);
-    if (savedWidth) setWidth(Number(savedWidth));
+    if (savedWidth) {
+      const w = Number(savedWidth);
+      if (w >= COLLAPSE_THRESHOLD) {
+        setWidth(w);
+      } else {
+        setCollapsed(true);
+        localStorage.setItem('sidebar-collapsed', 'true');
+      }
+    }
   }, []);
 
   function toggleCollapsed() {
@@ -82,8 +91,8 @@ export function Sidebar() {
     if (!isResizing) return;
 
     function handleMouseMove(e: MouseEvent) {
-      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH + 1, e.clientX));
-      if (newWidth <= MIN_WIDTH + 10) {
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, e.clientX));
+      if (newWidth < COLLAPSE_THRESHOLD) {
         setCollapsed(true);
         localStorage.setItem('sidebar-collapsed', 'true');
       } else {
@@ -144,7 +153,7 @@ export function Sidebar() {
       <aside
         ref={sidebarRef}
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex flex-col bg-surface border-r border-border md:translate-x-0 md:static select-none',
+          'fixed inset-y-0 left-0 z-40 flex flex-col bg-surface border-r border-border md:translate-x-0 md:static select-none overflow-hidden',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
           isResizing ? '' : 'transition-all duration-200',
         )}
@@ -167,7 +176,7 @@ export function Sidebar() {
                 hovered={logoHovered}
               />
 
-              <span className="font-mono text-xs font-medium lowercase tracking-wide text-foreground">
+              <span className="font-mono text-xs font-medium lowercase tracking-wide text-foreground whitespace-nowrap">
                 commandra
               </span>
             </div>
