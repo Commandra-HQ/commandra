@@ -15,14 +15,14 @@
 	},
 	"dependencies": {
 		"@afe/shared": "workspace:*",
-		"@anthropic-ai/sdk": "^0.39.0",
+		"@anthropic-ai/sdk": "^0.80.0",
 		"@hono/node-server": "^1.13.7",
 		"@supabase/supabase-js": "^2.99.2",
 		"dotenv": "^16.4.7",
 		"drizzle-orm": "^0.38.3",
 		"hono": "^4.6.16",
 		"jose": "^6.2.0",
-		"openai": "^6.27.0",
+		"openai": "^6.32.0",
 		"postgres": "^3.4.5",
 		"ws": "^8.18.0",
 		"zod": "^3.24.1"

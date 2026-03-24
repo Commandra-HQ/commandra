@@ -382,8 +382,18 @@ export async function executeToolBlock(
 			}
 		}
 
-		if (screenshotUrl) {
-			// Use URL reference — no inline base64, minimal context usage
+		// Upload to LLM provider's Files API — reference by fileId, no base64 in context
+		let providerFileId: string | undefined;
+		try {
+			const { uploadScreenshotToProvider } = await import('../screenshots/provider-upload.js');
+			const fileId = await uploadScreenshotToProvider(image as string, screenshotId);
+			if (fileId) providerFileId = fileId;
+		} catch (err) {
+			console.warn('[Orchestrator] Provider file upload failed (will use fallback):', err);
+		}
+
+		if (providerFileId) {
+			// Best path: reference by provider file_id — zero base64 in context
 			toolContent = [
 				{
 					type: 'text' as const,
@@ -391,13 +401,28 @@ export async function executeToolBlock(
 				},
 				{
 					type: 'image' as const,
-					data: '', // Empty — URL is used instead
+					data: image as string, // kept for S3/local storage only, NOT sent to LLM
+					mediaType: 'image/jpeg' as const,
+					url: screenshotUrl,
+					fileId: providerFileId,
+				},
+			];
+		} else if (screenshotUrl) {
+			// Fallback: URL reference (works for Anthropic with public URLs)
+			toolContent = [
+				{
+					type: 'text' as const,
+					text: JSON.stringify({ success: true, data: { ...rest, screenshotId, screenshotUrl } }),
+				},
+				{
+					type: 'image' as const,
+					data: image as string,
 					mediaType: 'image/jpeg' as const,
 					url: screenshotUrl,
 				},
 			];
 		} else {
-			// Fallback: inline base64 (S3 unavailable)
+			// Last resort: inline base64
 			const saved = saveScreenshot(image as string);
 			toolContent = [
 				{
