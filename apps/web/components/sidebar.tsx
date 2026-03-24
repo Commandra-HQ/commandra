@@ -18,6 +18,7 @@ import {
 	X,
 } from 'lucide-react';
 import { VoxelLogo } from '@/components/voxel-logo';
+import { ThemeToggle } from '@/components/theme-toggle';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -106,6 +107,14 @@ export function Sidebar() {
 				<div className="mx-3 h-px bg-border" />
 
 				{/* User */}
+				{/* Theme toggle */}
+				<div className="px-3 py-1 flex items-center justify-between">
+					<span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Theme</span>
+					<ThemeToggle />
+				</div>
+
+				<div className="mx-3 h-px bg-border" />
+
 				<div className="p-3 flex items-center gap-3">
 					<div className="h-7 w-7 bg-elevated flex items-center justify-center border border-border">
 						<span className="text-[10px] font-mono font-medium text-muted-foreground">

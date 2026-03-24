@@ -2,6 +2,9 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { Trash2, UserPlus } from 'lucide-react';
@@ -123,7 +126,10 @@ export default function OrgPage() {
 	if (loading) {
 		return (
 			<div className="flex items-center justify-center py-12">
-				<p className="text-sm text-muted-foreground">Loading...</p>
+				<div className="flex items-center gap-2">
+					<span className="status-pixel bg-muted-foreground animate-pulse" />
+					<p className="text-sm font-mono text-muted-foreground">Loading...</p>
+				</div>
 			</div>
 		);
 	}
@@ -132,16 +138,20 @@ export default function OrgPage() {
 		<div className="space-y-6">
 			<div>
 				<h1 className="text-2xl font-bold tracking-tight">Organization</h1>
-				<p className="text-muted-foreground">{user.orgName || 'Your organization'}</p>
+				<p className="text-sm text-muted-foreground font-mono mt-1">{user.orgName || 'Your organization'}</p>
 			</div>
 
 			{error && (
-				<div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+				<div className="flex items-center gap-2 border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+					<span className="status-pixel bg-destructive" />
 					{error}
 				</div>
 			)}
 			{success && (
-				<div className="rounded-md bg-green-500/10 px-3 py-2 text-sm text-green-700">{success}</div>
+				<div className="flex items-center gap-2 border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">
+					<span className="status-pixel bg-success" />
+					{success}
+				</div>
 			)}
 
 			{isAdmin && (
@@ -152,37 +162,35 @@ export default function OrgPage() {
 					</CardHeader>
 					<CardContent>
 						<form onSubmit={inviteMember} className="flex items-end gap-3">
-							<div className="flex-1">
-								<label className="text-sm font-medium" htmlFor="invite-email">
+							<div className="flex-1 space-y-1.5">
+								<label className="text-xs font-mono uppercase tracking-wider text-muted-foreground" htmlFor="invite-email">
 									Email
 								</label>
-								<input
+								<Input
 									id="invite-email"
 									type="email"
 									required
 									value={inviteEmail}
 									onChange={(e) => setInviteEmail(e.target.value)}
 									placeholder="teammate@company.com"
-									className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
 								/>
 							</div>
-							<div>
-								<label className="text-sm font-medium" htmlFor="invite-role">
+							<div className="space-y-1.5">
+								<label className="text-xs font-mono uppercase tracking-wider text-muted-foreground" htmlFor="invite-role">
 									Role
 								</label>
-								<select
+								<Select
 									id="invite-role"
 									value={inviteRole}
 									onChange={(e) => setInviteRole(e.target.value)}
-									className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
 								>
 									<option value="member">Member</option>
 									<option value="viewer">Viewer</option>
 									<option value="admin">Admin</option>
-								</select>
+								</Select>
 							</div>
-							<Button type="submit" size="sm">
-								<UserPlus size={16} />
+							<Button type="submit" size="sm" className="gap-2">
+								<UserPlus size={14} strokeWidth={1.5} />
 								Invite
 							</Button>
 						</form>
@@ -198,31 +206,33 @@ export default function OrgPage() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<div className="divide-y">
+					<div className="divide-y divide-border">
 						{members.map((member) => (
 							<div key={member.id} className="flex items-center justify-between py-3">
 								<div>
 									<p className="text-sm font-medium">{member.email}</p>
-									<p className="text-xs text-muted-foreground capitalize">{member.role}</p>
+									<Badge variant="outline" className="mt-1 text-[10px]">
+										{member.role}
+									</Badge>
 								</div>
 								{isAdmin && member.userId !== user.id && (
 									<div className="flex items-center gap-2">
-										<select
+										<Select
 											value={member.role}
 											onChange={(e) => changeRole(member.userId, e.target.value)}
-											className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+											className="w-28 h-8 text-xs"
 										>
 											<option value="admin">Admin</option>
 											<option value="member">Member</option>
 											<option value="viewer">Viewer</option>
-										</select>
+										</Select>
 										<Button
 											variant="ghost"
 											size="icon"
 											onClick={() => removeMember(member.userId)}
 											className="h-8 w-8 text-destructive hover:text-destructive"
 										>
-											<Trash2 size={14} />
+											<Trash2 size={14} strokeWidth={1.5} />
 										</Button>
 									</div>
 								)}

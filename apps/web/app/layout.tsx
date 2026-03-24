@@ -1,4 +1,5 @@
 import { AuthProvider } from '@/lib/auth-context';
+import { ThemeProvider } from '@/components/theme-provider';
 import './globals.css';
 
 export const metadata = {
@@ -8,7 +9,7 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
 	return (
-		<html lang="en" className="dark">
+		<html lang="en" suppressHydrationWarning>
 			<head>
 				<link
 					href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
@@ -16,7 +17,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 				/>
 			</head>
 			<body className="min-h-screen bg-background font-sans antialiased">
-				<AuthProvider>{children}</AuthProvider>
+				<ThemeProvider>
+					<AuthProvider>{children}</AuthProvider>
+				</ThemeProvider>
 			</body>
 		</html>
 	);
