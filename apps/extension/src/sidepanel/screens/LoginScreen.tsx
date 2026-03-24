@@ -1,5 +1,6 @@
 import { ExternalLink } from 'lucide-react';
 import { useState } from 'react';
+import { VoxelLogo } from '../components/VoxelLogo.js';
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:3000';
@@ -34,9 +35,7 @@ export function LoginScreen() {
 
 	return (
 		<div className="flex flex-col items-center justify-center h-screen p-6">
-			<div className="h-8 w-8 bg-foreground flex items-center justify-center mb-4">
-				<span className="text-background text-[10px] font-bold font-mono">C</span>
-			</div>
+			<VoxelLogo size={32} className="text-foreground mb-4" />
 			<h1 className="font-mono text-sm font-medium lowercase tracking-wide text-foreground mb-1">
 				commandra
 			</h1>

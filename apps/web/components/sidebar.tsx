@@ -17,6 +17,7 @@ import {
 	Shield,
 	X,
 } from 'lucide-react';
+import { VoxelLogo } from '@/components/voxel-logo';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -72,9 +73,7 @@ export function Sidebar() {
 			>
 				{/* Logo */}
 				<div className="flex items-center gap-2.5 px-4 h-14 border-b border-border">
-					<div className="h-6 w-6 bg-foreground flex items-center justify-center">
-						<span className="text-background text-[10px] font-bold font-mono">C</span>
-					</div>
+					<VoxelLogo size={22} className="text-foreground" />
 					<span className="font-mono text-sm font-medium lowercase tracking-wide text-foreground">
 						commandra
 					</span>

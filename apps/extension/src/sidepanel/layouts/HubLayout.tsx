@@ -2,6 +2,7 @@ import { ExternalLink, History, Settings, X } from 'lucide-react';
 import { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { HistoryDrawer } from '../components/HistoryDrawer.js';
+import { VoxelLogo } from '../components/VoxelLogo.js';
 
 const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:3000';
 
@@ -24,9 +25,7 @@ export function HubLayout() {
 						onClick={() => navigate('/')}
 						className="flex items-center gap-1.5 min-w-0"
 					>
-						<div className="h-4 w-4 bg-foreground flex items-center justify-center flex-shrink-0">
-							<span className="text-background text-[7px] font-bold font-mono">C</span>
-						</div>
+						<VoxelLogo size={16} className="text-foreground flex-shrink-0" />
 						<span className="font-mono text-[11px] font-medium lowercase tracking-wide text-foreground truncate">
 							commandra
 						</span>

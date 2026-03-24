@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { VoxelLogo } from '@/components/voxel-logo';
 import { useAuth } from '@/lib/auth-context';
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -39,9 +40,7 @@ export default function LoginPage() {
 		<div className="flex items-center justify-center min-h-screen">
 			<Card className="w-full max-w-sm">
 				<CardHeader className="text-center">
-					<div className="mx-auto h-8 w-8 bg-foreground flex items-center justify-center mb-3">
-						<span className="text-background text-[10px] font-bold font-mono">C</span>
-					</div>
+					<VoxelLogo size={32} className="mx-auto text-foreground mb-3" />
 					<CardTitle className="font-sans">{mode === 'login' ? 'Sign in' : 'Create account'}</CardTitle>
 					<CardDescription>
 						{mode === 'login' ? 'Sign in to your dashboard' : 'Create an account to get started'}
