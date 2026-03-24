@@ -171,6 +171,19 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
   - `agent-card.tsx` — expandable agent detail card with file editor
   - `agent-form.tsx` — agent creation form
 
+### Data Fetching & State Management (Dashboard)
+- **TanStack Query** (`@tanstack/react-query`) for all API data fetching in `apps/web/` — replaces raw `useState`/`useEffect`/`apiFetch` patterns
+- **TanStack Table** (`@tanstack/react-table`) for tabular data (audit logs, etc.)
+- Query client configured in `apps/web/lib/query-client.ts` (30s stale time, 5min GC)
+- Provider wrapper in `apps/web/app/providers.tsx`, wraps layout in `apps/web/app/layout.tsx`
+- **Query hooks** live in `apps/web/lib/queries/` — one file per domain: `use-stats.ts`, `use-conversations.ts`, `use-agents.ts`, `use-audit.ts`, `use-memory.ts`, `use-sites.ts`, `use-storage.ts`, `use-settings.ts`, `use-org.ts`
+- **Query key convention**: `['resource']` for lists, `['resource', id]` for singles, `['resource', { limit, offset, ...filters }]` for paginated
+- **Cache invalidation**: mutations call `queryClient.invalidateQueries({ queryKey: ['resource'] })` on success. Cross-resource invalidation where needed (e.g., deleting an agent invalidates both `agents` and `stats`)
+- **Pagination**: all list endpoints support `?limit=N&offset=N` and return `{ data, total }`. Backend helper: `apps/api/src/utils/pagination.ts` (`parsePagination`, `paginateArray`). Frontend component: `apps/web/components/ui/pagination.tsx`
+- **DataTable component**: `apps/web/components/ui/data-table.tsx` — reusable TanStack Table wrapper with server-side pagination
+- `apiFetch` (`apps/web/lib/api.ts`) is still used as the transport inside `queryFn` and for auth/SSE streaming — it's the low-level fetch wrapper, TanStack Query is the caching layer on top
+- Never add Redux, Zustand, or other state management libraries — TanStack Query handles server state, React state handles UI state
+
 ### Don't
 - Don't add Cloudflare Workers, Vercel, or serverless runtimes — we use Docker
 - Don't add Redis — in-memory cache is fine for now

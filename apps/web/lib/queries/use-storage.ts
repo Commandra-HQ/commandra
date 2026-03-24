@@ -9,11 +9,12 @@ export interface StorageStats {
 }
 
 export interface StorageFile {
+	name: string;
 	path: string;
 	domain: string;
-	filename: string;
+	category: string;
 	sizeBytes: number;
-	createdAt: string;
+	createdAt: number;
 }
 
 export function useStorageStatsQuery() {

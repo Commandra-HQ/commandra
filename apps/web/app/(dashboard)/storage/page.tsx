@@ -4,11 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
 import { MarkdownPreview } from '@/components/markdown-editor';
 import { apiFetch } from '@/lib/api';
-import { useDeleteStorageFileMutation, useStorageFilesQuery, useStorageStatsQuery } from '@/lib/queries/use-storage';
+import { type StorageFile, useDeleteStorageFileMutation, useStorageFilesQuery, useStorageStatsQuery } from '@/lib/queries/use-storage';
 import { Download, Eye, FileText, HardDrive, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 
 const CATEGORIES = ['screenshots', 'exports', 'context'] as const;
+type FileInfo = StorageFile;
 
 function formatSize(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
@@ -23,15 +24,6 @@ function isImageFile(name: string): boolean {
 
 function isMarkdownFile(name: string): boolean {
 	return /\.md$/i.test(name);
-}
-
-interface FileInfo {
-	name: string;
-	path: string;
-	domain: string;
-	category: string;
-	sizeBytes: number;
-	createdAt: number;
 }
 
 export default function StoragePage() {
@@ -50,7 +42,7 @@ export default function StoragePage() {
 	});
 	const deleteMutation = useDeleteStorageFileMutation();
 
-	const files = (filesData?.files ?? []) as FileInfo[];
+	const files = filesData?.files ?? [];
 	const total = filesData?.total ?? 0;
 
 	function closePreview() {
@@ -145,9 +137,9 @@ export default function StoragePage() {
 						}`}
 					>
 						{cat.charAt(0).toUpperCase() + cat.slice(1)}
-						{stats?.categories[cat as keyof typeof stats.categories] && (
+						{stats?.categories && (
 							<span className="ml-2 text-[10px] text-muted-foreground font-mono">
-								{(stats.categories as Record<string, { files: number }>)[cat]?.files}
+								{stats.categories.find((c) => c.name === cat)?.fileCount ?? 0}
 							</span>
 						)}
 					</button>

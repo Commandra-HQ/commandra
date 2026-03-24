@@ -6,20 +6,22 @@ export interface Agent {
 	slug: string;
 	name: string;
 	description: string;
-	model: string | null;
-	maxIterations: number | null;
-	tools: string[] | null;
-	domains: string[] | null;
-	trigger: { cron?: string; enabled?: boolean } | null;
-	autonomy: string;
-	createdAt: string;
-	updatedAt: string;
+	model?: string;
+	maxIterations?: number;
+	tools?: string[];
+	domains?: string[];
+	soul?: string;
+	skills?: string;
+	trigger?: { cron?: string; enabled?: boolean };
+	autonomy?: string;
+	createdAt?: string;
+	updatedAt?: string;
 }
 
 export interface AgentFile {
 	name: string;
 	size: number;
-	lastModified: string;
+	updatedAt: string;
 }
 
 export interface AgentRun {
