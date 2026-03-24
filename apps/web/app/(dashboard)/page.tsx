@@ -17,8 +17,6 @@ export default function HomePage() {
 				</p>
 			</div>
 
-			<DashboardStats />
-
 			<Card>
 				<CardHeader>
 					<CardTitle>Connect Chrome Extension</CardTitle>
@@ -30,6 +28,8 @@ export default function HomePage() {
 					<ExtensionToken />
 				</CardContent>
 			</Card>
+
+			<DashboardStats />
 		</div>
 	);
 }
