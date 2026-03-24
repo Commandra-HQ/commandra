@@ -265,20 +265,25 @@ export default function HistoryPage() {
 		);
 	}
 
-	return conversations.length === 0 && offset === 0 ? (
-		<Card>
-			<CardContent className="py-12 text-center">
-				<MessageSquare size={32} className="mx-auto text-muted-foreground mb-3" />
-				<p className="text-sm text-muted-foreground font-mono">
-					No conversations yet. Start chatting in the extension.
-				</p>
-			</CardContent>
-		</Card>
-	) : (
-		<div className="grid gap-1 lg:grid-cols-[300px_1fr] flex-1 min-h-0">
-			{/* Conversation list — flex column: scrollable list + sticky pagination */}
-			<div className="flex flex-col border border-border">
-				<div className="flex-1 overflow-y-auto">
+	if (conversations.length === 0 && offset === 0) {
+		return (
+			<Card>
+				<CardContent className="py-12 text-center">
+					<MessageSquare size={32} className="mx-auto text-muted-foreground mb-3" />
+					<p className="text-sm text-muted-foreground font-mono">
+						No conversations yet. Start chatting in the extension.
+					</p>
+				</CardContent>
+			</Card>
+		);
+	}
+
+	return (
+		<div className="flex flex-col flex-1 min-h-0">
+			{/* Main content area — grid with constrained height */}
+			<div className="grid gap-1 lg:grid-cols-[300px_1fr] flex-1 min-h-0">
+				{/* Conversation list — scrollable */}
+				<div className="border border-border overflow-y-auto">
 					{conversations.map((conv) => (
 						<button
 							key={conv.id}
@@ -308,55 +313,57 @@ export default function HistoryPage() {
 						</button>
 					))}
 				</div>
-				<div className="flex-shrink-0 border-t border-border px-3 py-2 bg-surface">
-					<Pagination offset={offset} limit={limit} total={total} onPageChange={setOffset} />
+
+				{/* Chat thread — flex column: sticky header + scrollable messages */}
+				<div className="border border-border flex flex-col min-h-0">
+					{selectedId && (
+						<div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-surface flex-shrink-0">
+							<span className="text-sm font-mono font-medium truncate">
+								{conversations.find((c) => c.id === selectedId)?.title || 'Untitled'}
+							</span>
+							<span className="text-[10px] font-mono text-muted-foreground ml-auto">
+								{conversations.find((c) => c.id === selectedId)?.messageCount} messages
+							</span>
+						</div>
+					)}
+
+					<div className="flex-1 overflow-y-auto p-4 space-y-3">
+						{!selectedId ? (
+							<div className="flex items-center justify-center h-full">
+								<p className="text-sm text-muted-foreground font-mono">
+									Select a conversation to view.
+								</p>
+							</div>
+						) : loadingMessages ? (
+							<div className="flex items-center justify-center h-full">
+								<div className="flex items-center gap-2">
+									<div className="status-pixel bg-muted-foreground animate-pulse" />
+									<p className="text-sm font-mono text-muted-foreground">Loading...</p>
+								</div>
+							</div>
+						) : messages.length === 0 ? (
+							<div className="flex items-center justify-center h-full">
+								<p className="text-sm text-muted-foreground font-mono">No messages found.</p>
+							</div>
+						) : (
+							<>
+								{messages.map((msg) =>
+									msg.role === 'user' ? (
+										<UserBubble key={msg.id} msg={msg} />
+									) : (
+										<AssistantBubble key={msg.id} msg={msg} />
+									),
+								)}
+								<div ref={messagesEndRef} />
+							</>
+						)}
+					</div>
 				</div>
 			</div>
 
-			{/* Chat thread — flex column: sticky header + scrollable messages */}
-			<div className="border border-border flex flex-col">
-				{selectedId && (
-					<div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-surface flex-shrink-0">
-						<span className="text-sm font-mono font-medium truncate">
-							{conversations.find((c) => c.id === selectedId)?.title || 'Untitled'}
-						</span>
-						<span className="text-[10px] font-mono text-muted-foreground ml-auto">
-							{conversations.find((c) => c.id === selectedId)?.messageCount} messages
-						</span>
-					</div>
-				)}
-
-				<div className="flex-1 overflow-y-auto p-4 space-y-3">
-					{!selectedId ? (
-						<div className="flex items-center justify-center h-full">
-							<p className="text-sm text-muted-foreground font-mono">
-								Select a conversation to view.
-							</p>
-						</div>
-					) : loadingMessages ? (
-						<div className="flex items-center justify-center h-full">
-							<div className="flex items-center gap-2">
-								<div className="status-pixel bg-muted-foreground animate-pulse" />
-								<p className="text-sm font-mono text-muted-foreground">Loading...</p>
-							</div>
-						</div>
-					) : messages.length === 0 ? (
-						<div className="flex items-center justify-center h-full">
-							<p className="text-sm text-muted-foreground font-mono">No messages found.</p>
-						</div>
-					) : (
-						<>
-							{messages.map((msg) =>
-								msg.role === 'user' ? (
-									<UserBubble key={msg.id} msg={msg} />
-								) : (
-									<AssistantBubble key={msg.id} msg={msg} />
-								),
-							)}
-							<div ref={messagesEndRef} />
-						</>
-					)}
-				</div>
+			{/* Pagination — sticky at bottom, full width */}
+			<div className="flex-shrink-0 border border-border border-t-0 px-3 py-2 bg-surface">
+				<Pagination offset={offset} limit={limit} total={total} onPageChange={setOffset} />
 			</div>
 		</div>
 	);
