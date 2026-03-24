@@ -384,41 +384,6 @@ export function ChatInput({
 }) {
 	return (
 		<div className="p-3 border-t border-border">
-			{chatMessages.length > 0 && !isActive && (
-				<div className="flex justify-end gap-1 mb-2">
-					<button
-						onClick={() => {
-							const transcript = chatMessages.map((m) => {
-								const header = `## ${m.role === 'user' ? 'User' : 'Assistant'}`;
-								const blocks = m.blocks?.map((b) => {
-									if (b.type === 'text') return b.content;
-									if (b.type === 'thinking') return `> Thinking: ${b.content.slice(0, 200)}`;
-									if (b.type === 'tool_call') {
-										const args = b.args ? JSON.stringify(b.args) : '';
-										const result = b.result ? JSON.stringify(b.result).slice(0, 300) : '';
-										return `[Tool: ${b.toolName}${b.label ? ` "${b.label}"` : ''} → ${b.status}]\nArgs: ${args}\nResult: ${result}`;
-									}
-									if (b.type === 'blocked') return `[BLOCKED: ${b.toolName} — ${b.reason}]`;
-									return '';
-								}).filter(Boolean).join('\n') || m.content;
-								return `${header}\n${blocks}`;
-							}).join('\n\n---\n\n');
-							navigator.clipboard.writeText(transcript);
-						}}
-						className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-secondary/50"
-					>
-						<Copy size={12} />
-						Copy chat
-					</button>
-					<button
-						onClick={onNewConversation}
-						className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-secondary/50"
-					>
-						<Plus size={12} />
-						New chat
-					</button>
-				</div>
-			)}
 
 			{selectedElements.length > 0 && (
 				<div className="flex flex-wrap items-center gap-1.5 mb-2 px-2 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-md">

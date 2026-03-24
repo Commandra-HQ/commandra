@@ -4,10 +4,10 @@
  */
 
 import type { CrawlProgress, SelectedElement } from '@afe/shared';
-import { MessageSquare } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useActiveChats } from '../contexts/active-chats.js';
+import { AnimatedVoxelLogo } from '../components/AnimatedVoxelLogo.js';
 import type {
 	ApprovalRequest,
 	ChatMessage,
@@ -18,7 +18,7 @@ import type {
 	ViewMode,
 } from './chat-types.js';
 import { API_URL, formatRelativeTime, formatToolLabel } from './chat-types.js';
-import { ContextBar, PlanPanel, ChatInput } from './chat-layout.js';
+import { PlanPanel, ChatInput } from './chat-layout.js';
 import {
 	AssistantMessage,
 	CrawlingView,
@@ -42,7 +42,7 @@ export function ChatTab() {
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 	const [input, setInput] = useState('');
 	const [isActive, setIsActive] = useState(false);
-	const [showContext, setShowContext] = useState(false);
+	// showContext state removed — pages list now accessible via menu
 	const [wsConnected, setWsConnected] = useState(false);
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
 	const [pendingPlanApproval, setPendingPlanApproval] = useState<PlanApprovalRequest | null>(null);
@@ -69,7 +69,7 @@ export function ChatTab() {
 	const CHAT_INPUT_MIN_HEIGHT_PX = 40;
 
 	// SSE streaming hook
-	const { sendMessage, handleStop, blocksRef, scheduleFlush, resetConversation } = useChatStream({
+	const { sendMessage, handleStop, blocksRef, scheduleFlush, resetConversation, conversationIdRef } = useChatStream({
 		setChatMessages,
 		setIsActive,
 		setContextStatus,
@@ -162,21 +162,37 @@ export function ChatTab() {
 		isActiveRef.current = isActive;
 	}, [isActive]);
 
-	// Load conversation when parent passes a conversationId
+	// Load conversation when conversationId changes (tab switch or initial mount).
+	// Key insight: if the stream just navigated us here (conversation_id or done event),
+	// conversationIdRef.current will match externalConvId — skip the DB reload since
+	// live blocks in memory are more complete than what's persisted.
 	useEffect(() => {
-		console.log('[ChatTab] externalConvId changed:', externalConvId, 'isActive:', isActiveRef.current, 'messages:', chatMessages.length);
-		if (externalConvId) {
-			setMode('chat');
-			// Only reload from DB if we have no messages yet (opening from history).
-			// If we already have messages, we're mid-stream and the live blocks are more
-			// complete than the DB. The done event just updated our URL.
-			if (chatMessages.length === 0) {
-				loadConversation(externalConvId);
-			} else {
-				console.log('[ChatTab] Already have messages, skipping DB reload');
+		if (!externalConvId) {
+			// Navigated to new chat — only clear if we're not actively streaming
+			if (!isActiveRef.current) {
+				setChatMessages([]);
+				setPendingApprovals([]);
+				setContextStatus(null);
+				setPlanState(null);
+				resetConversation();
 			}
+			return;
 		}
-		// Never clear messages here — only handleNewConversation does that explicitly
+
+		// If the stream navigated us here, messages are already in state — skip reload
+		if (conversationIdRef.current === externalConvId) {
+			setMode('chat');
+			return;
+		}
+
+		// Different conversation (tab switch or history open) — load from DB
+		setMode('chat');
+		setChatMessages([]);
+		setPendingApprovals([]);
+		setContextStatus(null);
+		setPlanState(null);
+		resetConversation();
+		loadConversation(externalConvId);
 	}, [externalConvId]);
 
 	useEffect(() => {
@@ -229,6 +245,23 @@ export function ChatTab() {
 		return () => chrome.runtime.onMessage.removeListener(handleMessage);
 	}, [domain, loadSiteData]);
 
+	// Listen for tab-action events from HubLayout menu
+	useEffect(() => {
+		function handleTabAction(e: Event) {
+			const action = (e as CustomEvent).detail?.action;
+			if (action === 'reindex') handleReindexPage();
+			if (action === 'deep-index') handleIndexSite();
+			if (action === 'copy-chat') {
+				const text = chatMessages
+					.map((m) => `${m.role === 'user' ? 'You' : 'Agent'}: ${m.content || m.blocks?.map((b) => 'content' in b ? b.content : '').join('') || ''}`)
+					.join('\n\n');
+				navigator.clipboard.writeText(text);
+			}
+		}
+		window.addEventListener('commandra-tab-action', handleTabAction);
+		return () => window.removeEventListener('commandra-tab-action', handleTabAction);
+	});
+
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 	}, [chatMessages]);
@@ -274,7 +307,6 @@ export function ChatTab() {
 	}
 
 	function handleNewConversation() {
-		console.log('[ChatTab] handleNewConversation called');
 		setChatMessages([]);
 		setPendingApprovals([]);
 		setOriginTabId(null);
@@ -460,7 +492,10 @@ export function ChatTab() {
 								});
 							}
 						}
-						if (m.content?.trim()) {
+						// Only add content as a text block if we didn't already extract
+						// text blocks from streamBlocks (which include the same content)
+						const hasTextBlock = blocks.some((b) => b.type === 'text');
+						if (m.content?.trim() && !hasTextBlock) {
 							blocks.push({ type: 'text' as const, content: m.content });
 						}
 						return {
@@ -539,39 +574,10 @@ export function ChatTab() {
 
 	return (
 		<div className="flex flex-col h-full">
-			{/* Context bar */}
-			<ContextBar
-				domain={domain}
-				siteData={siteData}
-				showContext={showContext}
-				setShowContext={setShowContext}
-				contextStatus={contextStatus}
-				planState={planState}
-				showPlanPanel={showPlanPanel}
-				setShowPlanPanel={setShowPlanPanel}
-				isReindexing={isReindexing}
-				onReindex={handleReindexPage}
-				onIndexSite={handleIndexSite}
-				onNavigateBack={() => navigate('/')}
-				originDomain={originDomain}
-				isTaskActive={isActive}
-			/>
-
-			{showContext && (
-				<div className="border-b border-border max-h-48 overflow-y-auto">
-					{siteData.pages.map((page) => (
-						<div key={page.url} className="px-4 py-1.5 border-b border-border/30">
-							<p className="text-xs text-foreground truncate">{page.title || page.urlPattern}</p>
-							<div className="flex items-center gap-2">
-								<p className="text-xs text-muted-foreground">{page.elements.length} elements</p>
-								{page.indexedAt && (
-									<p className="text-xs text-muted-foreground">
-										· {formatRelativeTime(page.indexedAt)}
-									</p>
-								)}
-							</div>
-						</div>
-					))}
+			{/* Different-tab warning */}
+			{isActive && originDomain && originDomain !== domain && (
+				<div className="px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-[10px] font-mono text-blue-400">
+					Task running on <span className="font-semibold">{originDomain}</span>
 				</div>
 			)}
 
@@ -583,16 +589,13 @@ export function ChatTab() {
 			{/* Messages */}
 			<div className="flex-1 overflow-y-auto p-4 space-y-4">
 				{chatMessages.length === 0 && (
-					<div className="flex flex-col items-center justify-center py-12 px-4">
-						<div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center mb-3">
-							<MessageSquare size={18} className="text-muted-foreground" />
-						</div>
-						<p className="text-sm text-foreground font-medium">
-							{domain ? `Chat about ${domain}` : 'New conversation'}
-						</p>
-						<p className="text-xs text-muted-foreground mt-1 text-center">
-							Ask anything — navigate, click, type, or extract data.
-						</p>
+					<div className="flex flex-col items-center justify-center py-16 px-4">
+						<AnimatedVoxelLogo size={64} className="mb-4 text-muted-foreground/30" />
+						{domain && (
+							<p className="text-[10px] font-mono text-muted-foreground mt-2 border border-border px-2 py-1">
+								{domain}
+							</p>
+						)}
 					</div>
 				)}
 				{chatMessages.map((msg) => (

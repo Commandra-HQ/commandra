@@ -7,6 +7,10 @@ export default {
 	content: ['./src/**/*.{ts,tsx,html}'],
 	theme: {
 		extend: {
+			fontFamily: {
+				sans: ['Instrument Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+				mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+			},
 			colors: {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
@@ -33,11 +37,22 @@ export default {
 					DEFAULT: 'hsl(var(--accent))',
 					foreground: 'hsl(var(--accent-foreground))',
 				},
+				card: {
+					DEFAULT: 'hsl(var(--card))',
+					foreground: 'hsl(var(--card-foreground))',
+				},
+				success: 'hsl(var(--success))',
+				warning: 'hsl(var(--warning))',
+				error: 'hsl(var(--error))',
+				surface: 'hsl(var(--surface))',
+				elevated: 'hsl(var(--elevated))',
+				outline: 'hsl(var(--outline))',
+				dim: 'hsl(var(--dim))',
 			},
 			borderRadius: {
 				lg: 'var(--radius)',
-				md: 'calc(var(--radius) - 2px)',
-				sm: 'calc(var(--radius) - 4px)',
+				md: 'var(--radius)',
+				sm: 'var(--radius)',
 			},
 		},
 	},

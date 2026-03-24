@@ -83,10 +83,14 @@ export function useChatStream(options: UseChatStreamOptions) {
 	function processSSEEvent(event: SSEEvent) {
 		switch (event.type) {
 			case 'conversation_id':
-				// Capture conversationId immediately so follow-up messages continue this conversation
+				// Capture conversationId and navigate immediately so the tab appears right away
 				if (event.conversationId) {
 					conversationIdRef.current = event.conversationId;
-					console.log('[ChatStream] conversation_id received:', event.conversationId);
+					markActive(event.conversationId, 'Chat', '');
+					// Navigate to create the tab early — replace so back button works
+					if (!externalConvId) {
+						navigate(`/chat/${event.conversationId}`, { replace: true });
+					}
 				}
 				break;
 
@@ -265,12 +269,9 @@ export function useChatStream(options: UseChatStreamOptions) {
 			}
 
 			case 'done':
-				console.log('[ChatStream] done event, convId:', event.conversationId, 'externalConvId:', externalConvId);
 				if (event.conversationId) {
-					// Store the conversationId so follow-up messages continue this conversation
 					conversationIdRef.current = event.conversationId;
-					// Update URL without triggering a reload — use replace so back button works
-					// Only navigate if we're not already on this conversation's route
+					// Navigate if we haven't already (conversation_id event handles new chats)
 					if (externalConvId !== event.conversationId) {
 						navigate(`/chat/${event.conversationId}`, { replace: true });
 					}
@@ -310,7 +311,6 @@ export function useChatStream(options: UseChatStreamOptions) {
 				chrome.action.setBadgeText({ text: '●' });
 				chrome.action.setBadgeBackgroundColor({ color: '#3b82f6' });
 			} catch {}
-
 
 			const activeConvId = externalConvId || conversationIdRef.current;
 			if (activeConvId) {
@@ -414,5 +414,6 @@ export function useChatStream(options: UseChatStreamOptions) {
 		blocksRef,
 		scheduleFlush,
 		resetConversation,
+		conversationIdRef,
 	};
 }

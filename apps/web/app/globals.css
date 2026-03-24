@@ -3,38 +3,100 @@
 @tailwind utilities;
 
 @layer base {
+	/* ---- Light mode ---- */
 	:root {
 		--background: 0 0% 100%;
-		--foreground: 240 10% 3.9%;
-		--card: 0 0% 100%;
-		--card-foreground: 240 10% 3.9%;
-		--primary: 240 5.9% 10%;
-		--primary-foreground: 0 0% 98%;
-		--secondary: 240 4.8% 95.9%;
-		--secondary-foreground: 240 5.9% 10%;
-		--muted: 240 4.8% 95.9%;
-		--muted-foreground: 240 3.8% 46.1%;
-		--accent: 240 4.8% 95.9%;
-		--accent-foreground: 240 5.9% 10%;
-		--destructive: 0 84.2% 60.2%;
+		--foreground: 240 10% 7%;
+		--card: 240 5% 98%;
+		--card-foreground: 240 10% 7%;
+		--primary: 240 10% 7%;
+		--primary-foreground: 0 0% 100%;
+		--secondary: 240 5% 95%;
+		--secondary-foreground: 240 10% 7%;
+		--muted: 240 5% 95%;
+		--muted-foreground: 240 5% 42%;
+		--accent: 240 5% 95%;
+		--accent-foreground: 240 10% 7%;
+		--destructive: 0 72% 51%;
 		--destructive-foreground: 0 0% 98%;
-		--border: 240 5.9% 90%;
-		--input: 240 5.9% 90%;
-		--ring: 240 5.9% 10%;
-		--radius: 0.5rem;
-		--sidebar-background: 0 0% 98%;
-		--sidebar-foreground: 240 5.3% 26.1%;
-		--sidebar-border: 220 13% 91%;
-		--sidebar-accent: 240 4.8% 95.9%;
-		--sidebar-accent-foreground: 240 5.9% 10%;
+		--border: 240 6% 88%;
+		--input: 240 6% 88%;
+		--ring: 240 6% 78%;
+		--radius: 0px;
+		/* Status colors */
+		--success: 160 100% 36%;
+		--warning: 36 82% 50%;
+		--error: 350 72% 51%;
+		/* Surfaces */
+		--surface: 240 5% 97%;
+		--elevated: 240 5% 94%;
+		--outline: 240 6% 88%;
+		--outline-hover: 240 6% 78%;
+		--dim: 240 5% 60%;
+		/* Sidebar */
+		--sidebar-background: 240 5% 97%;
+		--sidebar-foreground: 240 10% 7%;
+		--sidebar-border: 240 6% 88%;
+		--sidebar-accent: 240 5% 94%;
+		--sidebar-accent-foreground: 240 10% 7%;
 	}
+
+	/* ---- Dark mode ---- */
+	.dark {
+		--background: 240 20% 4%;
+		--foreground: 240 10% 94%;
+		--card: 240 15% 6%;
+		--card-foreground: 240 10% 94%;
+		--primary: 240 10% 94%;
+		--primary-foreground: 240 20% 4%;
+		--secondary: 240 12% 9%;
+		--secondary-foreground: 240 10% 94%;
+		--muted: 240 12% 9%;
+		--muted-foreground: 240 10% 62%;
+		--accent: 240 12% 9%;
+		--accent-foreground: 240 10% 94%;
+		--destructive: 350 72% 55%;
+		--destructive-foreground: 0 0% 98%;
+		--border: 240 12% 12%;
+		--input: 240 12% 12%;
+		--ring: 240 12% 18%;
+		--radius: 0px;
+		/* Status colors */
+		--success: 160 100% 44%;
+		--warning: 36 82% 55%;
+		--error: 350 72% 55%;
+		/* Surfaces */
+		--surface: 240 15% 6%;
+		--elevated: 240 12% 9%;
+		--outline: 240 12% 12%;
+		--outline-hover: 240 12% 18%;
+		--dim: 240 10% 35%;
+		/* Sidebar */
+		--sidebar-background: 240 15% 6%;
+		--sidebar-foreground: 240 10% 94%;
+		--sidebar-border: 240 12% 12%;
+		--sidebar-accent: 240 12% 9%;
+		--sidebar-accent-foreground: 240 10% 94%;
+	}
+}
+
+/* Status pixel — 4px square indicator */
+.status-pixel {
+	width: 4px;
+	height: 4px;
+	display: inline-block;
+	margin-right: 6px;
+	flex-shrink: 0;
 }
 
 @layer base {
 	* {
 		@apply border-border;
 	}
+	html {
+		scroll-behavior: smooth;
+	}
 	body {
-		@apply bg-background text-foreground;
+		@apply bg-background text-foreground antialiased;
 	}
 }
