@@ -18,7 +18,7 @@ import type {
 	ViewMode,
 } from './chat-types.js';
 import { API_URL, formatRelativeTime, formatToolLabel } from './chat-types.js';
-import { ContextBar, PlanPanel, ChatInput } from './chat-layout.js';
+import { PlanPanel, ChatInput } from './chat-layout.js';
 import {
 	AssistantMessage,
 	CrawlingView,
@@ -42,7 +42,7 @@ export function ChatTab() {
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 	const [input, setInput] = useState('');
 	const [isActive, setIsActive] = useState(false);
-	const [showContext, setShowContext] = useState(false);
+	// showContext state removed — pages list now accessible via menu
 	const [wsConnected, setWsConnected] = useState(false);
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
 	const [pendingPlanApproval, setPendingPlanApproval] = useState<PlanApprovalRequest | null>(null);
@@ -228,6 +228,17 @@ export function ChatTab() {
 		chrome.runtime.onMessage.addListener(handleMessage);
 		return () => chrome.runtime.onMessage.removeListener(handleMessage);
 	}, [domain, loadSiteData]);
+
+	// Listen for tab-action events from HubLayout menu
+	useEffect(() => {
+		function handleTabAction(e: Event) {
+			const action = (e as CustomEvent).detail?.action;
+			if (action === 'reindex') handleReindexPage();
+			if (action === 'deep-index') handleIndexSite();
+		}
+		window.addEventListener('commandra-tab-action', handleTabAction);
+		return () => window.removeEventListener('commandra-tab-action', handleTabAction);
+	});
 
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -539,39 +550,10 @@ export function ChatTab() {
 
 	return (
 		<div className="flex flex-col h-full">
-			{/* Context bar */}
-			<ContextBar
-				domain={domain}
-				siteData={siteData}
-				showContext={showContext}
-				setShowContext={setShowContext}
-				contextStatus={contextStatus}
-				planState={planState}
-				showPlanPanel={showPlanPanel}
-				setShowPlanPanel={setShowPlanPanel}
-				isReindexing={isReindexing}
-				onReindex={handleReindexPage}
-				onIndexSite={handleIndexSite}
-				onNavigateBack={() => navigate('/')}
-				originDomain={originDomain}
-				isTaskActive={isActive}
-			/>
-
-			{showContext && (
-				<div className="border-b border-border max-h-48 overflow-y-auto">
-					{siteData.pages.map((page) => (
-						<div key={page.url} className="px-4 py-1.5 border-b border-border/30">
-							<p className="text-xs text-foreground truncate">{page.title || page.urlPattern}</p>
-							<div className="flex items-center gap-2">
-								<p className="text-xs text-muted-foreground">{page.elements.length} elements</p>
-								{page.indexedAt && (
-									<p className="text-xs text-muted-foreground">
-										· {formatRelativeTime(page.indexedAt)}
-									</p>
-								)}
-							</div>
-						</div>
-					))}
+			{/* Different-tab warning */}
+			{isActive && originDomain && originDomain !== domain && (
+				<div className="px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-[10px] font-mono text-blue-400">
+					Task running on <span className="font-semibold">{originDomain}</span>
 				</div>
 			)}
 
