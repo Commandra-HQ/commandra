@@ -20,16 +20,17 @@ const C_SHAPE: [number, number][] = [
 	[319, 350], [381, 350],
 ];
 
-export function VoxelLogo({ size = 20, className = '' }: { size?: number; className?: string }) {
-	const [hovered, setHovered] = useState(false);
+export function VoxelLogo({ size = 20, className = '', hovered: externalHovered }: { size?: number; className?: string; hovered?: boolean }) {
+	const [internalHovered, setInternalHovered] = useState(false);
+	const hovered = externalHovered ?? internalHovered;
 	const positions = hovered ? C_SHAPE : LOGO;
 
 	return (
 		<div
 			className={className}
 			style={{ width: size, height: size, cursor: 'pointer' }}
-			onMouseEnter={() => setHovered(true)}
-			onMouseLeave={() => setHovered(false)}
+			onMouseEnter={() => setInternalHovered(true)}
+			onMouseLeave={() => setInternalHovered(false)}
 		>
 			<svg width={size} height={size} viewBox="50 80 420 350" fill="none">
 				{positions.map(([x, y], i) => (

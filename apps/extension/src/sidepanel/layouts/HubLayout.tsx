@@ -32,6 +32,7 @@ export function HubLayout() {
 	const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
 	const [tabs, setTabs] = useState<Tab[]>([]);
 	const [currentDomain, setCurrentDomain] = useState('');
+	const [logoHovered, setLogoHovered] = useState(false);
 
 	// Track browser tab domain
 	const updateDomain = useCallback(() => {
@@ -115,8 +116,10 @@ export function HubLayout() {
 						<button
 							onClick={startNewChat}
 							className="py-1 flex items-center gap-2"
+							onMouseEnter={() => setLogoHovered(true)}
+							onMouseLeave={() => setLogoHovered(false)}
 						>
-							<VoxelLogo size={18} className="text-foreground" />
+							<VoxelLogo size={18} className="text-foreground" hovered={logoHovered} />
 							<span className="font-mono text-sm font-medium tracking-wide text-foreground">
 								Commandra
 							</span>

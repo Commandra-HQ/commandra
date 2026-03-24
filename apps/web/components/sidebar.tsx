@@ -27,6 +27,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+
+
 const baseNavItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/history', label: 'History', icon: History },
@@ -52,6 +54,7 @@ export function Sidebar() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
+  const [logoHovered, setLogoHovered] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
@@ -153,12 +156,15 @@ export function Sidebar() {
             'flex items-center h-12 border-b border-border flex-shrink-0',
             collapsed ? 'justify-center px-0' : 'justify-between px-3',
           )}
+          onMouseEnter={() => setLogoHovered(true)}
+          onMouseLeave={() => setLogoHovered(false)}
         >
           {!collapsed && (
             <div className="flex items-center gap-2">
               <VoxelLogo
                 size={collapsed ? 18 : 20}
                 className="text-foreground flex-shrink-0"
+                hovered={logoHovered}
               />
 
               <span className="font-mono text-xs font-medium lowercase tracking-wide text-foreground">
