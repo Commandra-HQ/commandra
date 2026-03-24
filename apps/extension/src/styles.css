@@ -2,57 +2,84 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
- * Theme: all colors are controlled via CSS variables below.
- * Light theme = :root; dark theme = .dark (class on <html>).
- * Change values here to adjust the look in one place.
- */
 @layer base {
+	/* ---- Light mode ---- */
 	:root {
 		--background: 0 0% 100%;
-		--foreground: 240 10% 3.9%;
-		--primary: 240 5.9% 10%;
-		--primary-foreground: 0 0% 98%;
-		--secondary: 240 4.8% 95.9%;
-		--secondary-foreground: 240 5.9% 10%;
-		--muted: 240 4.8% 95.9%;
-		--muted-foreground: 240 3.8% 46.1%;
-		--accent: 240 4.8% 95.9%;
-		--accent-foreground: 240 5.9% 10%;
-		--destructive: 0 84.2% 60.2%;
+		--foreground: 240 10% 7%;
+		--card: 240 5% 98%;
+		--card-foreground: 240 10% 7%;
+		--primary: 240 10% 7%;
+		--primary-foreground: 0 0% 100%;
+		--secondary: 240 5% 95%;
+		--secondary-foreground: 240 10% 7%;
+		--muted: 240 5% 95%;
+		--muted-foreground: 240 5% 42%;
+		--accent: 240 5% 95%;
+		--accent-foreground: 240 10% 7%;
+		--destructive: 0 72% 51%;
 		--destructive-foreground: 0 0% 98%;
-		--border: 240 5.9% 90%;
-		--input: 240 5.9% 90%;
-		--ring: 240 5.9% 10%;
-		--radius: 0.5rem;
+		--border: 240 6% 88%;
+		--input: 240 6% 88%;
+		--ring: 240 6% 78%;
+		--radius: 0px;
+		--success: 160 100% 36%;
+		--warning: 36 82% 50%;
+		--error: 350 72% 51%;
+		--surface: 240 5% 97%;
+		--elevated: 240 5% 94%;
+		--outline: 240 6% 88%;
+		--dim: 240 5% 60%;
 	}
 
+	/* ---- Dark mode ---- */
 	.dark {
-		--background: 240 10% 3.9%;
-		--foreground: 0 0% 98%;
-		--primary: 0 0% 98%;
-		--primary-foreground: 240 5.9% 10%;
-		--secondary: 240 3.7% 15.9%;
-		--secondary-foreground: 0 0% 98%;
-		--muted: 240 3.7% 15.9%;
-		--muted-foreground: 240 5% 64.9%;
-		--accent: 240 3.7% 15.9%;
-		--accent-foreground: 0 0% 98%;
-		/* Brighter red so destructive text/buttons are readable on dark background */
-		--destructive: 0 72% 58%;
+		--background: 240 20% 4%;
+		--foreground: 240 10% 94%;
+		--card: 240 15% 6%;
+		--card-foreground: 240 10% 94%;
+		--primary: 240 10% 94%;
+		--primary-foreground: 240 20% 4%;
+		--secondary: 240 12% 9%;
+		--secondary-foreground: 240 10% 94%;
+		--muted: 240 12% 9%;
+		--muted-foreground: 240 10% 62%;
+		--accent: 240 12% 9%;
+		--accent-foreground: 240 10% 94%;
+		--destructive: 350 72% 55%;
 		--destructive-foreground: 0 0% 98%;
-		--border: 240 3.7% 15.9%;
-		--input: 240 3.7% 15.9%;
-		--ring: 240 4.9% 83.9%;
-		--radius: 0.5rem;
+		--border: 240 12% 12%;
+		--input: 240 12% 12%;
+		--ring: 240 12% 18%;
+		--radius: 0px;
+		--success: 160 100% 44%;
+		--warning: 36 82% 55%;
+		--error: 350 72% 55%;
+		--surface: 240 15% 6%;
+		--elevated: 240 12% 9%;
+		--outline: 240 12% 12%;
+		--dim: 240 10% 35%;
 	}
+}
+
+/* Status pixel — 4px square indicator */
+.status-pixel {
+	width: 4px;
+	height: 4px;
+	display: inline-block;
+	margin-right: 6px;
+	flex-shrink: 0;
 }
 
 @layer base {
 	* {
 		@apply border-border;
 	}
+	html {
+		scroll-behavior: smooth;
+	}
 	body {
-		@apply bg-background text-foreground;
+		@apply bg-background text-foreground antialiased;
+		font-family: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
 	}
 }
