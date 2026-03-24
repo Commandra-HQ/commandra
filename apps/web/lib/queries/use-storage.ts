@@ -5,7 +5,7 @@ export interface StorageStats {
 	totalSizeBytes: number;
 	totalFiles: number;
 	maxSizeBytes: number;
-	categories: { name: string; fileCount: number; sizeBytes: number }[];
+	categories: Record<string, { files: number; sizeBytes: number }>;
 }
 
 export interface StorageFile {

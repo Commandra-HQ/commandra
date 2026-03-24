@@ -137,9 +137,9 @@ export default function StoragePage() {
 						}`}
 					>
 						{cat.charAt(0).toUpperCase() + cat.slice(1)}
-						{stats?.categories && (
+						{stats?.categories?.[cat] && (
 							<span className="ml-2 text-[10px] text-muted-foreground font-mono">
-								{stats.categories.find((c) => c.name === cat)?.fileCount ?? 0}
+								{stats.categories[cat].files}
 							</span>
 						)}
 					</button>
