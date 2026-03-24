@@ -269,7 +269,7 @@ export function buildToolList(
   const saveKnowledgeTool = {
     name: 'save_knowledge',
     description:
-      'Write a knowledge file to persistent storage. Use this to save domain knowledge (how an app works, page structure, useful selectors), workflows (proven multi-step procedures), or any other knowledge worth preserving for future sessions. Files are markdown. You can create or overwrite files.',
+      'Write a knowledge file to persistent storage. Supports three modes: "append" (default) adds new entries without losing existing content — best for adding learnings incrementally. "rewrite" replaces the entire file — use when you want to reorganize or clean up (read_knowledge first!). "merge" intelligently deduplicates your content against existing entries — best for bulk updates. Use for domain knowledge, workflows, agent files, or run summaries.',
     parameters: {
       type: 'object' as const,
       properties: {
@@ -292,7 +292,13 @@ export function buildToolList(
         content: {
           type: 'string',
           description:
-            'Full markdown content to write. Include headers and structure.',
+            'Markdown content to write. For append mode: just the new entries. For rewrite mode: the complete file. For merge mode: all entries (duplicates will be auto-removed).',
+        },
+        mode: {
+          type: 'string',
+          enum: ['append', 'rewrite', 'merge'],
+          description:
+            'How to handle existing content. "append" (default): adds your content after existing content, preserving everything. "rewrite": replaces the entire file — only use after reading current content. "merge": deduplicates your entries against existing ones using similarity matching — best for bulk updates.',
         },
       },
       required: ['category', 'key', 'filename', 'content'],

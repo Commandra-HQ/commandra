@@ -15,7 +15,7 @@ import { db } from '../db/index.js';
 import { agentRuns, agents, conversations, messages as messagesTable } from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
 import { collectStream } from '../llm/types.js';
-import { loadDomainMemory } from '../memory/domain.js';
+import { loadDomainKnowledgeFromS3 } from '../memory/domain.js';
 import { loadUserMemory } from '../memory/user.js';
 import { getConnectionByUser, sendActionRequest, sendToExtension } from '../ws/handler.js';
 import { resolveAgent } from './agent-registry.js';
@@ -262,17 +262,17 @@ async function runScheduledAgent(
 		// Load agent config (hydrated with files)
 		const agentConfig = await resolveAgent(agent.userId, agent.id);
 
-		// Load domain memory if agent has domains
-		let domainMem: string | undefined;
+		// Load domain knowledge from S3
+		let domainKnowledge: string | undefined;
 		let userMem: string | undefined;
 		const domain = (agent.domains as string[] | null)?.[0];
 		if (domain) {
-			const [dm, um] = await Promise.all([
-				loadDomainMemory(domain),
+			const [um, dk] = await Promise.all([
 				loadUserMemory(agent.userId, domain),
+				loadDomainKnowledgeFromS3(agent.userId, domain),
 			]);
-			domainMem = dm ?? undefined;
 			userMem = um ?? undefined;
+			domainKnowledge = dk ?? undefined;
 		}
 
 		// Create a conversation record so scheduled runs appear in history
@@ -322,8 +322,9 @@ async function runScheduledAgent(
 			userId: agent.userId,
 			connectionId,
 			messages: [{ role: 'user', content: taskMessage }],
-			domainMemory: domainMem,
+			domainMemory: undefined,
 			userMemory: userMem,
+			domainKnowledge,
 			domain,
 			onEvent: noopEvent,
 			agentConfig,

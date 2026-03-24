@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import { pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
+import { parsePagination } from '../utils/pagination.js';
 
 export const siteRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
@@ -12,6 +13,11 @@ siteRoutes.use('*', requireAuth);
 // List sites — compute page/element counts live from pages table
 siteRoutes.get('/', async (c) => {
 	const user = c.get('user');
+	const { limit, offset } = parsePagination(c);
+
+	const scope = getOrgOrUserScope(user, sites);
+
+	const [totalResult] = await db.select({ count: count() }).from(sites).where(scope);
 
 	const rows = await db
 		.select({
@@ -23,9 +29,11 @@ siteRoutes.get('/', async (c) => {
 			createdAt: sites.createdAt,
 		})
 		.from(sites)
-		.where(getOrgOrUserScope(user, sites));
+		.where(scope)
+		.limit(limit)
+		.offset(offset);
 
-	if (rows.length === 0) return c.json({ sites: [] });
+	if (rows.length === 0) return c.json({ sites: [], total: totalResult?.count ?? 0 });
 
 	// Compute live page counts to avoid stale cached values (e.g. interrupted crawls)
 	const siteIds = rows.map((r) => r.id);
@@ -50,7 +58,7 @@ siteRoutes.get('/', async (c) => {
 		totalPages: countMap.get(site.id) ?? 0,
 	}));
 
-	return c.json({ sites: enriched });
+	return c.json({ sites: enriched, total: totalResult?.count ?? 0 });
 });
 
 // Get site with pages (includes elements for each page)

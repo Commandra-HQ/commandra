@@ -8,6 +8,7 @@ import {
 	CheckCircle2,
 	ChevronRight,
 	Circle,
+	Copy,
 	Download,
 	Globe,
 	ListChecks,
@@ -15,7 +16,7 @@ import {
 	Settings2,
 	X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { CrawlProgress } from '@afe/shared';
 import type { ChatMessage, MessageBlock, Plan, TOOL_LABELS as TL } from './chat-types.js';
@@ -27,12 +28,41 @@ import {
 	formatRelativeTime,
 } from './chat-types.js';
 
+// --- Copy button ---
+
+function CopyButton({ text, className = '' }: { text: string; className?: string }) {
+	const [copied, setCopied] = useState(false);
+	const handleCopy = useCallback(() => {
+		navigator.clipboard.writeText(text).then(() => {
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1500);
+		});
+	}, [text]);
+
+	return (
+		<button
+			onClick={handleCopy}
+			className={`p-1 rounded transition-colors ${className}`}
+			title="Copy"
+		>
+			{copied ? (
+				<Check size={12} className="text-green-400" />
+			) : (
+				<Copy size={12} />
+			)}
+		</button>
+	);
+}
+
 // --- User & Assistant Messages ---
 
 export function UserMessage({ msg }: { msg: ChatMessage }) {
 	return (
-		<div className="flex justify-end">
-			<div className="max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-primary text-primary-foreground">
+		<div className="group/msg flex justify-end">
+			<div className="relative max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-primary text-primary-foreground">
+				<div className="absolute -left-8 top-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+					<CopyButton text={msg.content} className="text-muted-foreground hover:text-foreground hover:bg-elevated" />
+				</div>
 				{msg.selectedElements && msg.selectedElements.length > 0 && (
 					<div className="flex flex-wrap gap-1 mb-1.5">
 						{msg.selectedElements.length === 1 ? (
@@ -82,9 +112,19 @@ export function AssistantMessage({
 
 	if (blocks.length === 0) return null;
 
+	const copyableText = blocks
+		.filter((b): b is Extract<MessageBlock, { type: 'text' }> => b.type === 'text' && !b.content.startsWith('__approval__:'))
+		.map(b => b.content)
+		.join('\n\n');
+
 	return (
-		<div className="flex justify-start">
-			<div className="max-w-[90%] space-y-2">
+		<div className="group/msg flex justify-start w-full">
+			<div className="relative w-[90%] space-y-2">
+				{copyableText && (
+					<div className="absolute -right-7 top-0 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+						<CopyButton text={copyableText} className="text-muted-foreground hover:text-foreground hover:bg-elevated" />
+					</div>
+				)}
 				{blocks.map((block, i) => {
 					switch (block.type) {
 						case 'thinking':
@@ -173,8 +213,8 @@ export function ThinkingBlock({ content, isLast }: { content: string; isLast: bo
 				<span>Thinking{isLast && hasContent ? '...' : ''}</span>
 			</button>
 			{showContent && hasContent && (
-				<div className="mt-1 ml-5 text-[11px] text-muted-foreground/70 max-h-[200px] overflow-y-auto leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-p:my-0.5 prose-headings:my-1 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-0.5 prose-code:text-[10px] prose-strong:text-muted-foreground/90">
-					<ReactMarkdown breaks>{content}</ReactMarkdown>
+				<div className="mt-1 ml-5 text-[11px] text-muted-foreground/70 max-h-[200px] overflow-y-auto leading-relaxed break-words prose prose-sm dark:prose-invert max-w-none prose-p:my-0.5 prose-headings:my-1 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-0.5 prose-code:text-[10px] prose-strong:text-muted-foreground/90">
+					<ReactMarkdown breaks>{content.replace(/([^\n])\n(\*\*)/g, '$1\n\n$2')}</ReactMarkdown>
 				</div>
 			)}
 		</div>

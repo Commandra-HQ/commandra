@@ -22,7 +22,8 @@ import { classifyAction } from '../safety/classifier.js';
 import { executeTool, getToolDefinitions } from '../tools/registry.js';
 import { writeScratchpad, readScratchpad } from '../storage/scratchpad.js';
 import { isKilled, sendActionRequest, sendApprovalRequest } from '../ws/handler.js';
-import { recordAgentRun } from './self-improve.js';
+import { analyzeAndImprove, recordAgentRun } from './self-improve.js';
+import type { ToolCallRecord } from './orchestrator.js';
 
 // Defaults — overrideable per agent via agentConfig.limits
 const DEFAULT_MAX_CONCURRENT = 3;
@@ -74,6 +75,7 @@ export async function spawnSubAgent(params: {
 	agentConfig?: AgentConfig;
 	depth?: number;
 	keepTab?: boolean;
+	conversationId?: string;
 }): Promise<{ agentId: string; error?: string }> {
 	const { userId, connectionId, task, targetUrl, onEvent } = params;
 	const timeout = params.timeout ?? DEFAULT_SUBAGENT_TIMEOUT;
@@ -237,6 +239,7 @@ async function runSubAgent(params: {
 	agentConfig?: AgentConfig;
 	depth?: number;
 	keepTab?: boolean;
+	conversationId?: string;
 }): Promise<void> {
 	const {
 		agentId,
@@ -362,7 +365,7 @@ async function runSubAgent(params: {
 		: timeoutController.signal;
 
 	try {
-		const maxIter = agentConfig?.limits?.maxConcurrentSubAgents ?? agentConfig?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+		const maxIter = agentConfig?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 		while (iterations < maxIter) {
 			if (isKilled(connectionId) || combinedSignal.aborted) break;
 
@@ -474,7 +477,7 @@ async function runSubAgent(params: {
 				// Handle internal tools (scratchpad) — these don't go through the browser tool registry
 				if (block.name === 'write_scratchpad' || block.name === 'read_scratchpad') {
 					try {
-						const convId = params.domain || agentId; // use domain or agentId as conversation scope
+						const convId = params.conversationId || agentId; // conversation-scoped to prevent cross-conversation collisions
 						if (block.name === 'write_scratchpad') {
 							const args = block.input as { key: string; data: string };
 							let parsed: unknown;
@@ -549,6 +552,28 @@ async function runSubAgent(params: {
 						content: JSON.stringify(result),
 						isError: false,
 					});
+
+					// Auto-refresh page state after state-changing actions (mirrors main orchestrator)
+					const STATE_CHANGING = ['click_element', 'navigate', 'type_text', 'select_option'];
+					if (STATE_CHANGING.includes(block.name)) {
+						try {
+							const delay = block.name === 'click_element' || block.name === 'navigate' ? 2000 : 500;
+							await new Promise((resolve) => setTimeout(resolve, delay));
+							const freshState = await executeTool('get_page_state', { tabId }, context);
+							const freshData = freshState as unknown as Record<string, unknown>;
+							if (freshData?.success && freshData.data) {
+								// Append refreshed page state to the last tool result
+								const lastResult = toolResults[toolResults.length - 1];
+								if (lastResult && typeof lastResult.content === 'string') {
+									try {
+										const parsed = JSON.parse(lastResult.content);
+										parsed.pageState = freshData.data;
+										lastResult.content = JSON.stringify(parsed);
+									} catch { /* non-critical */ }
+								}
+							}
+						} catch { /* non-critical — sub-agent can call refresh_page_state manually */ }
+					}
 				} catch (err) {
 					const errorMsg = err instanceof Error ? err.message : String(err);
 					actionsPerformed.push(`${block.name}: FAILED - ${errorMsg}`);
@@ -616,7 +641,7 @@ async function runSubAgent(params: {
 		}
 	}
 
-	// Record run for non-coordinator agents
+	// Record run + self-improvement for non-coordinator agents
 	if (agentConfig && agentConfig.id !== '_coordinator') {
 		recordAgentRun({
 			agentId: agentConfig.id,
@@ -626,6 +651,30 @@ async function runSubAgent(params: {
 			durationMs: Date.now() - subAgent.startedAt,
 			error: subAgent.result?.error,
 		}).catch((err) => console.warn('[Swarm] recordAgentRun failed:', err));
+
+		// Self-improvement: extract learnings from sub-agent run
+		const transcript = currentMessages
+			.map((m) => `${m.role}: ${typeof m.content === 'string' ? m.content : '[tool data]'}`)
+			.join('\n\n');
+		const toolCallRecords: ToolCallRecord[] = actionsPerformed.map((a) => {
+			const [name, ...rest] = a.split(': ');
+			const detail = rest.join(': ');
+			return {
+				name,
+				args: {},
+				result: {},
+				success: !detail.includes('FAILED'),
+			};
+		});
+		analyzeAndImprove({
+			userId,
+			agentConfig,
+			toolCalls: toolCallRecords,
+			transcript,
+			duration: Date.now() - subAgent.startedAt,
+			domain: params.domain,
+			conversationId: params.conversationId,
+		}).catch((err) => console.warn('[Swarm] analyzeAndImprove failed:', err));
 	}
 
 	await onEvent({

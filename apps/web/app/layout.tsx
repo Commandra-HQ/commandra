@@ -1,5 +1,6 @@
 import { AuthProvider } from '@/lib/auth-context';
 import { ThemeProvider } from '@/components/theme-provider';
+import { Providers } from './providers';
 import './globals.css';
 
 export const metadata = {
@@ -17,9 +18,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 				/>
 			</head>
 			<body className="min-h-screen bg-background font-sans antialiased">
-				<ThemeProvider>
-					<AuthProvider>{children}</AuthProvider>
-				</ThemeProvider>
+				<Providers>
+					<ThemeProvider>
+						<AuthProvider>{children}</AuthProvider>
+					</ThemeProvider>
+				</Providers>
 			</body>
 		</html>
 	);

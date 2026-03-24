@@ -1,24 +1,12 @@
 'use client';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useAuth } from '@/lib/auth-context';
 import { DashboardStats } from './dashboard-stats';
 import { ExtensionToken } from './extension-token';
 
 export default function HomePage() {
-	const { user } = useAuth();
-
 	return (
-		<div className="space-y-8">
-			<div>
-				<h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-				<p className="text-sm text-muted-foreground mt-1 font-mono">
-					Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}.
-				</p>
-			</div>
-
-			<DashboardStats />
-
+		<div className="space-y-6">
 			<Card>
 				<CardHeader>
 					<CardTitle>Connect Chrome Extension</CardTitle>
@@ -30,6 +18,8 @@ export default function HomePage() {
 					<ExtensionToken />
 				</CardContent>
 			</Card>
+
+			<DashboardStats />
 		</div>
 	);
 }

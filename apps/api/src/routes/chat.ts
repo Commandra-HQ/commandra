@@ -8,8 +8,9 @@ import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
 import { db } from '../db/index.js';
 import { agents, conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
-import { loadDomainKnowledgeFromS3, loadDomainMemory } from '../memory/domain.js';
-import { loadUserMemory } from '../memory/user.js';
+import { loadDomainKnowledgeFromS3, syncDomainKnowledgeToS3 } from '../memory/domain.js';
+import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
+import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { loadPlan } from '../storage/plan-files.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
@@ -133,23 +134,20 @@ chatRoutes.post('/', async (c) => {
 	const canAct = !!connectionId;
 	if (connectionId) resetKill(connectionId);
 
-	// Load domain memory, user memory, and site pages context
+	// Load user memory + domain knowledge from S3
 	const pi = pageIndex as
 		| { url?: string; urlPattern?: string; sitePages?: unknown; lastIndexedAt?: unknown }
 		| undefined;
 	let domain: string | undefined;
-	let domainMem: string | undefined;
 	let userMem: string | undefined;
 	let domainKnowledge: string | undefined;
 	if (pi?.url) {
 		try {
 			domain = new URL(pi.url).hostname;
-			const [dm, um, dk] = await Promise.all([
-				loadDomainMemory(domain),
+			const [um, dk] = await Promise.all([
 				loadUserMemory(user.id, domain),
 				loadDomainKnowledgeFromS3(user.id, domain),
 			]);
-			domainMem = dm ?? undefined;
 			userMem = um ?? undefined;
 			domainKnowledge = dk ?? undefined;
 
@@ -308,7 +306,7 @@ chatRoutes.post('/', async (c) => {
 					messages: chatMessages,
 					pageIndex,
 					selectedElements,
-					domainMemory: domainMem,
+					domainMemory: undefined,
 					userMemory: userMem,
 					domain,
 					conversationId: convId,
@@ -355,13 +353,24 @@ chatRoutes.post('/', async (c) => {
 						domain,
 						conversationId: convId,
 					}).catch((err) => console.warn('[SelfImprove] analyzeAndImprove failed:', err));
+
+					// Extract user-specific memories from conversation (fire-and-forget)
+					if (domain) {
+						const provider = getProvider();
+						const fastModel = getFastModel();
+						const strongModel = getStrongModel();
+						extractAndSaveUserMemory(user.id, domain, transcript, provider, fastModel, strongModel)
+							.catch((err) => console.warn('[UserMemory] extractAndSaveUserMemory failed:', err));
+						syncDomainKnowledgeToS3(user.id, domain, transcript, provider, fastModel)
+							.catch((err) => console.warn('[DomainKnowledge] syncDomainKnowledgeToS3 failed:', err));
+					}
 				}
 			} else {
 				fullResponse = await runSimpleChat({
 					messages: chatMessages,
 					pageIndex,
 					selectedElements,
-					domainMemory: domainMem,
+					domainMemory: undefined,
 					userMemory: userMem,
 					onEvent,
 					signal,

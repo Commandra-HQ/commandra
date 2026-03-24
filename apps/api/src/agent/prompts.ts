@@ -41,22 +41,32 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 - wait_for_element for loading/dynamic content
 - export_data to format as CSV/JSON
 
+**Context efficiency — keep your context window lean:**
+- Page state auto-refreshes after actions show a compact summary + top 10 elements. Call refresh_page_state if you need the full list.
+- **Screenshots are expensive** (~2000 tokens each). Use ONLY for visual verification when text-based tools are insufficient (charts, images, visual layout issues).
+- Prefer read_text and read_table over screenshots for data extraction — they're cheaper and more accurate.
+- NEVER take screenshots just to "see what happened" — the auto-refreshed page state tells you what changed.
+- After you respond to a screenshot, it's automatically removed from context to save space.
+
 **Knowledge & Memory — you manage your own learning:**
-- **save_memory**: Quick-save corrections, preferences, terminology to Postgres (always injected into your prompt next time)
-- **recall_memory**: Search your saved memories by keyword
-- **save_knowledge**: Write knowledge files to persistent S3 storage. Categories:
-  - \`domain\`: Per-website knowledge (how the app works, navigation, selectors, quirks). Key = domain name.
-  - \`agent\`: Per-agent files (SKILLS.md, LEARNINGS.md). Key = agent slug.
-  - \`run\`: Run summaries for noteworthy completions. Key = date (YYYY-MM-DD).
+- **save_memory**: Quick-save corrections, preferences, terminology to your MEMORY.md file (always injected into your prompt next time)
+- **recall_memory**: Search your saved memories by keyword (searches MEMORY.md)
+- **save_knowledge**: Write knowledge files to persistent storage with three modes:
+  - \`append\` (default): Adds your content after existing content — safe, never loses data
+  - \`merge\`: Deduplicates your entries against existing ones — best for bulk updates
+  - \`rewrite\`: Replaces the entire file — ALWAYS use read_knowledge first!
+  Categories: \`domain\` (per-website), \`agent\` (per-agent files), \`run\` (run logs)
 - **read_knowledge**: Read back any knowledge file you previously saved
 - **list_knowledge**: See what knowledge files exist for a domain or agent
 
 **When to save knowledge:**
-- After discovering how a web app works (page structure, navigation, tricky elements) → save to domain KNOWLEDGE.md
-- After completing a multi-step workflow successfully → save to domain WORKFLOWS.md
-- When you notice user preferences specific to a domain → save to domain MEMORY.md
+- After discovering how a web app works (page structure, navigation, tricky elements) → save to domain KNOWLEDGE.md (mode: append)
+- After completing a multi-step workflow successfully → save to domain WORKFLOWS.md (mode: append)
+- When you notice user preferences specific to a domain → save to domain MEMORY.md (mode: append)
 - After a noteworthy run (completed a big task, learned from a failure) → save a run summary
+- To clean up/reorganize a messy knowledge file → read_knowledge first, then save_knowledge with mode: rewrite
 - You do NOT need to save after every interaction — only when there's something genuinely useful for next time
+- **NEVER use mode: rewrite without reading the file first** — you will lose all existing knowledge
 
 ## Sub-Agents (Parallel Work)
 You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when genuinely beneficial:
@@ -283,14 +293,12 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		}
 	}
 
-	let memorySummary = '';
-	if (domainMemory) {
-		memorySummary = `\n\n## What You Know About This App\n${domainMemory}`;
-	}
+	// domainMemory param is deprecated (was Postgres shared memory) — always empty now
+	const memorySummary = '';
 
 	let userMemorySummary = '';
 	if (userMemory) {
-		userMemorySummary = `\n\n## What You Know About This User\n${userMemory}`;
+		userMemorySummary = `\n\n## User Memory (corrections, preferences, terminology)\n${userMemory}`;
 	}
 
 	let identitySummary = '';

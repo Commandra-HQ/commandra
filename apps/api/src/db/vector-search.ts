@@ -1,11 +1,9 @@
 /**
- * User memory search — keyword-based scoring.
- * Embeddings removed — domain knowledge now accumulates in S3 (KNOWLEDGE.md, WORKFLOWS.md).
+ * User memory search — keyword-based scoring against S3 MEMORY.md files.
+ * No Postgres dependency — reads directly from Supabase Storage.
  */
 
-import { and, eq } from 'drizzle-orm';
-import { db } from './index.js';
-import { userMemory } from './schema.js';
+import { downloadDomainFile } from '../storage/domain-files.js';
 
 interface UserMemorySearchResult {
 	id: string;
@@ -16,8 +14,11 @@ interface UserMemorySearchResult {
 	score: number;
 }
 
+const ENTRY_RE = /^- \[(\d{4}-\d{2}-\d{2})\]\s*\[(\w+)\]\s*(?:\[reinforced:(\d+)\]\s*)?(.+)$/;
+
 /**
  * Search user memories using keyword matching + relevance scoring.
+ * Reads from S3 MEMORY.md instead of Postgres.
  */
 export async function searchUserMemories(
 	query: string,
@@ -25,37 +26,51 @@ export async function searchUserMemories(
 	domain: string,
 	limit = 5,
 ): Promise<UserMemorySearchResult[]> {
+	let text: string | null = null;
+	try {
+		text = await downloadDomainFile(userId, domain, 'MEMORY.md');
+	} catch {
+		return [];
+	}
+	if (!text) return [];
+
 	const queryLower = query.toLowerCase();
+	const words = queryLower.split(/\s+/).filter((w) => w.length > 2);
 
-	const results = await db
-		.select({
-			id: userMemory.id,
-			category: userMemory.category,
-			content: userMemory.content,
-			confidence: userMemory.confidence,
-			timesReinforced: userMemory.timesReinforced,
-		})
-		.from(userMemory)
-		.where(and(eq(userMemory.userId, userId), eq(userMemory.domain, domain)));
+	const results: UserMemorySearchResult[] = [];
 
-	const scored = results
-		.map((r) => {
-			const contentLower = r.content.toLowerCase();
-			const words = queryLower.split(/\s+/).filter((w) => w.length > 2);
-			const matchedWords = words.filter((w) => contentLower.includes(w));
-			const wordScore = words.length > 0 ? matchedWords.length / words.length : 0;
-			const confidenceScore = (r.confidence ?? 1) / 5;
-			const reinforceScore = Math.min(1, (r.timesReinforced ?? 1) / 10);
-			return {
-				...r,
-				confidence: r.confidence ?? 1,
-				timesReinforced: r.timesReinforced ?? 1,
-				score: wordScore * 0.6 + confidenceScore * 0.25 + reinforceScore * 0.15,
-			};
-		})
-		.filter((r) => r.score > 0)
-		.sort((a, b) => b.score - a.score)
-		.slice(0, limit);
+	for (const line of text.split('\n')) {
+		const m = line.match(ENTRY_RE);
+		if (!m) continue;
 
-	return scored;
+		const category = m[2];
+		const reinforced = m[3] ? Number.parseInt(m[3], 10) : 1;
+		const content = m[4].trim();
+		const contentLower = content.toLowerCase();
+
+		// Keyword scoring
+		const matchedWords = words.filter((w) => contentLower.includes(w));
+		const wordScore = words.length > 0 ? matchedWords.length / words.length : 0;
+		if (wordScore === 0) continue;
+
+		// Category boost
+		const categoryBoost =
+			category === 'correction' ? 1.3 : category === 'terminology' ? 1.2 : 1.0;
+
+		// Reinforcement score
+		const reinforceScore = Math.min(1, reinforced / 10);
+
+		const score = wordScore * 0.6 * categoryBoost + reinforceScore * 0.15 + 0.25;
+
+		results.push({
+			id: `${category}:${content.slice(0, 20)}`,
+			category,
+			content,
+			confidence: Math.min(reinforced, 5),
+			timesReinforced: reinforced,
+			score,
+		});
+	}
+
+	return results.sort((a, b) => b.score - a.score).slice(0, limit);
 }

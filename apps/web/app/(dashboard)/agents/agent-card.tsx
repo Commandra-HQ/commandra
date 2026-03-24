@@ -3,15 +3,16 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { MarkdownEditor, MarkdownPreview } from '@/components/markdown-editor';
 import {
 	Bot,
 	ChevronDown,
 	ChevronRight,
 	Clock,
 	FileText,
+	Plus,
 	Save,
 	Trash2,
-	Upload,
 } from 'lucide-react';
 
 export interface Agent {
@@ -48,16 +49,20 @@ const KNOWN_FILES = ['SOUL.md', 'SKILLS.md', 'LEARNINGS.md', 'ERRORS.md'];
 function getPlaceholder(filename: string): string {
 	switch (filename) {
 		case 'SOUL.md':
-			return 'You are a GitHub specialist. You help users navigate repositories, review PRs, and manage issues efficiently...';
+			return 'Define this agent\'s personality and identity...';
 		case 'SKILLS.md':
-			return '## Learned Skills\n\n- Navigate to PR review page using the "Pull requests" tab\n- Filter issues by label using the sidebar...';
+			return 'Learned capabilities will appear here...';
 		case 'LEARNINGS.md':
-			return '## Corrections & Discoveries\n\n- User prefers squash merges over regular merges\n- The "Files changed" tab loads slowly on large PRs...';
+			return 'Corrections and discoveries will appear here...';
 		case 'ERRORS.md':
-			return '## Failure Patterns\n\n- Clicking "Merge" too quickly after approval causes a race condition...';
+			return 'Failure patterns will appear here...';
 		default:
-			return '';
+			return 'Start writing...';
 	}
+}
+
+function isMarkdownFile(filename: string): boolean {
+	return filename.endsWith('.md');
 }
 
 export function AgentCard({
@@ -93,6 +98,8 @@ export function AgentCard({
 	onSaveFile: () => void;
 	onCancelEdit: () => void;
 }) {
+	const missingFiles = KNOWN_FILES.filter((f) => !files.some((af) => af.name === f));
+
 	return (
 		<Card>
 			<CardContent className="py-3 px-4">
@@ -105,7 +112,7 @@ export function AgentCard({
 						{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 						<Bot size={16} className="text-primary shrink-0" />
 						<span className="font-medium text-sm">{agent.name}</span>
-						<Badge variant="outline" className="text-[10px] ml-1">
+						<Badge variant="outline" className="text-[10px] ml-1 font-mono">
 							{agent.slug}
 						</Badge>
 						{agent.model && (
@@ -142,7 +149,7 @@ export function AgentCard({
 				)}
 
 				{/* Tags */}
-				{(agent.domains?.length || agent.tools?.length) && (
+				{(agent.domains?.length || agent.tools?.length) ? (
 					<div className="flex gap-1.5 flex-wrap mt-2 ml-8">
 						{agent.domains?.map((d) => (
 							<Badge key={d} variant="default" className="text-[10px]">
@@ -155,16 +162,17 @@ export function AgentCard({
 							</Badge>
 						))}
 					</div>
-				)}
+				) : null}
 
-				{/* Expanded: Files */}
+				{/* Expanded content */}
 				{isExpanded && (
-					<div className="mt-4 ml-8 space-y-3">
+					<div className="mt-4 ml-8 space-y-4">
+						{/* Schedule */}
 						{agent.trigger?.cron && (
-							<div className="flex items-center justify-between p-2 rounded border border-border bg-muted/30">
+							<div className="flex items-center justify-between p-2.5 border border-border bg-surface">
 								<div className="flex items-center gap-2 text-xs">
 									<Clock size={14} className="text-muted-foreground" />
-									<span>Schedule: <code className="bg-muted px-1 rounded">{agent.trigger.cron}</code></span>
+									<span>Schedule: <code className="bg-elevated px-1.5 py-0.5 font-mono text-[11px]">{agent.trigger.cron}</code></span>
 								</div>
 								<Button
 									size="sm"
@@ -176,6 +184,8 @@ export function AgentCard({
 								</Button>
 							</div>
 						)}
+
+						{/* Files header */}
 						<div className="flex items-center justify-between">
 							<h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
 								Agent Files
@@ -183,22 +193,21 @@ export function AgentCard({
 							<Button
 								size="sm"
 								variant="outline"
-								className="h-7 text-xs"
+								className="h-7 text-xs gap-1"
 								onClick={onCreateNewFile}
 							>
-								<Upload size={12} className="mr-1" />
-								New File
+								<Plus size={12} /> New File
 							</Button>
 						</div>
 
-						{/* Quick-create buttons for known files that don't exist yet */}
-						{KNOWN_FILES.filter((f) => !files.some((af) => af.name === f)).length > 0 && (
+						{/* Quick-create for missing standard files */}
+						{missingFiles.length > 0 && (
 							<div className="flex gap-1.5 flex-wrap">
-								{KNOWN_FILES.filter((f) => !files.some((af) => af.name === f)).map((f) => (
+								{missingFiles.map((f) => (
 									<button
 										key={f}
 										onClick={() => onStartEdit(f)}
-										className="px-2 py-1 text-[10px] rounded border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-primary transition-colors"
+										className="px-2.5 py-1 text-[11px] border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors font-mono"
 									>
 										+ {f}
 									</button>
@@ -207,22 +216,25 @@ export function AgentCard({
 						)}
 
 						{files.length === 0 && !editingFile && (
-							<p className="text-xs text-muted-foreground">
+							<p className="text-xs text-muted-foreground py-2">
 								No files yet. Create SOUL.md to give this agent a personality.
 							</p>
 						)}
 
+						{/* File list */}
 						{files.map((file) => (
 							<div
 								key={file.name}
-								className="flex items-center justify-between p-2 rounded border border-border hover:bg-muted/50"
+								className="flex items-center justify-between p-2.5 border border-border hover:bg-surface transition-colors"
 							>
 								<div className="flex items-center gap-2">
 									<FileText size={14} className="text-muted-foreground" />
-									<span className="text-sm">{file.name}</span>
-									<span className="text-[10px] text-muted-foreground">
-										{file.size > 0 ? `${(file.size / 1024).toFixed(1)} KB` : ''}
-									</span>
+									<span className="text-sm font-mono">{file.name}</span>
+									{file.size > 0 && (
+										<span className="text-[10px] text-muted-foreground font-mono">
+											{(file.size / 1024).toFixed(1)} KB
+										</span>
+									)}
 								</div>
 								<Button
 									size="sm"
@@ -239,17 +251,17 @@ export function AgentCard({
 						{editingFile?.agentId === agent.id && (
 							<div className="space-y-2">
 								<div className="flex items-center justify-between">
-									<span className="text-sm font-medium">
+									<span className="text-sm font-medium font-mono">
 										{editingFile.filename}
 									</span>
 									<div className="flex items-center gap-1">
 										<Button
 											size="sm"
-											className="h-7 text-xs"
+											className="h-7 text-xs gap-1"
 											onClick={onSaveFile}
 											disabled={saving}
 										>
-											<Save size={12} className="mr-1" />
+											<Save size={12} />
 											{saving ? 'Saving...' : 'Save'}
 										</Button>
 										<Button
@@ -262,24 +274,35 @@ export function AgentCard({
 										</Button>
 									</div>
 								</div>
-								<textarea
-									value={editContent}
-									onChange={(e) => onEditContentChange(e.target.value)}
-									className="w-full min-h-[200px] rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
-									placeholder={getPlaceholder(editingFile.filename)}
-								/>
+								{isMarkdownFile(editingFile.filename) ? (
+									<MarkdownEditor
+										content={editContent}
+										onChange={onEditContentChange}
+										placeholder={getPlaceholder(editingFile.filename)}
+										minHeight="200px"
+									/>
+								) : (
+									<textarea
+										value={editContent}
+										onChange={(e) => onEditContentChange(e.target.value)}
+										className="w-full min-h-[200px] border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+										placeholder={getPlaceholder(editingFile.filename)}
+									/>
+								)}
 							</div>
 						)}
 
-						{/* Soul preview if loaded */}
+						{/* Soul preview */}
 						{agent.soul && !editingFile && (
-							<div className="p-3 rounded bg-muted/50 border border-border">
-								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
-									SOUL.md Preview
-								</p>
-								<p className="text-xs text-foreground whitespace-pre-wrap line-clamp-4">
-									{agent.soul}
-								</p>
+							<div className="border border-border">
+								<div className="px-3 py-1.5 border-b border-border bg-surface">
+									<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider font-mono">
+										SOUL.md
+									</span>
+								</div>
+								<div className="px-3 py-2">
+									<MarkdownPreview content={agent.soul} />
+								</div>
 							</div>
 						)}
 
@@ -293,7 +316,7 @@ export function AgentCard({
 									{runs.slice(0, 10).map((run) => (
 										<div
 											key={run.id}
-											className={`flex items-center justify-between p-2 rounded border text-xs ${
+											className={`flex items-center justify-between p-2.5 border text-xs ${
 												run.status === 'completed'
 													? 'border-green-500/20 bg-green-500/5'
 													: run.status === 'failed'
@@ -303,21 +326,21 @@ export function AgentCard({
 															: 'border-border'
 											}`}
 										>
-											<div className="flex items-center gap-2">
-												<span className={`inline-block w-2 h-2 rounded-full ${
+											<div className="flex items-center gap-3">
+												<span className={`inline-block w-2 h-2 ${
 													run.status === 'completed' ? 'bg-green-500' :
 													run.status === 'failed' ? 'bg-red-500' :
 													run.status === 'queued' ? 'bg-yellow-500' :
 													'bg-muted-foreground'
 												}`} />
-												<span className="text-muted-foreground">
+												<span className="text-muted-foreground font-mono">
 													{new Date(run.createdAt).toLocaleString(undefined, {
 														month: 'short', day: 'numeric',
 														hour: '2-digit', minute: '2-digit',
 													})}
 												</span>
-												{run.durationMs && (
-													<span className="text-muted-foreground">
+												{run.durationMs != null && (
+													<span className="text-muted-foreground font-mono">
 														{run.durationMs < 60000
 															? `${Math.round(run.durationMs / 1000)}s`
 															: `${Math.round(run.durationMs / 60000)}m`}
@@ -326,7 +349,7 @@ export function AgentCard({
 												<span className="text-muted-foreground">{run.toolCalls} tools</span>
 											</div>
 											{run.error && (
-												<span className="text-red-400 truncate max-w-[200px]" title={run.error}>
+												<span className="text-red-400 truncate max-w-[200px] font-mono" title={run.error}>
 													{run.error.slice(0, 50)}
 												</span>
 											)}
