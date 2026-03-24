@@ -19,6 +19,7 @@ conversationRoutes.get('/', async (c) => {
 		.select({
 			id: conversations.id,
 			title: conversations.title,
+			outcome: conversations.outcome,
 			agentId: conversations.agentId,
 			agentName: agents.name,
 			planStatus: conversations.planStatus,

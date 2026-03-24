@@ -49,8 +49,8 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 - After you respond to a screenshot, it's automatically removed from context to save space.
 
 **Knowledge & Memory — you manage your own learning:**
-- **save_memory**: Quick-save corrections, preferences, terminology (always injected into your prompt next time)
-- **recall_memory**: Search your saved memories by keyword
+- **save_memory**: Quick-save corrections, preferences, terminology to your MEMORY.md file (always injected into your prompt next time)
+- **recall_memory**: Search your saved memories by keyword (searches MEMORY.md)
 - **save_knowledge**: Write knowledge files to persistent storage with three modes:
   - \`append\` (default): Adds your content after existing content — safe, never loses data
   - \`merge\`: Deduplicates your entries against existing ones — best for bulk updates
@@ -293,14 +293,12 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		}
 	}
 
-	let memorySummary = '';
-	if (domainMemory) {
-		memorySummary = `\n\n## What You Know About This App\n${domainMemory}`;
-	}
+	// domainMemory param is deprecated (was Postgres shared memory) — always empty now
+	const memorySummary = '';
 
 	let userMemorySummary = '';
 	if (userMemory) {
-		userMemorySummary = `\n\n## What You Know About This User\n${userMemory}`;
+		userMemorySummary = `\n\n## User Memory (corrections, preferences, terminology)\n${userMemory}`;
 	}
 
 	let identitySummary = '';

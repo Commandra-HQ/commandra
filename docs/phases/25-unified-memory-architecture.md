@@ -1,94 +1,76 @@
 # Phase 25 — Unified Memory Architecture
 
-> All memory lives in S3 as markdown files. The agent reads and writes its own memory. No more Postgres memory tables. Full agent autonomy over its knowledge — like OpenClaw.
+> All memory lives in S3 as markdown files. The agent reads and writes its own memory. No more Postgres memory tables. Full agent autonomy over its knowledge.
 
 ## Why
 
-Memory is currently split across three systems with overlapping responsibilities:
+Memory was split across Postgres tables (`user_memory`, `domain_memory`) and S3 markdown files, causing:
+1. **Duplicate storage**: Same corrections in Postgres rows AND S3 files with different phrasing
+2. **Agent can't manage Postgres memory**: Agent tools only reach S3 files — Postgres was controlled by background extractors
+3. **Three overlapping knowledge sections** in the system prompt from three different sources
+4. **Shared `domain_memory` was wrong**: One user's Gmail quirks polluting another user's context
+5. **Three fire-and-forget LLM calls** per conversation doing overlapping work
 
-| System | Storage | What It Stores | Who Writes |
-|--------|---------|----------------|------------|
-| `user_memory` table (Postgres) | Per-user, per-domain rows | Corrections, preferences, terminology, workflows | Background LLM extractor + explicit `save_memory` tool |
-| `domain_memory` table (Postgres) | Per-domain rows (shared across users) | Known pages, element notes, workflows, app notes | Background LLM extractor |
-| S3 domain files | Per-user, per-domain `.md` files | KNOWLEDGE.md, WORKFLOWS.md, MEMORY.md | Agent via `save_knowledge` tool |
+## What Shipped
 
-**Problems:**
-1. **Duplicate storage**: The same correction about Gmail's compose fields exists in `user_memory` rows AND in S3 KNOWLEDGE.md — with different phrasing, different update timestamps, sometimes contradicting each other
-2. **Agent can't manage Postgres memory**: The agent can read/write S3 files via `save_knowledge`/`read_knowledge`, but Postgres memory is controlled by background extractors the agent never sees
-3. **No single source of truth**: The system prompt injects both Postgres memories AND S3 knowledge files — the agent sees overlapping information from two systems
-4. **Shared domain_memory is wrong**: `domain_memory` is shared across ALL users on a domain. One user's Gmail quirks pollute another user's experience
-5. **Three background LLM calls per conversation**: `analyzeAndImprove` + `extractAndSaveUserMemory` + `syncDomainKnowledgeToS3` all run fire-and-forget, each making an LLM call. Wasteful.
+### 25a. user_memory → S3 MEMORY.md
+- `memory/user.ts` fully rewritten: all functions (load, save, list, delete, edit, clear, prune) now read/write S3 `domains/{userId}/{domain}/MEMORY.md`
+- Format: `- [YYYY-MM-DD] [{category}] {content}` with `[reinforced:N]` tags
+- Scoring preserved (corrections always first, recency decay, reinforcement bonus)
+- Similarity-based dedup still works (uses shared text-similarity utils)
+- `extractAndSaveUserMemory()` writes to S3 via the new `saveUserMemory()`
+- Zero Postgres dependency in this file
 
-## What Ships
+### 25b. domain_memory → deprecated
+- `loadDomainMemory()` now returns `null` (stub for backward compat)
+- `updateDomainMemory()` removed entirely — was writing to shared Postgres table
+- All Postgres imports removed from `memory/domain.ts`
+- S3 functions preserved: `loadDomainKnowledgeFromS3()`, `syncDomainKnowledgeToS3()`, `appendDomainWorkflow()`
 
-### 25a. Migrate user_memory to S3 MEMORY.md
-- Move per-user-per-domain memories from Postgres `user_memory` table to S3 `domains/{userId}/{domain}/MEMORY.md`
-- One-time migration script: read all `user_memory` rows, group by user+domain, write to MEMORY.md files in S3
-- Format: each entry is `- [{category}] {content}` (e.g., `- [correction] Always verify To field before sending`)
-- The `save_memory` tool writes to MEMORY.md via `save_knowledge` (mode: merge) instead of inserting Postgres rows
-- `recall_memory` reads from S3 MEMORY.md instead of querying Postgres
-- `loadUserMemory` (prompt injection) reads from S3 instead of Postgres
+### 25c. recall_memory → S3 search
+- `db/vector-search.ts` rewritten: `searchUserMemories()` reads S3 MEMORY.md, keyword-scores entries
+- Same interface (query, userId, domain, limit) — consumers unchanged
 
-### 25b. Deprecate domain_memory table
-- Stop using the shared `domain_memory` Postgres table
-- Each user already has their own S3 knowledge: `domains/{userId}/{domain}/KNOWLEDGE.md`
-- Remove `updateDomainMemory()` background extractor — the agent manages its own knowledge via tools
-- Remove `loadDomainMemory()` from Postgres — replaced by `loadDomainKnowledgeFromS3()`
-- Stop injecting shared `domainMemory` into the system prompt; only inject per-user S3 knowledge
+### 25d. Consumer updates
+- `chat.ts`: removed `loadDomainMemory()` from conversation start — only loads S3 knowledge + user memory
+- `scheduler.ts`: same change — loads `loadDomainKnowledgeFromS3()` + `loadUserMemory()`
+- `prompts.ts`: deprecated `memorySummary` (was "What You Know About This App" from Postgres), kept two sections: User Memory + Domain Knowledge
 
-### 25c. Consolidate background extractors into one
-- Replace three separate fire-and-forget LLM calls with a single `postConversationAnalysis()` function
-- One LLM call that extracts: skills, learnings, errors (for agent self-improvement), user memories (corrections/preferences), and domain knowledge — all in one prompt
-- Writes results to the appropriate S3 files using `save_knowledge` logic (append + dedup)
-- Runs once per conversation, not three separate times
+### 25e. Post-conversation sync consolidated
+- `syncDomainKnowledgeToS3` simplified: extracts knowledge + workflows only (no preferences — those go through `extractAndSaveUserMemory`)
+- Two fire-and-forget calls instead of three: `analyzeAndImprove` + `extractAndSaveUserMemory` (both write to S3)
 
-### 25d. Agent-managed memory files
-The agent gets full control over its memory:
-- `save_memory` → writes to S3 `MEMORY.md` (via save_knowledge with mode: merge)
-- `recall_memory` → reads + searches S3 `MEMORY.md` (keyword match on file content)
-- `save_knowledge` → writes to any S3 file (existing)
-- `read_knowledge` → reads any S3 file (existing)
-- No more Postgres for memory. Agent is the authority on what it remembers.
-
-### 25e. Memory file structure (per-user, per-domain)
+## Memory File Structure (final)
 ```
 domains/{userId}/{domain}/
-├── KNOWLEDGE.md    # How the app works (pages, selectors, quirks, behavior)
+├── KNOWLEDGE.md    # App facts, selectors, quirks, behavior
 ├── WORKFLOWS.md    # Proven multi-step procedures
-├── MEMORY.md       # User corrections, preferences, terminology (was user_memory table)
+├── MEMORY.md       # User corrections, preferences, terminology (was Postgres)
 ├── AGENTS.md       # Which agents operate on this domain
 └── AGENT_HINT.md   # Auto-agent creation suggestions
 
 {userId}/{agentSlug}/
-├── SOUL.md         # Agent identity (existing)
-├── SKILLS.md       # Learned capabilities (existing)
-├── LEARNINGS.md    # Corrections/discoveries (existing)
-├── ERRORS.md       # Failure patterns (existing)
-└── MEMORY.md       # Agent run summaries (existing)
+├── SOUL.md         # Agent identity
+├── SKILLS.md       # Learned capabilities
+├── LEARNINGS.md    # Corrections/discoveries
+├── ERRORS.md       # Failure patterns
+└── MEMORY.md       # Agent run summaries
 ```
 
-## Files to Modify
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `apps/api/src/memory/user.ts` | Rewrite to use S3 instead of Postgres |
-| `apps/api/src/memory/domain.ts` | Remove Postgres-based `updateDomainMemory`, `loadDomainMemory` |
-| `apps/api/src/agent/internal-tools.ts` | `save_memory` → write to S3 MEMORY.md |
-| `apps/api/src/agent/self-improve.ts` | Merge into unified `postConversationAnalysis()` |
-| `apps/api/src/routes/chat.ts` | Use S3-only memory loading, single post-conversation analysis |
-| `apps/api/src/agent/prompts.ts` | Remove dual memory injection; single S3 knowledge section |
-| `apps/api/src/db/schema.ts` | Mark `user_memory` and `domain_memory` as deprecated |
-| `scripts/migrate-memory-to-s3.ts` | NEW — one-time migration script |
+| `apps/api/src/memory/user.ts` | Full rewrite: S3-backed, no Postgres |
+| `apps/api/src/memory/domain.ts` | Remove Postgres functions, keep S3 functions |
+| `apps/api/src/db/vector-search.ts` | Rewrite for S3 keyword search |
+| `apps/api/src/routes/chat.ts` | Remove loadDomainMemory, S3-only loading |
+| `apps/api/src/agent/scheduler.ts` | Remove loadDomainMemory, use S3 |
+| `apps/api/src/agent/prompts.ts` | Deprecate Postgres memory section |
 
-## Migration Plan
+## Migration Notes
 
-1. Write migration script that reads all `user_memory` rows and writes to S3
-2. Deploy 25a-25d with S3 reads/writes
-3. Keep Postgres tables as read-only fallback for 1 week
-4. Drop tables after verifying S3 memory works correctly
-
-## What NOT to Change
-
-- `conversations`, `messages`, `agents`, `agent_runs` tables stay in Postgres — they're structured relational data, not memory
-- Agent file storage paths in S3 don't change
-- The `save_knowledge` / `read_knowledge` / `list_knowledge` tool interfaces don't change (25a just routes `save_memory` through them)
+- Postgres `user_memory` and `domain_memory` tables are NOT dropped — they remain as read-only archives
+- New conversations will read/write S3 only
+- Existing S3 MEMORY.md files (written by agents) continue to work — the new parser is backward compatible with existing format
+- Dashboard Memory page (`/memory`) continues to work through same API routes

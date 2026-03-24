@@ -8,7 +8,7 @@ import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
 import { db } from '../db/index.js';
 import { agents, conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
-import { loadDomainKnowledgeFromS3, loadDomainMemory, syncDomainKnowledgeToS3 } from '../memory/domain.js';
+import { loadDomainKnowledgeFromS3, syncDomainKnowledgeToS3 } from '../memory/domain.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
@@ -145,12 +145,10 @@ chatRoutes.post('/', async (c) => {
 	if (pi?.url) {
 		try {
 			domain = new URL(pi.url).hostname;
-			const [dm, um, dk] = await Promise.all([
-				loadDomainMemory(domain),
+			const [um, dk] = await Promise.all([
 				loadUserMemory(user.id, domain),
 				loadDomainKnowledgeFromS3(user.id, domain),
 			]);
-			domainMem = dm ?? undefined;
 			userMem = um ?? undefined;
 			domainKnowledge = dk ?? undefined;
 
