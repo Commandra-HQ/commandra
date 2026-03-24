@@ -18,7 +18,7 @@ import {
 	Redo,
 	Undo,
 } from 'lucide-react';
-import { useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 
 interface MarkdownEditorProps {
 	content: string;

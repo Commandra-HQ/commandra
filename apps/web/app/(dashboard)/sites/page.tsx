@@ -2,7 +2,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { apiFetch } from '@/lib/api';
-import { ChevronDown, ChevronRight, FileText, Globe, Layers } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Globe } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface SitePage {

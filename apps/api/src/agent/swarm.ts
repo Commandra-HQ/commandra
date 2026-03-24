@@ -239,6 +239,7 @@ async function runSubAgent(params: {
 	agentConfig?: AgentConfig;
 	depth?: number;
 	keepTab?: boolean;
+	conversationId?: string;
 }): Promise<void> {
 	const {
 		agentId,
@@ -559,7 +560,7 @@ async function runSubAgent(params: {
 							const delay = block.name === 'click_element' || block.name === 'navigate' ? 2000 : 500;
 							await new Promise((resolve) => setTimeout(resolve, delay));
 							const freshState = await executeTool('get_page_state', { tabId }, context);
-							const freshData = freshState as Record<string, unknown>;
+							const freshData = freshState as unknown as Record<string, unknown>;
 							if (freshData?.success && freshData.data) {
 								// Append refreshed page state to the last tool result
 								const lastResult = toolResults[toolResults.length - 1];
