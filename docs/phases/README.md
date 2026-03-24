@@ -60,6 +60,12 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 |       |                                                    | PostToolUse (auto-screenshot, logging), OnComplete (LLM-driven task verification).                                             |         |
 | 23    | [Agentic Storage Pipeline](23-agentic-storage-pipeline.md) | Enable self-improvement for ALL conversations (remove coordinator gate),                                               |         |
 |       |                                                    | screenshots to S3 with signed URLs, auto-create domain agents, S3 browsing tool, file_url support.                             |         |
+| 24    | [Agent Quality & Context](24-agent-quality-context-intelligence.md) | Knowledge protection modes, memory dedup, sub-agent learning pipeline,                                       |         |
+|       |                                                    | swarm reliability fixes, 6-phase context trimming.                                                                             |         |
+| 25    | [Unified Memory Architecture](25-unified-memory-architecture.md) | All memory → S3 markdown files, user_memory rewritten, domain_memory deprecated,                                  |         |
+|       |                                                    | recall_memory via S3 keyword search, consolidated post-conversation sync.                                                      |         |
+| 26    | [Token System Management](26-token-system-management.md) | Real token tracking from providers, per-model output budgets, cost analytics,                                          |         |
+|       |                                                    | compaction safety, smarter context trimming, pre-flight token estimation.                                                      |         |
 
 ---
 
