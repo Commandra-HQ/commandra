@@ -235,6 +235,12 @@ export function ChatTab() {
 			const action = (e as CustomEvent).detail?.action;
 			if (action === 'reindex') handleReindexPage();
 			if (action === 'deep-index') handleIndexSite();
+			if (action === 'copy-chat') {
+				const text = chatMessages
+					.map((m) => `${m.role === 'user' ? 'You' : 'Agent'}: ${m.content || m.blocks?.map((b) => 'content' in b ? b.content : '').join('') || ''}`)
+					.join('\n\n');
+				navigator.clipboard.writeText(text);
+			}
 		}
 		window.addEventListener('commandra-tab-action', handleTabAction);
 		return () => window.removeEventListener('commandra-tab-action', handleTabAction);
