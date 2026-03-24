@@ -493,7 +493,10 @@ export function ChatTab() {
 								});
 							}
 						}
-						if (m.content?.trim()) {
+						// Only add content as a text block if we didn't already extract
+						// text blocks from streamBlocks (which include the same content)
+						const hasTextBlock = blocks.some((b) => b.type === 'text');
+						if (m.content?.trim() && !hasTextBlock) {
 							blocks.push({ type: 'text' as const, content: m.content });
 						}
 						return {
