@@ -307,7 +307,6 @@ export function ChatTab() {
 	}
 
 	function handleNewConversation() {
-		console.log('[ChatTab] handleNewConversation called');
 		setChatMessages([]);
 		setPendingApprovals([]);
 		setOriginTabId(null);
