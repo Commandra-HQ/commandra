@@ -50,7 +50,6 @@ export function ChatTab() {
 	const [originTabId, setOriginTabId] = useState<number | null>(null);
 	const [originDomain, setOriginDomain] = useState<string>('');
 	const isActiveRef = useRef(false);
-	const prevConvIdRef = useRef<string | undefined>(externalConvId);
 	const [selectorActive, setSelectorActive] = useState(false);
 	const [contextStatus, setContextStatus] = useState<{
 		used: number;
@@ -70,7 +69,7 @@ export function ChatTab() {
 	const CHAT_INPUT_MIN_HEIGHT_PX = 40;
 
 	// SSE streaming hook
-	const { sendMessage, handleStop, blocksRef, scheduleFlush, resetConversation } = useChatStream({
+	const { sendMessage, handleStop, blocksRef, scheduleFlush, resetConversation, conversationIdRef } = useChatStream({
 		setChatMessages,
 		setIsActive,
 		setContextStatus,
@@ -164,12 +163,10 @@ export function ChatTab() {
 	}, [isActive]);
 
 	// Load conversation when conversationId changes (tab switch or initial mount).
-	// If the user is mid-stream and the URL updated to the same conversation (done event),
-	// skip the reload — the live blocks are more complete than the DB.
+	// Key insight: if the stream just navigated us here (conversation_id or done event),
+	// conversationIdRef.current will match externalConvId — skip the DB reload since
+	// live blocks in memory are more complete than what's persisted.
 	useEffect(() => {
-		const prevId = prevConvIdRef.current;
-		prevConvIdRef.current = externalConvId;
-
 		if (!externalConvId) {
 			// Navigated to new chat — only clear if we're not actively streaming
 			if (!isActiveRef.current) {
@@ -182,21 +179,20 @@ export function ChatTab() {
 			return;
 		}
 
-		// Same conversation — done event just updated the URL, skip reload
-		if (prevId === externalConvId) return;
-
-		// Different conversation — switching tabs
-		setMode('chat');
-		if (!isActiveRef.current) {
-			// Not streaming: clear old state and load from DB
-			setChatMessages([]);
-			setPendingApprovals([]);
-			setContextStatus(null);
-			setPlanState(null);
-			resetConversation();
-			loadConversation(externalConvId);
+		// If the stream navigated us here, messages are already in state — skip reload
+		if (conversationIdRef.current === externalConvId) {
+			setMode('chat');
+			return;
 		}
-		// If streaming: keep current messages (they belong to this stream)
+
+		// Different conversation (tab switch or history open) — load from DB
+		setMode('chat');
+		setChatMessages([]);
+		setPendingApprovals([]);
+		setContextStatus(null);
+		setPlanState(null);
+		resetConversation();
+		loadConversation(externalConvId);
 	}, [externalConvId]);
 
 	useEffect(() => {
