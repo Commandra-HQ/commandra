@@ -134,12 +134,11 @@ chatRoutes.post('/', async (c) => {
 	const canAct = !!connectionId;
 	if (connectionId) resetKill(connectionId);
 
-	// Load domain memory, user memory, and site pages context
+	// Load user memory + domain knowledge from S3
 	const pi = pageIndex as
 		| { url?: string; urlPattern?: string; sitePages?: unknown; lastIndexedAt?: unknown }
 		| undefined;
 	let domain: string | undefined;
-	let domainMem: string | undefined;
 	let userMem: string | undefined;
 	let domainKnowledge: string | undefined;
 	if (pi?.url) {
@@ -307,7 +306,7 @@ chatRoutes.post('/', async (c) => {
 					messages: chatMessages,
 					pageIndex,
 					selectedElements,
-					domainMemory: domainMem,
+					domainMemory: undefined,
 					userMemory: userMem,
 					domain,
 					conversationId: convId,
@@ -371,7 +370,7 @@ chatRoutes.post('/', async (c) => {
 					messages: chatMessages,
 					pageIndex,
 					selectedElements,
-					domainMemory: domainMem,
+					domainMemory: undefined,
 					userMemory: userMem,
 					onEvent,
 					signal,

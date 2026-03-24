@@ -7,6 +7,7 @@ import {
 	getStorageStats,
 	listLocalFiles,
 } from '../storage/local.js';
+import { paginateArray, parsePagination } from '../utils/pagination.js';
 
 export const storageRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
@@ -20,15 +21,17 @@ storageRoutes.get('/stats', async (c) => {
 	return c.json(stats);
 });
 
-// GET /api/storage/:category - list files
+// GET /api/storage/:category - list files (paginated)
 storageRoutes.get('/:category', async (c) => {
 	const category = c.req.param('category');
 	if (!VALID_CATEGORIES.includes(category)) {
 		return c.json({ error: 'Invalid category' }, 400);
 	}
 	const domain = c.req.query('domain');
-	const files = listLocalFiles(category as StorageCategory, domain || undefined);
-	return c.json({ files });
+	const pagination = parsePagination(c, { limit: 50 });
+	const allFiles = listLocalFiles(category as StorageCategory, domain || undefined);
+	const { data, total } = paginateArray(allFiles, pagination);
+	return c.json({ files: data, total });
 });
 
 // GET /api/storage/:category/* - read/download file

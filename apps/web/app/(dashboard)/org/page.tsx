@@ -1,94 +1,56 @@
 'use client';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import {
+	useInviteMemberMutation,
+	useOrgMembersQuery,
+	useRemoveMemberMutation,
+	useUpdateMemberRoleMutation,
+} from '@/lib/queries/use-org';
 import { Trash2, UserPlus } from 'lucide-react';
-import { useEffect, useState } from 'react';
-
-interface OrgMember {
-	id: string;
-	userId: string;
-	email: string;
-	role: string;
-	createdAt: string;
-}
+import { useState } from 'react';
 
 export default function OrgPage() {
 	const { user } = useAuth();
-	const [members, setMembers] = useState<OrgMember[]>([]);
-	const [loading, setLoading] = useState(true);
+	const { data, isLoading } = useOrgMembersQuery(user?.orgId);
+	const inviteMutation = useInviteMemberMutation();
+	const updateRoleMutation = useUpdateMemberRoleMutation();
+	const removeMutation = useRemoveMemberMutation();
+
 	const [inviteEmail, setInviteEmail] = useState('');
 	const [inviteRole, setInviteRole] = useState('member');
 	const [error, setError] = useState<string | null>(null);
 	const [success, setSuccess] = useState<string | null>(null);
 
+	const members = data?.members ?? [];
 	const isAdmin = user?.role === 'admin';
-
-	useEffect(() => {
-		if (user?.orgId) {
-			loadMembers();
-		} else {
-			setLoading(false);
-		}
-	}, [user?.orgId]);
-
-	async function loadMembers() {
-		try {
-			const res = await apiFetch(`/api/orgs/${user!.orgId}/members`);
-			if (res.ok) {
-				const data = await res.json();
-				setMembers(data.members);
-			}
-		} catch {
-			setError('Failed to load members');
-		} finally {
-			setLoading(false);
-		}
-	}
 
 	async function inviteMember(e: React.FormEvent) {
 		e.preventDefault();
 		setError(null);
 		setSuccess(null);
-
 		try {
-			const res = await apiFetch(`/api/orgs/${user!.orgId}/members`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+			await inviteMutation.mutateAsync({
+				orgId: user!.orgId!,
+				email: inviteEmail,
+				role: inviteRole,
 			});
-			if (!res.ok) {
-				const data = await res.json();
-				setError(data.error || 'Failed to invite');
-				return;
-			}
 			setSuccess(`Invited ${inviteEmail}`);
 			setInviteEmail('');
-			loadMembers();
-		} catch {
-			setError('Failed to invite member');
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'Failed to invite');
 		}
 	}
 
 	async function changeRole(userId: string, role: string) {
 		setError(null);
 		try {
-			const res = await apiFetch(`/api/orgs/${user!.orgId}/members/${userId}`, {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ role }),
-			});
-			if (!res.ok) {
-				const data = await res.json();
-				setError(data.error || 'Failed to update role');
-				return;
-			}
-			loadMembers();
+			await updateRoleMutation.mutateAsync({ orgId: user!.orgId!, userId, role });
 		} catch {
 			setError('Failed to update role');
 		}
@@ -97,15 +59,7 @@ export default function OrgPage() {
 	async function removeMember(userId: string) {
 		setError(null);
 		try {
-			const res = await apiFetch(`/api/orgs/${user!.orgId}/members/${userId}`, {
-				method: 'DELETE',
-			});
-			if (!res.ok) {
-				const data = await res.json();
-				setError(data.error || 'Failed to remove');
-				return;
-			}
-			loadMembers();
+			await removeMutation.mutateAsync({ orgId: user!.orgId!, userId });
 		} catch {
 			setError('Failed to remove member');
 		}
@@ -123,7 +77,7 @@ export default function OrgPage() {
 		);
 	}
 
-	if (loading) {
+	if (isLoading) {
 		return (
 			<div className="flex items-center justify-center py-12">
 				<div className="flex items-center gap-2">
@@ -138,7 +92,9 @@ export default function OrgPage() {
 		<div className="space-y-6">
 			<div>
 				<h1 className="text-2xl font-bold tracking-tight">Organization</h1>
-				<p className="text-sm text-muted-foreground font-mono mt-1">{user.orgName || 'Your organization'}</p>
+				<p className="text-sm text-muted-foreground font-mono mt-1">
+					{user.orgName || 'Your organization'}
+				</p>
 			</div>
 
 			{error && (
@@ -163,7 +119,10 @@ export default function OrgPage() {
 					<CardContent>
 						<form onSubmit={inviteMember} className="flex items-end gap-3">
 							<div className="flex-1 space-y-1.5">
-								<label className="text-xs font-mono uppercase tracking-wider text-muted-foreground" htmlFor="invite-email">
+								<label
+									className="text-xs font-mono uppercase tracking-wider text-muted-foreground"
+									htmlFor="invite-email"
+								>
 									Email
 								</label>
 								<Input
@@ -176,7 +135,10 @@ export default function OrgPage() {
 								/>
 							</div>
 							<div className="space-y-1.5">
-								<label className="text-xs font-mono uppercase tracking-wider text-muted-foreground" htmlFor="invite-role">
+								<label
+									className="text-xs font-mono uppercase tracking-wider text-muted-foreground"
+									htmlFor="invite-role"
+								>
 									Role
 								</label>
 								<Select
@@ -189,7 +151,7 @@ export default function OrgPage() {
 									<option value="admin">Admin</option>
 								</Select>
 							</div>
-							<Button type="submit" size="sm" className="gap-2">
+							<Button type="submit" size="sm" className="gap-2" disabled={inviteMutation.isPending}>
 								<UserPlus size={14} strokeWidth={1.5} />
 								Invite
 							</Button>
@@ -231,6 +193,7 @@ export default function OrgPage() {
 											size="icon"
 											onClick={() => removeMember(member.userId)}
 											className="h-8 w-8 text-destructive hover:text-destructive"
+											disabled={removeMutation.isPending}
 										>
 											<Trash2 size={14} strokeWidth={1.5} />
 										</Button>

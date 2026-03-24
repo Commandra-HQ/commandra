@@ -2,24 +2,19 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Pagination } from '@/components/ui/pagination';
 import { MarkdownEditor } from '@/components/markdown-editor';
-import { apiFetch } from '@/lib/api';
+import {
+	useAddMemoryMutation,
+	useDeleteMemoryMutation,
+	useEditMemoryMutation,
+	useMemoriesQuery,
+} from '@/lib/queries/use-memory';
 import { Brain, Check, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-
-interface Memory {
-	id: string;
-	category: 'preference' | 'correction' | 'terminology' | 'workflow';
-	content: string;
-	source: 'auto' | 'explicit';
-	confidence: number;
-	timesReinforced: number;
-	createdAt: string;
-}
 
 const CATEGORY_VARIANT: Record<string, 'default' | 'secondary' | 'warning' | 'success'> = {
 	correction: 'warning',
@@ -31,87 +26,60 @@ const CATEGORY_VARIANT: Record<string, 'default' | 'secondary' | 'warning' | 'su
 const CATEGORIES = ['preference', 'correction', 'terminology', 'workflow'] as const;
 
 export default function MemoryPage() {
-	const [memories, setMemories] = useState<Memory[]>([]);
-	const [loading, setLoading] = useState(true);
 	const [filter, setFilter] = useState<string>('all');
+	const [offset, setOffset] = useState(0);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editContent, setEditContent] = useState('');
 	const [showAdd, setShowAdd] = useState(false);
 	const [newMemory, setNewMemory] = useState({
 		domain: '',
-		category: 'preference' as Memory['category'],
+		category: 'preference' as (typeof CATEGORIES)[number],
 		content: '',
 	});
-	const [domainFilter, setDomainFilter] = useState('');
+	const [searchFilter, setSearchFilter] = useState('');
+	const limit = 30;
 
-	useEffect(() => {
-		fetchMemories();
-	}, []);
+	const { data, isLoading } = useMemoriesQuery({
+		limit,
+		offset,
+		category: filter === 'all' ? undefined : filter,
+	});
 
-	async function fetchMemories() {
-		try {
-			const res = await apiFetch('/api/memory');
-			if (res.ok) {
-				const data = await res.json();
-				setMemories(data.memories || []);
-			}
-		} catch (err) {
-			console.error('Failed to fetch memories:', err);
-		} finally {
-			setLoading(false);
-		}
-	}
+	const addMutation = useAddMemoryMutation();
+	const editMutation = useEditMemoryMutation();
+	const deleteMutation = useDeleteMemoryMutation();
 
-	async function handleDelete(id: string) {
-		try {
-			const res = await apiFetch(`/api/memory/${id}`, { method: 'DELETE' });
-			if (res.ok) {
-				setMemories((prev) => prev.filter((m) => m.id !== id));
-			}
-		} catch (err) {
-			console.error('Failed to delete memory:', err);
-		}
-	}
+	const memories = data?.memories ?? [];
+	const total = data?.total ?? 0;
 
-	async function handleEdit(id: string) {
-		try {
-			const res = await apiFetch(`/api/memory/${id}`, {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ content: editContent }),
-			});
-			if (res.ok) {
-				setMemories((prev) => prev.map((m) => (m.id === id ? { ...m, content: editContent } : m)));
-				setEditingId(null);
-			}
-		} catch (err) {
-			console.error('Failed to edit memory:', err);
-		}
+	// Client-side search within paginated results
+	const filtered = searchFilter
+		? memories.filter((m) => m.content.toLowerCase().includes(searchFilter.toLowerCase()))
+		: memories;
+
+	function handleFilterChange(f: string) {
+		setFilter(f);
+		setOffset(0);
 	}
 
 	async function handleAdd() {
 		if (!newMemory.domain.trim() || !newMemory.content.trim()) return;
-		try {
-			const res = await apiFetch('/api/memory', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(newMemory),
-			});
-			if (res.ok) {
-				setShowAdd(false);
-				setNewMemory({ domain: '', category: 'preference', content: '' });
-				fetchMemories();
-			}
-		} catch (err) {
-			console.error('Failed to add memory:', err);
-		}
+		await addMutation.mutateAsync(newMemory);
+		setShowAdd(false);
+		setNewMemory({ domain: '', category: 'preference', content: '' });
+		setOffset(0);
 	}
 
-	const filtered = memories
-		.filter((m) => filter === 'all' || m.category === filter)
-		.filter((m) => !domainFilter || m.content.toLowerCase().includes(domainFilter.toLowerCase()));
+	async function handleEdit(id: string) {
+		await editMutation.mutateAsync({ id, content: editContent });
+		setEditingId(null);
+	}
 
-	if (loading) {
+	async function handleDelete(id: string) {
+		await deleteMutation.mutateAsync(id);
+	}
+
+	if (isLoading && offset === 0) {
 		return (
 			<div className="space-y-4">
 				<h1 className="text-2xl font-bold tracking-tight">Agent Memory</h1>
@@ -129,8 +97,8 @@ export default function MemoryPage() {
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-2xl font-bold tracking-tight">Agent Memory</h1>
-					<p className="text-sm text-muted-foreground mt-1">
-						{memories.length} memories across sessions
+					<p className="text-sm text-muted-foreground mt-1 font-mono">
+						{total} memories across sessions
 					</p>
 				</div>
 				<Button size="sm" onClick={() => setShowAdd(!showAdd)}>
@@ -162,7 +130,7 @@ export default function MemoryPage() {
 								onChange={(e) =>
 									setNewMemory({
 										...newMemory,
-										category: e.target.value as Memory['category'],
+										category: e.target.value as (typeof CATEGORIES)[number],
 									})
 								}
 								className="flex h-9 w-full border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
@@ -186,7 +154,7 @@ export default function MemoryPage() {
 							minHeight="100px"
 						/>
 					</div>
-					<Button size="sm" onClick={handleAdd}>
+					<Button size="sm" onClick={handleAdd} disabled={addMutation.isPending}>
 						Save Memory
 					</Button>
 				</div>
@@ -198,7 +166,7 @@ export default function MemoryPage() {
 					{['all', ...CATEGORIES].map((f) => (
 						<button
 							key={f}
-							onClick={() => setFilter(f)}
+							onClick={() => handleFilterChange(f)}
 							className={`px-3 py-1.5 text-xs font-medium transition-colors border-r border-border last:border-r-0 ${
 								filter === f
 									? 'bg-foreground text-background'
@@ -206,11 +174,6 @@ export default function MemoryPage() {
 							}`}
 						>
 							{f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
-							{f !== 'all' && (
-								<span className="ml-1.5 text-[10px] opacity-70">
-									{memories.filter((m) => m.category === f).length}
-								</span>
-							)}
 						</button>
 					))}
 				</div>
@@ -218,8 +181,8 @@ export default function MemoryPage() {
 				<div className="ml-auto">
 					<Input
 						placeholder="Search memories..."
-						value={domainFilter}
-						onChange={(e) => setDomainFilter(e.target.value)}
+						value={searchFilter}
+						onChange={(e) => setSearchFilter(e.target.value)}
 						className="h-8 w-52 text-xs"
 					/>
 				</div>
@@ -230,83 +193,99 @@ export default function MemoryPage() {
 				<div className="border border-border py-16 text-center">
 					<Brain size={24} strokeWidth={1.5} className="mx-auto text-muted-foreground mb-3" />
 					<p className="text-sm text-muted-foreground">
-						{memories.length === 0
+						{total === 0
 							? 'No memories yet. The agent will learn as you interact with it.'
 							: 'No memories match your filter.'}
 					</p>
 				</div>
 			) : (
-				<div className="border border-border divide-y divide-border">
-					{filtered.map((memory) => (
-						<div key={memory.id} className="px-4 py-3 hover:bg-surface/50 transition-colors">
-							<div className="flex items-start justify-between gap-3">
-								<div className="flex-1 min-w-0">
-									<div className="flex items-center gap-2 mb-1.5">
-										<Badge variant={CATEGORY_VARIANT[memory.category] || 'secondary'}>
-											{memory.category}
-										</Badge>
-										<Badge variant="outline" className="text-[10px]">
-											{memory.source}
-										</Badge>
-										{memory.timesReinforced > 1 && (
-											<span className="text-[10px] text-muted-foreground font-mono">
-												reinforced {memory.timesReinforced}x
+				<>
+					<div className="border border-border divide-y divide-border">
+						{filtered.map((memory) => (
+							<div key={memory.id} className="px-4 py-3 hover:bg-surface/50 transition-colors">
+								<div className="flex items-start justify-between gap-3">
+									<div className="flex-1 min-w-0">
+										<div className="flex items-center gap-2 mb-1.5">
+											<Badge variant={CATEGORY_VARIANT[memory.category] || 'secondary'}>
+												{memory.category}
+											</Badge>
+											<Badge variant="outline" className="text-[10px]">
+												{memory.source}
+											</Badge>
+											{memory.timesReinforced > 1 && (
+												<span className="text-[10px] text-muted-foreground font-mono">
+													reinforced {memory.timesReinforced}x
+												</span>
+											)}
+											<span className="text-[10px] text-muted-foreground font-mono ml-auto">
+												{new Date(memory.createdAt).toLocaleDateString()}
 											</span>
-										)}
-										<span className="text-[10px] text-muted-foreground font-mono ml-auto">
-											{new Date(memory.createdAt).toLocaleDateString()}
-										</span>
-									</div>
-									{editingId === memory.id ? (
-										<div className="space-y-2">
-											<MarkdownEditor
-												content={editContent}
-												onChange={setEditContent}
-												placeholder="Memory content..."
-												minHeight="80px"
-											/>
-											<div className="flex items-center gap-1">
-												<Button size="sm" className="h-7 text-xs gap-1" onClick={() => handleEdit(memory.id)}>
-													<Check size={12} /> Save
-												</Button>
-												<Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingId(null)}>
-													Cancel
-												</Button>
-											</div>
 										</div>
-									) : (
-										<div className="text-sm prose prose-sm dark:prose-invert max-w-none prose-p:my-0.5 prose-headings:my-1">
-											<ReactMarkdown remarkPlugins={[remarkGfm]}>{memory.content}</ReactMarkdown>
+										{editingId === memory.id ? (
+											<div className="space-y-2">
+												<MarkdownEditor
+													content={editContent}
+													onChange={setEditContent}
+													placeholder="Memory content..."
+													minHeight="80px"
+												/>
+												<div className="flex items-center gap-1">
+													<Button
+														size="sm"
+														className="h-7 text-xs gap-1"
+														onClick={() => handleEdit(memory.id)}
+														disabled={editMutation.isPending}
+													>
+														<Check size={12} /> Save
+													</Button>
+													<Button
+														size="sm"
+														variant="ghost"
+														className="h-7 text-xs"
+														onClick={() => setEditingId(null)}
+													>
+														Cancel
+													</Button>
+												</div>
+											</div>
+										) : (
+											<div className="text-sm prose prose-sm dark:prose-invert max-w-none prose-p:my-0.5 prose-headings:my-1">
+												<ReactMarkdown remarkPlugins={[remarkGfm]}>
+													{memory.content}
+												</ReactMarkdown>
+											</div>
+										)}
+									</div>
+									{editingId !== memory.id && (
+										<div className="flex items-center gap-0.5 shrink-0">
+											<Button
+												size="icon"
+												variant="ghost"
+												className="h-7 w-7"
+												onClick={() => {
+													setEditingId(memory.id);
+													setEditContent(memory.content);
+												}}
+											>
+												<Pencil size={13} />
+											</Button>
+											<Button
+												size="icon"
+												variant="ghost"
+												className="h-7 w-7 text-destructive hover:text-destructive"
+												onClick={() => handleDelete(memory.id)}
+												disabled={deleteMutation.isPending}
+											>
+												<Trash2 size={13} />
+											</Button>
 										</div>
 									)}
 								</div>
-								{editingId !== memory.id && (
-									<div className="flex items-center gap-0.5 shrink-0">
-										<Button
-											size="icon"
-											variant="ghost"
-											className="h-7 w-7"
-											onClick={() => {
-												setEditingId(memory.id);
-												setEditContent(memory.content);
-											}}
-										>
-											<Pencil size={13} />
-										</Button>
-										<Button
-											size="icon"
-											variant="ghost"
-											className="h-7 w-7 text-destructive hover:text-destructive"
-											onClick={() => handleDelete(memory.id)}
-										>
-											<Trash2 size={13} />
-										</Button>
-									</div>
-								)}
 							</div>
-						</div>
-					))}
-				</div>
+						))}
+					</div>
+					<Pagination offset={offset} limit={limit} total={total} onPageChange={setOffset} />
+				</>
 			)}
 		</div>
 	);

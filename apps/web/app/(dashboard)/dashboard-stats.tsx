@@ -1,33 +1,12 @@
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
-import { apiFetch } from '@/lib/api';
-import { Bot, Globe, History, Shield, Zap } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useStatsQuery } from '@/lib/queries/use-stats';
+import { Bot, Globe, History, Zap } from 'lucide-react';
 
 interface DailyPoint {
 	date: string;
 	count: number;
-}
-
-interface RecentConversation {
-	id: string;
-	title: string | null;
-	outcome: string | null;
-	createdAt: string;
-}
-
-interface Stats {
-	conversations: number;
-	actions: number;
-	sites: number;
-	agents: number;
-	dailyConversations: DailyPoint[];
-	dailyActions: DailyPoint[];
-	recentConversations: RecentConversation[];
-	agentRunStats: { status: string; count: number }[];
-	actionBreakdown: { safetyLevel: string; count: number }[];
-	outcomeBreakdown: { outcome: string; count: number }[];
 }
 
 function fillDays(data: DailyPoint[], days: number): { label: string; value: number }[] {
@@ -52,7 +31,6 @@ function BarChart({
 	height?: number;
 }) {
 	const max = Math.max(...data.map((d) => d.value), 1);
-	const barWidth = 100 / data.length;
 
 	return (
 		<div className="w-full">
@@ -145,25 +123,7 @@ const outcomeIndicator: Record<string, string> = {
 };
 
 export function DashboardStats() {
-	const [stats, setStats] = useState<Stats | null>(null);
-	const [loading, setLoading] = useState(true);
-
-	useEffect(() => {
-		fetchStats();
-	}, []);
-
-	async function fetchStats() {
-		try {
-			const res = await apiFetch('/api/stats');
-			if (res.ok) {
-				setStats(await res.json());
-			}
-		} catch {
-			// Stats unavailable
-		} finally {
-			setLoading(false);
-		}
-	}
+	const { data: stats, isLoading } = useStatsQuery();
 
 	const counters = [
 		{ label: 'Conversations', value: stats?.conversations ?? 0, icon: History },
@@ -203,7 +163,7 @@ export function DashboardStats() {
 		className: outcomeIndicator[o.outcome] || 'bg-foreground/20',
 	}));
 
-	if (loading) {
+	if (isLoading) {
 		return (
 			<div className="space-y-4">
 				<div className="grid gap-1 sm:grid-cols-4">

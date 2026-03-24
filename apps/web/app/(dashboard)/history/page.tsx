@@ -1,13 +1,12 @@
 'use client';
 
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { apiFetch } from '@/lib/api';
+import { Pagination } from '@/components/ui/pagination';
+import { useConversationQuery, useConversationsQuery } from '@/lib/queries/use-conversations';
 import {
 	ArrowRight,
 	Camera,
 	Check,
-	ChevronRight,
 	Clock,
 	Copy,
 	Eye,
@@ -25,32 +24,6 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-
-// --- Types ---
-
-interface Conversation {
-	id: string;
-	title: string;
-	messageCount: number;
-	outcome: string | null;
-	createdAt: string;
-	updatedAt: string;
-}
-
-interface ToolCall {
-	name: string;
-	args: unknown;
-	result: unknown;
-	success: boolean;
-}
-
-interface Message {
-	id: string;
-	role: 'user' | 'assistant';
-	content: string;
-	toolData?: { tools: ToolCall[] } | null;
-	createdAt: string;
-}
 
 // --- Tool metadata (mirrors extension) ---
 
@@ -94,6 +67,21 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ size?: number; className?
 	read_table: Table2,
 	export_data: FileDown,
 };
+
+interface ToolCall {
+	name: string;
+	args: unknown;
+	result: unknown;
+	success: boolean;
+}
+
+interface Message {
+	id: string;
+	role: 'user' | 'assistant';
+	content: string;
+	toolData?: { tools: ToolCall[] } | null;
+	createdAt: string;
+}
 
 function formatToolLabel(name: string, args?: unknown): string {
 	const verb = TOOL_LABELS[name] || name;
@@ -233,57 +221,34 @@ const outcomeStyles: Record<string, string> = {
 	partial: 'bg-warning',
 };
 
-function ConversationItem({
-	conv,
-	selected,
-	onClick,
-}: {
-	conv: Conversation;
-	selected: boolean;
-	onClick: () => void;
-}) {
-	return (
-		<button
-			onClick={onClick}
-			className={`w-full text-left p-3 border transition-colors ${
-				selected ? 'border-foreground/20 bg-elevated' : 'border-border hover:bg-elevated/50'
-			}`}
-		>
-			<div className="flex items-center gap-2">
-				{conv.outcome && (
-					<div
-						className={`status-pixel ${outcomeStyles[conv.outcome] || 'bg-muted-foreground'}`}
-					/>
-				)}
-				<p className="text-sm font-mono truncate flex-1">
-					{conv.title || 'Untitled'}
-				</p>
-			</div>
-			<div className="flex items-center gap-2 mt-1.5 ml-[10px]">
-				<span className="text-[10px] font-mono text-muted-foreground">
-					{conv.messageCount} msgs
-				</span>
-				<span className="text-[10px] font-mono text-muted-foreground">
-					{formatRelative(conv.updatedAt)}
-				</span>
-			</div>
-		</button>
-	);
+function formatRelative(dateStr: string): string {
+	const date = new Date(dateStr);
+	const now = new Date();
+	const diffMs = now.getTime() - date.getTime();
+	const diffMins = Math.floor(diffMs / 60000);
+	if (diffMins < 1) return 'just now';
+	if (diffMins < 60) return `${diffMins}m ago`;
+	const diffHours = Math.floor(diffMins / 60);
+	if (diffHours < 24) return `${diffHours}h ago`;
+	const diffDays = Math.floor(diffHours / 24);
+	if (diffDays < 7) return `${diffDays}d ago`;
+	return date.toLocaleDateString();
 }
 
 // --- Main page ---
 
 export default function HistoryPage() {
-	const [conversations, setConversations] = useState<Conversation[]>([]);
+	const [offset, setOffset] = useState(0);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
-	const [messages, setMessages] = useState<Message[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [loadingMessages, setLoadingMessages] = useState(false);
+	const limit = 25;
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
-	useEffect(() => {
-		fetchConversations();
-	}, []);
+	const { data: convData, isLoading } = useConversationsQuery({ limit, offset });
+	const { data: msgData, isLoading: loadingMessages } = useConversationQuery(selectedId);
+
+	const conversations = convData?.conversations ?? [];
+	const total = convData?.total ?? 0;
+	const messages = (msgData?.messages ?? []) as Message[];
 
 	useEffect(() => {
 		if (messages.length > 0) {
@@ -291,37 +256,7 @@ export default function HistoryPage() {
 		}
 	}, [messages]);
 
-	async function fetchConversations() {
-		try {
-			const res = await apiFetch('/api/conversations');
-			if (res.ok) {
-				const data = await res.json();
-				setConversations(data.conversations || []);
-			}
-		} catch (err) {
-			console.error('Failed to fetch conversations:', err);
-		} finally {
-			setLoading(false);
-		}
-	}
-
-	async function fetchMessages(convId: string) {
-		setSelectedId(convId);
-		setLoadingMessages(true);
-		try {
-			const res = await apiFetch(`/api/conversations/${convId}`);
-			if (res.ok) {
-				const data = await res.json();
-				setMessages(data.messages || []);
-			}
-		} catch (err) {
-			console.error('Failed to fetch messages:', err);
-		} finally {
-			setLoadingMessages(false);
-		}
-	}
-
-	if (loading) {
+	if (isLoading) {
 		return (
 			<div className="space-y-4">
 				<h1 className="text-2xl font-bold tracking-tight">History</h1>
@@ -342,7 +277,7 @@ export default function HistoryPage() {
 				</p>
 			</div>
 
-			{conversations.length === 0 ? (
+			{conversations.length === 0 && offset === 0 ? (
 				<Card>
 					<CardContent className="py-12 text-center">
 						<MessageSquare size={32} className="mx-auto text-muted-foreground mb-3" />
@@ -354,34 +289,60 @@ export default function HistoryPage() {
 			) : (
 				<div className="grid gap-1 lg:grid-cols-[300px_1fr]">
 					{/* Conversation list */}
-					<div className="space-y-0 max-h-[calc(100vh-200px)] overflow-y-auto border border-border">
-						{conversations.map((conv) => (
-							<ConversationItem
-								key={conv.id}
-								conv={conv}
-								selected={selectedId === conv.id}
-								onClick={() => fetchMessages(conv.id)}
-							/>
-						))}
+					<div>
+						<div className="space-y-0 max-h-[calc(100vh-260px)] overflow-y-auto border border-border">
+							{conversations.map((conv) => (
+								<button
+									key={conv.id}
+									onClick={() => setSelectedId(conv.id)}
+									className={`w-full text-left p-3 border-b border-border last:border-0 transition-colors ${
+										selectedId === conv.id
+											? 'bg-elevated'
+											: 'hover:bg-elevated/50'
+									}`}
+								>
+									<div className="flex items-center gap-2">
+										{conv.outcome && (
+											<div
+												className={`status-pixel ${outcomeStyles[conv.outcome] || 'bg-muted-foreground'}`}
+											/>
+										)}
+										<p className="text-sm font-mono truncate flex-1">
+											{conv.title || 'Untitled'}
+										</p>
+									</div>
+									<div className="flex items-center gap-2 mt-1.5 ml-[10px]">
+										<span className="text-[10px] font-mono text-muted-foreground">
+											{conv.messageCount} msgs
+										</span>
+										<span className="text-[10px] font-mono text-muted-foreground">
+											{formatRelative(conv.updatedAt)}
+										</span>
+									</div>
+								</button>
+							))}
+						</div>
+						<Pagination
+							offset={offset}
+							limit={limit}
+							total={total}
+							onPageChange={setOffset}
+						/>
 					</div>
 
 					{/* Chat thread */}
 					<div className="border border-border max-h-[calc(100vh-200px)] flex flex-col">
-						{/* Header */}
 						{selectedId && (
 							<div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-surface flex-shrink-0">
 								<span className="text-sm font-mono font-medium truncate">
-									{conversations.find((c) => c.id === selectedId)?.title ||
-										'Untitled'}
+									{conversations.find((c) => c.id === selectedId)?.title || 'Untitled'}
 								</span>
 								<span className="text-[10px] font-mono text-muted-foreground ml-auto">
-									{conversations.find((c) => c.id === selectedId)?.messageCount}{' '}
-									messages
+									{conversations.find((c) => c.id === selectedId)?.messageCount} messages
 								</span>
 							</div>
 						)}
 
-						{/* Messages */}
 						<div className="flex-1 overflow-y-auto p-4 space-y-3">
 							{!selectedId ? (
 								<div className="flex items-center justify-center h-full">
@@ -393,16 +354,12 @@ export default function HistoryPage() {
 								<div className="flex items-center justify-center h-full">
 									<div className="flex items-center gap-2">
 										<div className="status-pixel bg-muted-foreground animate-pulse" />
-										<p className="text-sm font-mono text-muted-foreground">
-											Loading...
-										</p>
+										<p className="text-sm font-mono text-muted-foreground">Loading...</p>
 									</div>
 								</div>
 							) : messages.length === 0 ? (
 								<div className="flex items-center justify-center h-full">
-									<p className="text-sm text-muted-foreground font-mono">
-										No messages found.
-									</p>
+									<p className="text-sm text-muted-foreground font-mono">No messages found.</p>
 								</div>
 							) : (
 								<>
@@ -422,18 +379,4 @@ export default function HistoryPage() {
 			)}
 		</div>
 	);
-}
-
-function formatRelative(dateStr: string): string {
-	const date = new Date(dateStr);
-	const now = new Date();
-	const diffMs = now.getTime() - date.getTime();
-	const diffMins = Math.floor(diffMs / 60000);
-	if (diffMins < 1) return 'just now';
-	if (diffMins < 60) return `${diffMins}m ago`;
-	const diffHours = Math.floor(diffMins / 60);
-	if (diffHours < 24) return `${diffHours}h ago`;
-	const diffDays = Math.floor(diffHours / 24);
-	if (diffDays < 7) return `${diffDays}d ago`;
-	return date.toLocaleDateString();
 }

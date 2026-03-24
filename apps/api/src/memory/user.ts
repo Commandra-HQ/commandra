@@ -74,7 +74,7 @@ function formatEntry(date: string, category: MemoryCategory, content: string, re
 	return `- [${date}] [${category}] ${rTag}${content}`;
 }
 
-function serializeMemoryFile(entries: ParsedEntry[]): string {
+function serializeMemoryFile(entries: ParsedEntry[], domain?: string): string {
 	// Group by category for readability
 	const groups: Record<string, ParsedEntry[]> = {};
 	for (const e of entries) {
@@ -82,7 +82,9 @@ function serializeMemoryFile(entries: ParsedEntry[]): string {
 		groups[e.category].push(e);
 	}
 
-	const lines = ['# User Memory', ''];
+	const lines: string[] = [];
+	if (domain) lines.push(`<!-- domain: ${domain} -->`);
+	lines.push('# User Memory', '');
 	const order: MemoryCategory[] = ['correction', 'preference', 'terminology', 'workflow'];
 	for (const cat of order) {
 		const items = groups[cat];
@@ -224,7 +226,7 @@ export async function saveUserMemory(
 		});
 	}
 
-	await uploadDomainFile(userId, domain, FILENAME, serializeMemoryFile(entries));
+	await uploadDomainFile(userId, domain, FILENAME, serializeMemoryFile(entries, domain));
 }
 
 /**
@@ -250,10 +252,31 @@ export async function listUserMemories(
 		const results: (UserMemoryEntry & { domain: string })[] = [];
 		for (const folder of folders) {
 			if (!folder.name) continue;
-			// Domain is sanitized in storage (underscores), reverse to dots
-			const domainName = folder.name.replace(/_/g, '.');
-			const domainEntries = await listMemoriesForDomain(userId, domainName);
-			results.push(...domainEntries);
+			// Read MEMORY.md directly using the sanitized folder name as path
+			// to avoid double-sanitization issues with domain names containing hyphens
+			try {
+				const path = `domains/${userId}/${folder.name}/MEMORY.md`;
+				const { data, error } = await supabase.storage.from('agents').download(path);
+				if (error || !data) continue;
+				const text = await data.text();
+				if (!text) continue;
+
+				// Extract original domain from header comment, or reverse-sanitize as fallback
+				const domainMatch = text.match(/^<!-- domain: (.+) -->$/m);
+				const domainName = domainMatch?.[1] || folder.name.replace(/_/g, '.');
+
+				const entries = parseMemoryFile(text);
+				results.push(...entries.map((e) => ({
+					id: entryId(e),
+					domain: domainName,
+					category: e.category,
+					content: e.content,
+					source: e.source,
+					confidence: Math.min(e.reinforced, 5),
+					timesReinforced: e.reinforced,
+					createdAt: new Date(e.date),
+				})));
+			} catch { continue; }
 		}
 		return results;
 	} catch (err) {
@@ -300,7 +323,7 @@ export async function deleteUserMemoryById(userId: string, memoryId: string): Pr
 	const filtered = entries.filter((e) => entryId(e) !== memoryId);
 	if (filtered.length === entries.length) return false;
 
-	await uploadDomainFile(userId, target.domain, FILENAME, serializeMemoryFile(filtered));
+	await uploadDomainFile(userId, target.domain, FILENAME, serializeMemoryFile(filtered, target.domain));
 	return true;
 }
 
@@ -308,7 +331,7 @@ export async function deleteUserMemoryById(userId: string, memoryId: string): Pr
  * Clear all memories for a user on a specific domain.
  */
 export async function clearUserMemoryForDomain(userId: string, domain: string): Promise<void> {
-	await uploadDomainFile(userId, domain, FILENAME, '# User Memory\n');
+	await uploadDomainFile(userId, domain, FILENAME, `<!-- domain: ${domain} -->\n# User Memory\n`);
 }
 
 /**
@@ -332,7 +355,7 @@ export async function editUserMemory(
 
 	entry.content = content;
 	entry.date = today();
-	await uploadDomainFile(userId, target.domain, FILENAME, serializeMemoryFile(entries));
+	await uploadDomainFile(userId, target.domain, FILENAME, serializeMemoryFile(entries, target.domain));
 	return true;
 }
 
@@ -359,7 +382,7 @@ export async function pruneStaleMemories(userId: string, domain: string): Promis
 
 	const pruned = entries.length - kept.length;
 	if (pruned > 0) {
-		await uploadDomainFile(userId, domain, FILENAME, serializeMemoryFile(kept));
+		await uploadDomainFile(userId, domain, FILENAME, serializeMemoryFile(kept, domain));
 	}
 	return pruned;
 }

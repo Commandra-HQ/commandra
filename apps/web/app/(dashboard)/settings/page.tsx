@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { apiFetch } from '@/lib/api';
+import { useSettingsQuery, useUpdateSettingsMutation } from '@/lib/queries/use-settings';
 import { Check, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -21,76 +21,47 @@ const LLM_PROVIDERS = [
 	{ id: 'google', name: 'Google', models: { strong: ['gemini-pro'], fast: ['gemini-flash'] } },
 ];
 
-interface Settings {
-	llmProvider: string;
-	llmApiKey: string;
-	llmModelStrong: string;
-	llmModelFast: string;
-}
-
 export default function SettingsPage() {
-	const [settings, setSettings] = useState<Settings>({
+	const { data, isLoading } = useSettingsQuery();
+	const updateMutation = useUpdateSettingsMutation();
+	const [saved, setSaved] = useState(false);
+
+	const [settings, setSettings] = useState({
 		llmProvider: 'anthropic',
 		llmApiKey: '',
 		llmModelStrong: 'sonnet',
 		llmModelFast: 'haiku',
 	});
-	const [saving, setSaving] = useState(false);
-	const [saved, setSaved] = useState(false);
-	const [loading, setLoading] = useState(true);
 
+	// Sync from query to local state
 	useEffect(() => {
-		fetchSettings();
-	}, []);
-
-	async function fetchSettings() {
-		try {
-			const res = await apiFetch('/api/settings');
-			if (res.ok) {
-				const data = await res.json();
-				if (data.settings) {
-					setSettings({
-						llmProvider: data.settings.llmProvider || 'anthropic',
-						llmApiKey: data.settings.llmApiKey || '',
-						llmModelStrong: data.settings.llmModelStrong || 'sonnet',
-						llmModelFast: data.settings.llmModelFast || 'haiku',
-					});
-				}
-			}
-		} catch (err) {
-			console.error('Failed to fetch settings:', err);
-		} finally {
-			setLoading(false);
+		if (data?.settings) {
+			setSettings({
+				llmProvider: data.settings.llmProvider || 'anthropic',
+				llmApiKey: data.settings.llmApiKey || '',
+				llmModelStrong: data.settings.llmModelStrong || 'sonnet',
+				llmModelFast: data.settings.llmModelFast || 'haiku',
+			});
 		}
-	}
+	}, [data]);
 
 	async function saveSettings() {
-		setSaving(true);
-		try {
-			const res = await apiFetch('/api/settings', {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(settings),
-			});
-			if (res.ok) {
-				setSaved(true);
-				setTimeout(() => setSaved(false), 2000);
-			}
-		} catch (err) {
-			console.error('Failed to save settings:', err);
-		} finally {
-			setSaving(false);
-		}
+		await updateMutation.mutateAsync(settings);
+		setSaved(true);
+		setTimeout(() => setSaved(false), 2000);
 	}
 
 	const currentLlmProvider =
 		LLM_PROVIDERS.find((p) => p.id === settings.llmProvider) || LLM_PROVIDERS[0];
 
-	if (loading) {
+	if (isLoading) {
 		return (
 			<div className="space-y-4">
 				<h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-				<p className="text-muted-foreground">Loading...</p>
+				<div className="flex items-center gap-2">
+					<div className="status-pixel bg-muted-foreground animate-pulse" />
+					<p className="text-sm font-mono text-muted-foreground">Loading...</p>
+				</div>
 			</div>
 		);
 	}
@@ -99,10 +70,9 @@ export default function SettingsPage() {
 		<div className="space-y-6">
 			<div>
 				<h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-				<p className="text-muted-foreground mt-1">Configure your LLM provider.</p>
+				<p className="text-sm text-muted-foreground mt-1 font-mono">Configure your LLM provider.</p>
 			</div>
 
-			{/* LLM Provider */}
 			<Card>
 				<CardHeader>
 					<CardTitle>LLM Provider</CardTitle>
@@ -123,7 +93,7 @@ export default function SettingsPage() {
 										llmModelFast: provider.models.fast[0],
 									})
 								}
-								className={`flex-1 p-3 rounded-lg border text-sm font-medium transition-colors ${
+								className={`flex-1 p-3 border text-sm font-medium transition-colors ${
 									settings.llmProvider === provider.id
 										? 'border-primary bg-primary/5 text-foreground'
 										: 'border-border text-muted-foreground hover:bg-muted/50'
@@ -142,7 +112,7 @@ export default function SettingsPage() {
 							value={settings.llmApiKey}
 							onChange={(e) => setSettings({ ...settings, llmApiKey: e.target.value })}
 						/>
-						<p className="text-xs text-muted-foreground">
+						<p className="text-xs text-muted-foreground font-mono">
 							Stored encrypted. Only used for your agent&apos;s LLM calls.
 						</p>
 					</div>
@@ -155,7 +125,7 @@ export default function SettingsPage() {
 									<button
 										key={m}
 										onClick={() => setSettings({ ...settings, llmModelStrong: m })}
-										className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+										className={`px-3 py-1.5 text-xs border transition-colors ${
 											settings.llmModelStrong === m
 												? 'border-primary bg-primary/5'
 												: 'border-border hover:bg-muted/50'
@@ -173,7 +143,7 @@ export default function SettingsPage() {
 									<button
 										key={m}
 										onClick={() => setSettings({ ...settings, llmModelFast: m })}
-										className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+										className={`px-3 py-1.5 text-xs border transition-colors ${
 											settings.llmModelFast === m
 												? 'border-primary bg-primary/5'
 												: 'border-border hover:bg-muted/50'
@@ -188,14 +158,13 @@ export default function SettingsPage() {
 				</CardContent>
 			</Card>
 
-			{/* Save */}
-			<Button onClick={saveSettings} disabled={saving}>
-				{saving ? (
+			<Button onClick={saveSettings} disabled={updateMutation.isPending}>
+				{updateMutation.isPending ? (
 					<Loader2 size={16} className="mr-2 animate-spin" />
 				) : saved ? (
 					<Check size={16} className="mr-2" />
 				) : null}
-				{saved ? 'Saved' : saving ? 'Saving...' : 'Save Settings'}
+				{saved ? 'Saved' : updateMutation.isPending ? 'Saving...' : 'Save Settings'}
 			</Button>
 		</div>
 	);

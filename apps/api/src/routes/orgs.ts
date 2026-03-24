@@ -79,7 +79,7 @@ orgRoutes.get('/:id/members', async (c) => {
 		.innerJoin(users, eq(orgMembers.userId, users.id))
 		.where(eq(orgMembers.orgId, orgId));
 
-	return c.json({ members });
+	return c.json({ members, total: members.length });
 });
 
 // Invite member by email (admin only)
