@@ -1,7 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 import {
@@ -51,13 +50,13 @@ export function Sidebar() {
 				className="fixed top-3 left-3 z-50 md:hidden"
 				onClick={() => setMobileOpen(!mobileOpen)}
 			>
-				{mobileOpen ? <X size={20} /> : <Menu size={20} />}
+				{mobileOpen ? <X size={18} strokeWidth={1.5} /> : <Menu size={18} strokeWidth={1.5} />}
 			</Button>
 
 			{/* Overlay */}
 			{mobileOpen && (
 				<div
-					className="fixed inset-0 bg-black/50 z-40 md:hidden"
+					className="fixed inset-0 bg-background/60 backdrop-blur-sm z-40 md:hidden"
 					onClick={() => setMobileOpen(false)}
 					onKeyDown={() => {}}
 					role="presentation"
@@ -67,20 +66,22 @@ export function Sidebar() {
 			{/* Sidebar */}
 			<aside
 				className={cn(
-					'fixed inset-y-0 left-0 z-40 w-56 flex flex-col bg-sidebar border-r border-sidebar-border transition-transform duration-200 md:translate-x-0 md:static',
+					'fixed inset-y-0 left-0 z-40 w-56 flex flex-col bg-surface border-r border-border transition-transform duration-200 md:translate-x-0 md:static',
 					mobileOpen ? 'translate-x-0' : '-translate-x-full',
 				)}
 			>
 				{/* Logo */}
-				<div className="flex items-center gap-2 px-4 h-14 border-b border-sidebar-border">
-					<div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center">
-						<span className="text-primary-foreground text-xs font-bold">C</span>
+				<div className="flex items-center gap-2.5 px-4 h-14 border-b border-border">
+					<div className="h-6 w-6 bg-foreground flex items-center justify-center">
+						<span className="text-background text-[10px] font-bold font-mono">C</span>
 					</div>
-					<span className="font-semibold text-sm text-sidebar-foreground">Commandra</span>
+					<span className="font-mono text-sm font-medium lowercase tracking-wide text-foreground">
+						commandra
+					</span>
 				</div>
 
 				{/* Nav */}
-				<nav className="flex-1 px-2 py-3 space-y-1">
+				<nav className="flex-1 px-2 py-3 space-y-0.5">
 					{navItems.map((item) => {
 						const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
 						return (
@@ -89,37 +90,38 @@ export function Sidebar() {
 								href={item.href}
 								onClick={() => setMobileOpen(false)}
 								className={cn(
-									'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors',
+									'flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors',
 									isActive
-										? 'bg-sidebar-accent text-sidebar-accent-foreground'
-										: 'text-sidebar-foreground hover:bg-sidebar-accent/50',
+										? 'bg-elevated text-foreground'
+										: 'text-muted-foreground hover:bg-elevated/50 hover:text-foreground',
 								)}
 							>
-								<item.icon size={18} />
+								<item.icon size={16} strokeWidth={1.5} />
 								{item.label}
 							</Link>
 						);
 					})}
 				</nav>
 
-				<Separator />
+				{/* Divider */}
+				<div className="mx-3 h-px bg-border" />
 
 				{/* User */}
 				<div className="p-3 flex items-center gap-3">
-					<div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-						<span className="text-xs font-medium text-primary">
+					<div className="h-7 w-7 bg-elevated flex items-center justify-center border border-border">
+						<span className="text-[10px] font-mono font-medium text-muted-foreground">
 							{user?.email?.charAt(0).toUpperCase() || '?'}
 						</span>
 					</div>
 					<div className="flex-1 min-w-0">
-						<p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+						<p className="text-xs font-mono text-muted-foreground truncate">{user?.email}</p>
 					</div>
 					<button
 						onClick={logout}
 						className="text-muted-foreground hover:text-foreground transition-colors"
 						title="Sign out"
 					>
-						<LogOut size={14} />
+						<LogOut size={14} strokeWidth={1.5} />
 					</button>
 				</div>
 			</aside>

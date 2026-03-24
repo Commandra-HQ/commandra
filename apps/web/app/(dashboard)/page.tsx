@@ -12,16 +12,13 @@ export default function HomePage() {
 		<div className="space-y-8">
 			<div>
 				<h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-				<p className="text-muted-foreground mt-1">
-					Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}. Here&apos;s your agent
-					overview.
+				<p className="text-sm text-muted-foreground mt-1 font-mono">
+					Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}.
 				</p>
 			</div>
 
-			{/* Stats */}
 			<DashboardStats />
 
-			{/* Extension connect */}
 			<Card>
 				<CardHeader>
 					<CardTitle>Connect Chrome Extension</CardTitle>

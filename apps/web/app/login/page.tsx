@@ -39,10 +39,10 @@ export default function LoginPage() {
 		<div className="flex items-center justify-center min-h-screen">
 			<Card className="w-full max-w-sm">
 				<CardHeader className="text-center">
-					<div className="mx-auto h-10 w-10 rounded-lg bg-primary flex items-center justify-center mb-2">
-						<span className="text-primary-foreground text-sm font-bold">A</span>
+					<div className="mx-auto h-8 w-8 bg-foreground flex items-center justify-center mb-3">
+						<span className="text-background text-[10px] font-bold font-mono">C</span>
 					</div>
-					<CardTitle>{mode === 'login' ? 'Sign in' : 'Create account'}</CardTitle>
+					<CardTitle className="font-sans">{mode === 'login' ? 'Sign in' : 'Create account'}</CardTitle>
 					<CardDescription>
 						{mode === 'login' ? 'Sign in to your dashboard' : 'Create an account to get started'}
 					</CardDescription>
@@ -50,7 +50,7 @@ export default function LoginPage() {
 				<CardContent>
 					<form onSubmit={handleSubmit} className="space-y-4">
 						<div className="space-y-2">
-							<label className="text-sm font-medium">Email</label>
+							<label className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Email</label>
 							<Input
 								type="email"
 								placeholder="you@example.com"
@@ -60,7 +60,7 @@ export default function LoginPage() {
 							/>
 						</div>
 						<div className="space-y-2">
-							<label className="text-sm font-medium">Password</label>
+							<label className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Password</label>
 							<Input
 								type="password"
 								placeholder="Min 8 characters"
@@ -71,10 +71,15 @@ export default function LoginPage() {
 							/>
 						</div>
 
-						{error && <p className="text-sm text-destructive">{error}</p>}
+						{error && (
+							<div className="flex items-center gap-2 text-sm text-destructive">
+								<span className="status-pixel bg-destructive" />
+								{error}
+							</div>
+						)}
 
 						<Button type="submit" className="w-full" disabled={loading}>
-							{loading && <Loader2 size={16} className="mr-2 animate-spin" />}
+							{loading && <Loader2 size={14} className="mr-2 animate-spin" strokeWidth={1.5} />}
 							{mode === 'login' ? 'Sign in' : 'Create account'}
 						</Button>
 					</form>
@@ -84,11 +89,8 @@ export default function LoginPage() {
 							<>
 								No account?{' '}
 								<button
-									onClick={() => {
-										setMode('register');
-										setError('');
-									}}
-									className="text-foreground underline hover:no-underline"
+									onClick={() => { setMode('register'); setError(''); }}
+									className="text-foreground underline underline-offset-4 hover:no-underline"
 								>
 									Create one
 								</button>
@@ -97,11 +99,8 @@ export default function LoginPage() {
 							<>
 								Already have an account?{' '}
 								<button
-									onClick={() => {
-										setMode('login');
-										setError('');
-									}}
-									className="text-foreground underline hover:no-underline"
+									onClick={() => { setMode('login'); setError(''); }}
+									className="text-foreground underline underline-offset-4 hover:no-underline"
 								>
 									Sign in
 								</button>
