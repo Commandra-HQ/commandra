@@ -50,6 +50,7 @@ export function ChatTab() {
 	const [originTabId, setOriginTabId] = useState<number | null>(null);
 	const [originDomain, setOriginDomain] = useState<string>('');
 	const isActiveRef = useRef(false);
+	const prevConvIdRef = useRef<string | undefined>(externalConvId);
 	const [selectorActive, setSelectorActive] = useState(false);
 	const [contextStatus, setContextStatus] = useState<{
 		used: number;
@@ -162,14 +163,40 @@ export function ChatTab() {
 		isActiveRef.current = isActive;
 	}, [isActive]);
 
-	// Load conversation on mount when we have a conversationId.
-	// KeyedChatTab forces a full remount on conversation switch, so chatMessages
-	// is always empty here — no need to guard against mid-stream reloads.
+	// Load conversation when conversationId changes (tab switch or initial mount).
+	// If the user is mid-stream and the URL updated to the same conversation (done event),
+	// skip the reload — the live blocks are more complete than the DB.
 	useEffect(() => {
-		if (externalConvId) {
-			setMode('chat');
+		const prevId = prevConvIdRef.current;
+		prevConvIdRef.current = externalConvId;
+
+		if (!externalConvId) {
+			// Navigated to new chat — only clear if we're not actively streaming
+			if (!isActiveRef.current) {
+				setChatMessages([]);
+				setPendingApprovals([]);
+				setContextStatus(null);
+				setPlanState(null);
+				resetConversation();
+			}
+			return;
+		}
+
+		// Same conversation — done event just updated the URL, skip reload
+		if (prevId === externalConvId) return;
+
+		// Different conversation — switching tabs
+		setMode('chat');
+		if (!isActiveRef.current) {
+			// Not streaming: clear old state and load from DB
+			setChatMessages([]);
+			setPendingApprovals([]);
+			setContextStatus(null);
+			setPlanState(null);
+			resetConversation();
 			loadConversation(externalConvId);
 		}
+		// If streaming: keep current messages (they belong to this stream)
 	}, [externalConvId]);
 
 	useEffect(() => {

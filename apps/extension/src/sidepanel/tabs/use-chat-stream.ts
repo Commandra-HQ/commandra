@@ -265,7 +265,7 @@ export function useChatStream(options: UseChatStreamOptions) {
 			}
 
 			case 'done':
-				console.log('[ChatStream] done event, convId:', event.conversationId, 'externalConvId:', externalConvId);
+				
 				if (event.conversationId) {
 					// Store the conversationId so follow-up messages continue this conversation
 					conversationIdRef.current = event.conversationId;

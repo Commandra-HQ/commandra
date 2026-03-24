@@ -13,7 +13,7 @@ import {
 	Settings,
 	X,
 } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Outlet, useNavigate, useParams } from 'react-router-dom';
 import { HistoryDrawer } from '../components/HistoryDrawer.js';
 import { VoxelLogo } from '../components/VoxelLogo.js';
@@ -26,6 +26,7 @@ export function HubLayout() {
 	const params = useParams();
 	const convId = params.conversationId;
 
+	const headerRef = useRef<HTMLDivElement>(null);
 	const [historyOpen, setHistoryOpen] = useState(false);
 	const [globalMenuOpen, setGlobalMenuOpen] = useState(false);
 	const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
@@ -54,15 +55,16 @@ export function HubLayout() {
 		};
 	}, [updateDomain]);
 
-	// Sync tabs with current conversation
+	// Add a tab when navigating to a conversation that doesn't have one yet
 	useEffect(() => {
 		if (convId && !tabs.find((t) => t.id === convId)) {
-			setTabs((prev) => [
-				...prev,
-				{ id: convId, label: currentDomain || 'Chat' },
-			]);
+			setTabs((prev) => {
+				// Double-check inside setter to avoid race conditions
+				if (prev.find((t) => t.id === convId)) return prev;
+				return [...prev, { id: convId, label: currentDomain || 'Chat' }];
+			});
 		}
-	}, [convId, currentDomain, tabs]);
+	}, [convId]); // Only trigger on convId change, not on domain updates
 
 	const isNewChat = !convId;
 
@@ -75,21 +77,18 @@ export function HubLayout() {
 	}
 
 	function closeTab(id: string) {
-		setTabs((prev) => {
-			const remaining = prev.filter((t) => t.id !== id);
-			// If closing the active tab, switch to another tab or new chat
-			if (convId === id) {
-				if (remaining.length > 0) {
-					// Find the tab that was adjacent
-					const closedIndex = prev.findIndex((t) => t.id === id);
-					const nextTab = remaining[Math.min(closedIndex, remaining.length - 1)];
-					navigate(`/chat/${nextTab.id}`);
-				} else {
-					navigate('/');
-				}
+		// Compute navigation target before modifying state
+		const remaining = tabs.filter((t) => t.id !== id);
+		if (convId === id) {
+			if (remaining.length > 0) {
+				const closedIndex = tabs.findIndex((t) => t.id === id);
+				const nextTab = remaining[Math.min(closedIndex, remaining.length - 1)];
+				navigate(`/chat/${nextTab.id}`);
+			} else {
+				navigate('/');
 			}
-			return remaining;
-		});
+		}
+		setTabs(remaining);
 		setTabMenuOpen(null);
 	}
 
@@ -102,7 +101,7 @@ export function HubLayout() {
 
 	return (
 		<>
-			<div className="flex flex-col border-b border-border bg-surface flex-shrink-0">
+			<div ref={headerRef} className="flex flex-col border-b border-border bg-surface flex-shrink-0">
 				{/* Top bar */}
 				<div className="h-11 px-3 flex items-center justify-between">
 					<div className="flex items-center gap-1.5">
@@ -197,7 +196,7 @@ export function HubLayout() {
 					/>
 					<div
 						className="absolute left-4 z-50 w-40 border border-border bg-card py-1 shadow-lg"
-						style={{ top: '84px' }}
+						style={{ top: headerRef.current ? `${headerRef.current.offsetHeight + 2}px` : '84px' }}
 					>
 						<button
 							onClick={() => dispatchAction('copy-chat')}
