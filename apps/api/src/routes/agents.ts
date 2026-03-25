@@ -13,7 +13,7 @@ import {
 } from '../agent/agent-registry.js';
 import { runAgentNow } from '../agent/scheduler.js';
 import { db } from '../db/index.js';
-import { agentRuns, agents } from '../db/schema.js';
+import { agentRuns, agents, scheduledTasks } from '../db/schema.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { downloadAgentFile, listAgentFiles, uploadAgentFile } from '../storage/agent-files.js';
 import { downloadRunLog, listRunLogs } from '../storage/run-files.js';
@@ -248,5 +248,21 @@ agentRoutes.get('/scheduled', async (c) => {
 		}),
 	);
 
-	return c.json({ data: result });
+	// Also get one-time scheduled tasks
+	const tasks = await db
+		.select({
+			id: scheduledTasks.id,
+			agentId: scheduledTasks.agentId,
+			task: scheduledTasks.task,
+			runAt: scheduledTasks.runAt,
+			status: scheduledTasks.status,
+			error: scheduledTasks.error,
+			createdAt: scheduledTasks.createdAt,
+		})
+		.from(scheduledTasks)
+		.where(eq(scheduledTasks.userId, user.id))
+		.orderBy(desc(scheduledTasks.runAt))
+		.limit(20);
+
+	return c.json({ data: result, tasks });
 });

@@ -456,10 +456,39 @@ export function buildToolList(
     },
   };
 
+  const scheduleAgentTool = {
+    name: 'schedule_agent',
+    description:
+      'Schedule an agent to run a task at a specific time. Use for delayed/future tasks like "send an email in 15 minutes" or "download the report at 3pm". For recurring schedules, set a cron expression. For one-time tasks, set runAt.',
+    parameters: {
+      type: 'object' as const,
+      properties: {
+        agentSlug: {
+          type: 'string',
+          description: 'Slug of the agent to schedule (e.g. "gmail-sender"). Use the coordinator if no specific agent exists.',
+        },
+        task: {
+          type: 'string',
+          description: 'The task description — what the agent should do when it runs.',
+        },
+        runAt: {
+          type: 'string',
+          description: 'ISO 8601 datetime for one-time task (e.g. "2026-03-25T15:00:00"). Use this for "in 15 minutes" or "at 3pm" type requests.',
+        },
+        cron: {
+          type: 'string',
+          description: 'Cron expression for recurring schedule (e.g. "0 15 * * *" = 3pm daily). Only use for recurring tasks, not one-time.',
+        },
+      },
+      required: ['agentSlug', 'task'],
+    },
+  };
+
   return [
     ...browserTools,
     listTabsTool,
     switchTabTool,
+    scheduleAgentTool,
     saveMemoryTool,
     recallMemoryTool,
     saveKnowledgeTool,

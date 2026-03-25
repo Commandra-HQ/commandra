@@ -153,6 +153,21 @@ export const agents = pgTable('agents', {
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const scheduledTasks = pgTable('scheduled_tasks', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	userId: uuid('user_id')
+		.references(() => users.id)
+		.notNull(),
+	agentId: uuid('agent_id')
+		.references(() => agents.id, { onDelete: 'cascade' }),
+	task: text('task').notNull(),
+	runAt: timestamp('run_at').notNull(),
+	status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'completed' | 'failed'
+	conversationId: uuid('conversation_id'),
+	error: text('error'),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const agentRuns = pgTable('agent_runs', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	agentId: uuid('agent_id')
