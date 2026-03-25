@@ -473,7 +473,7 @@ const TabSuggestionList = React.forwardRef(
     if (props.items.length === 0) return null;
 
     return (
-      <div className="max-h-[200px] overflow-y-auto bg-popover border border-border rounded-lg shadow-lg z-50">
+      <div className="max-h-[200px] overflow-y-auto bg-background border border-border rounded-md shadow-xl">
         <div className="py-1">
           <div className="px-3 py-1 text-[10px] text-muted-foreground font-mono uppercase">
             Open Tabs
@@ -594,8 +594,7 @@ export function ChatInput({
                 popup.style.left = '0';
                 popup.style.right = '0';
                 popup.style.marginBottom = '4px';
-                popup.style.zIndex = '50';
-                popup.style.background = 'hsl(var(--popover))';
+                popup.style.zIndex = '9999';
                 const parent = p.editor.view.dom.closest('.chat-editor-wrapper');
                 if (parent) parent.appendChild(popup);
                 renderPopup();
@@ -623,7 +622,7 @@ export function ChatInput({
     ],
     editorProps: {
       attributes: {
-        class: 'w-full min-h-10 max-h-[120px] py-2.5 pl-3 pr-10 text-sm border-0 bg-transparent focus:outline-none overflow-y-auto',
+        class: 'w-full min-h-10 max-h-[120px] py-2.5 pl-3 pr-10 text-sm bg-transparent focus:outline-none overflow-y-auto',
       },
     },
     onUpdate: ({ editor: ed }) => {
@@ -728,7 +727,7 @@ export function ChatInput({
         >
           <MousePointer size={14} />
         </button>
-        <div className="chat-editor-wrapper relative flex-1 min-h-10 max-h-[120px] border border-input rounded-md bg-background focus-within:border-foreground">
+        <div className="chat-editor-wrapper relative flex-1 min-h-10 max-h-[120px] border border-input rounded-md bg-background focus-within:border-foreground overflow-visible">
           <EditorContent editor={editor} />
           {!isActive && (
             <button
@@ -757,9 +756,9 @@ export function ChatInput({
       {/* Mention chip styles */}
       <style>{`
         .mention-tab {
-          background: rgba(59, 130, 246, 0.15);
-          border: 1px solid rgba(96, 165, 250, 0.35);
-          color: rgb(147, 197, 253);
+          background: hsl(var(--accent));
+          border: 1px solid hsl(var(--border));
+          color: hsl(var(--foreground));
           border-radius: 2px;
           padding: 1px 5px;
           font-size: 0.8em;

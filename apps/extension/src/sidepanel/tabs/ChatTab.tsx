@@ -269,6 +269,12 @@ export function ChatTab() {
 		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 	}, [chatMessages]);
 
+	// Expose contextStatus to HubLayout tab menu via custom event
+	useEffect(() => {
+		const detail = { contextStatus, usageTotal, conversationId: externalConvId || conversationIdRef.current };
+		window.dispatchEvent(new CustomEvent('commandra-context-update', { detail }));
+	}, [contextStatus, usageTotal]);
+
 	// --- Handlers ---
 
 	function handleIndexPage() {
@@ -594,37 +600,31 @@ export function ChatTab() {
 		return <CrawlingView progress={crawlProgress} domain={domain} onStop={handleStopCrawl} />;
 	}
 
-	// Expose contextStatus to HubLayout tab menu via custom event
-	useEffect(() => {
-		const detail = { contextStatus, usageTotal, conversationId: externalConvId || conversationIdRef.current };
-		window.dispatchEvent(new CustomEvent('commandra-context-update', { detail }));
-	}, [contextStatus, usageTotal]);
-
 	return (
 		<div className="flex flex-col h-full">
 			{/* Context indicator + plan panel */}
 			{contextStatus && contextStatus.percent > 0 && (
 				<div className="px-3 py-1 border-b border-border flex items-center gap-2 text-[10px] text-muted-foreground">
 					<div
-						className="relative w-5 h-5 flex-shrink-0"
+						className="relative w-[14px] h-[14px] flex-shrink-0"
 						title={
 							usageTotal
 								? `Context: ${contextStatus.percent}% used\nInput: ${(usageTotal.inputTokens / 1000).toFixed(1)}K tokens\nOutput: ${(usageTotal.outputTokens / 1000).toFixed(1)}K tokens\nCached: ${(usageTotal.cacheReadTokens / 1000).toFixed(1)}K tokens\nCost: $${usageTotal.estimatedCostUsd.toFixed(4)}`
 								: `Context: ${Math.round(contextStatus.used / 1000)}K / ${Math.round(contextStatus.limit / 1000)}K tokens (${contextStatus.percent}%)`
 						}
 					>
-						<svg viewBox="0 0 20 20" className="w-5 h-5 -rotate-90">
-							<circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" className="text-secondary" />
-							<circle
-								cx="10" cy="10" r="8" fill="none" strokeWidth="2.5"
-								strokeDasharray={`${contextStatus.percent * 0.502} 50.2`}
-								strokeLinecap="round"
-								className={contextStatus.percent > 80 ? 'text-red-500' : contextStatus.percent > 60 ? 'text-yellow-500' : 'text-green-500'}
+						{/* Square progress indicator — path starts from top-center (12 o'clock) */}
+						<svg viewBox="0 0 16 16" className="w-[14px] h-[14px]">
+							{/* Background track */}
+							<path d="M8,1 L15,1 L15,15 L1,15 L1,1 Z" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-secondary" />
+							{/* Progress fill — starts top-center, goes clockwise */}
+							<path
+								d="M8,1 L15,1 L15,15 L1,15 L1,1 L8,1" fill="none" stroke="currentColor" strokeWidth="1.5"
+								strokeDasharray={`${contextStatus.percent * 0.56} 56`}
+								strokeDashoffset="0"
+								className="text-foreground"
 							/>
 						</svg>
-						<span className="absolute inset-0 flex items-center justify-center text-[6px] font-bold">
-							{contextStatus.percent}
-						</span>
 					</div>
 					<span className="tabular-nums">
 						{Math.round(contextStatus.used / 1000)}K / {Math.round(contextStatus.limit / 1000)}K

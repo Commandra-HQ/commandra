@@ -73,7 +73,7 @@ function UserMessageContent({ content }: { content: string }) {
 		parts.push(
 			<span
 				key={match.index}
-				className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-blue-500/25 border border-blue-400/40 text-blue-200 text-[11px] font-mono"
+				className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-white/10 border border-white/20 text-primary-foreground text-[11px] font-mono"
 			>
 				<Globe size={10} />
 				{match[1]}
