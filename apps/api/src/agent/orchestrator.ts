@@ -12,12 +12,15 @@ import type {
   Message,
   TextBlock,
   ThinkingContentBlock,
+  TokenUsage,
   ToolResultBlock,
   ToolUseBlock,
 } from '../llm/types.js';
 import {
   collectStream,
+  emptyTokenUsage,
   getFastModel,
+  getModelCapabilities,
   getProvider,
   getStrongModel,
 } from '../llm/index.js';
@@ -34,7 +37,11 @@ import {
   MAX_INPUT_TOKENS,
   CHARS_PER_TOKEN,
   setMaxInputTokens,
+  setCharsPerToken,
 } from './token-budget.js';
+
+// In-memory compaction lock — prevents concurrent compaction for the same conversation
+const compactionLocks = new Set<string>();
 
 export interface OrchestratorParams {
   userId: string;
@@ -74,6 +81,7 @@ export interface ToolCallRecord {
 export interface OrchestratorResult {
   response: string;
   toolCalls: ToolCallRecord[];
+  usage: TokenUsage;
 }
 
 /**
@@ -105,15 +113,11 @@ export async function runOrchestrator(
   const model =
     agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
 
-  // Set context limit based on provider — higher limits = fewer compactions = better multi-step tasks
+  // Set context limit based on model capabilities — higher limits = fewer compactions = better multi-step tasks
   const providerName = process.env.LLM_PROVIDER || 'anthropic';
-  if (providerName === 'anthropic') {
-    setMaxInputTokens(800_000); // Claude supports 1M, leave 200K headroom for output
-  } else if (providerName === 'openai') {
-    setMaxInputTokens(800_000); // GPT-4o/4.1/5+ all support 1M+, be generous
-  } else {
-    setMaxInputTokens(400_000); // Conservative default for unknown providers
-  }
+  const capabilities = getModelCapabilities(providerName, model);
+  setMaxInputTokens(Math.floor(capabilities.contextWindow * 0.8));
+  setCharsPerToken(capabilities.charsPerToken);
   const systemPrompt = buildSystemPrompt(
     pageIndex,
     selectedElements,
@@ -145,6 +149,8 @@ export async function runOrchestrator(
   let fullResponse = '';
   let iterations = 0;
   const allToolCalls: ToolCallRecord[] = [];
+  const accumulatedUsage = emptyTokenUsage();
+  let compactedThisRun = false;
 
   while (iterations < maxIterations) {
     // Token budget guard — strip old screenshots and truncate if messages are too large
@@ -163,16 +169,29 @@ export async function runOrchestrator(
     });
 
     // Auto-compact at 80% context usage — save transcript, replace with summary
-    if (contextPercent >= 80 && currentMessages.length > 4 && conversationId) {
-      currentMessages = await autoCompact(
-        currentMessages,
-        provider,
-        agentConfig,
-        userId,
-        conversationId,
-        onEvent,
-        contextPercent,
-      );
+    // Lock prevents concurrent compaction; compactedThisRun prevents repeated compaction in same orchestrator run
+    if (
+      contextPercent >= 80 &&
+      currentMessages.length > 4 &&
+      conversationId &&
+      !compactedThisRun &&
+      !compactionLocks.has(conversationId)
+    ) {
+      compactionLocks.add(conversationId);
+      try {
+        currentMessages = await autoCompact(
+          currentMessages,
+          provider,
+          agentConfig,
+          userId,
+          conversationId,
+          onEvent,
+          contextPercent,
+        );
+        compactedThisRun = true;
+      } finally {
+        compactionLocks.delete(conversationId);
+      }
     }
 
     // Kill switch / abort check
@@ -186,18 +205,37 @@ export async function runOrchestrator(
     // Signal that the LLM is thinking
     await onEvent({ type: 'thinking' });
 
+    // Pre-flight token check when close to budget (Anthropic free endpoint)
+    if (contextPercent > 60 && provider.countTokens) {
+      try {
+        const exactTokens = await provider.countTokens({
+          model, system: systemPrompt, messages: currentMessages, tools,
+        });
+        const exactPercent = Math.round((exactTokens / capabilities.contextWindow) * 100);
+        if (exactPercent >= 95) {
+          currentMessages = trimMessagesForTokenBudget(currentMessages);
+          console.log(`[Orchestrator] Pre-flight: ${exactPercent}% context used, trimmed before sending`);
+        }
+      } catch (err) {
+        console.warn('[Orchestrator] Pre-flight countTokens failed (non-critical):', err);
+      }
+    }
+
     // Call LLM with abort signal — enable extended thinking for richer reasoning
+    // Use per-model budgets from capabilities, with agent overrides taking precedence
     const streamIter = provider.chat({
       model,
       system: systemPrompt,
       messages: currentMessages,
       tools: connectionId ? tools : undefined,
-      maxTokens: agentConfig.llm?.maxOutputTokens ?? 8000,
+      maxTokens: agentConfig.llm?.maxOutputTokens ?? capabilities.defaultOutputBudget,
       signal,
       thinking:
         agentConfig.llm?.thinkingEnabled === false
           ? undefined
-          : { budgetTokens: agentConfig.llm?.thinkingBudget ?? 4000 },
+          : capabilities.supportsThinking
+            ? { budgetTokens: agentConfig.llm?.thinkingBudget ?? capabilities.defaultThinkingBudget }
+            : undefined,
     });
 
     // Stream text to client in real time while collecting tool calls
@@ -213,6 +251,15 @@ export async function runOrchestrator(
     );
     stopReason = streamResult.stopReason;
     fullResponse += streamResult.text;
+
+    // Accumulate real token usage from this iteration
+    if (streamResult.usage) {
+      accumulatedUsage.inputTokens += streamResult.usage.inputTokens;
+      accumulatedUsage.outputTokens += streamResult.usage.outputTokens;
+      accumulatedUsage.cacheReadTokens += streamResult.usage.cacheReadTokens;
+      accumulatedUsage.cacheWriteTokens += streamResult.usage.cacheWriteTokens;
+      accumulatedUsage.thinkingTokens += streamResult.usage.thinkingTokens;
+    }
 
     if (streamResult.contextError) {
       // Context length exceeded — aggressively trim and retry
@@ -295,7 +342,7 @@ export async function runOrchestrator(
     await onEvent({ type: 'text_delta', text: msg });
   }
 
-  return { response: fullResponse, toolCalls: allToolCalls };
+  return { response: fullResponse, toolCalls: allToolCalls, usage: accumulatedUsage };
 }
 
 /**
@@ -314,6 +361,8 @@ export async function runSimpleChat(params: {
   const provider = getProvider();
   const model =
     params.agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
+  const simpleChatProviderName = process.env.LLM_PROVIDER || 'anthropic';
+  const simpleChatCaps = getModelCapabilities(simpleChatProviderName, model);
   const systemPrompt = buildSystemPrompt(
     params.pageIndex,
     params.selectedElements,
@@ -330,12 +379,14 @@ export async function runSimpleChat(params: {
     model,
     system: systemPrompt,
     messages: params.messages.map(m => ({ role: m.role, content: m.content })),
-    maxTokens: params.agentConfig.llm?.maxOutputTokens ?? 8000,
+    maxTokens: params.agentConfig.llm?.maxOutputTokens ?? simpleChatCaps.defaultOutputBudget,
     signal: params.signal,
     thinking:
       params.agentConfig.llm?.thinkingEnabled === false
         ? undefined
-        : { budgetTokens: params.agentConfig.llm?.thinkingBudget ?? 3000 },
+        : simpleChatCaps.supportsThinking
+          ? { budgetTokens: params.agentConfig.llm?.thinkingBudget ?? simpleChatCaps.defaultThinkingBudget }
+          : undefined,
   });
 
   try {
@@ -429,21 +480,14 @@ interface StreamResult {
   stopReason: 'end_turn' | 'tool_use' | 'max_tokens';
   contextError: boolean;
   aborted: boolean;
+  usage?: TokenUsage;
 }
 
 /**
  * Stream the LLM response, accumulating content blocks and emitting SSE events.
  */
 async function streamLLMResponse(
-  streamIter: AsyncIterable<{
-    type: string;
-    text?: string;
-    id?: string;
-    name?: string;
-    input?: unknown;
-    stopReason?: string;
-    signature?: string;
-  }>,
+  streamIter: AsyncIterable<import('../llm/types.js').StreamEvent>,
   content: ContentBlock[],
   onEvent: (event: SSEEvent) => Promise<void>,
   signal: AbortSignal | undefined,
@@ -453,6 +497,7 @@ async function streamLLMResponse(
   let thinkingChunks = 0;
   let textChunks = 0;
   let text = '';
+  let usage: TokenUsage | undefined;
 
   try {
     for await (const event of streamIter) {
@@ -517,6 +562,9 @@ async function streamLLMResponse(
         case 'message_end':
           stopReason = event.stopReason as typeof stopReason;
           break;
+        case 'usage':
+          usage = event.usage;
+          break;
       }
     }
   } catch (err) {
@@ -542,7 +590,7 @@ async function streamLLMResponse(
     `[Orchestrator] iter=${iterations} stream done: thinkingChunks=${thinkingChunks} textChunks=${textChunks} stopReason=${stopReason} contentBlocks=${content.map(b => b.type).join(',')}`,
   );
 
-  return { text, stopReason, contextError: false, aborted: false };
+  return { text, stopReason, contextError: false, aborted: false, usage };
 }
 
 /**

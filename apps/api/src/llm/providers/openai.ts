@@ -11,6 +11,7 @@ import type {
   ContentBlock,
   LLMProvider,
   Message,
+  ModelCapabilities,
   StreamEvent,
   Tool,
 } from '../types.js';
@@ -35,6 +36,59 @@ const MODEL_MAP: Record<string, string> = {
 function resolveModel(model: string): string {
   return MODEL_MAP[model] || model;
 }
+
+export const OPENAI_MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
+  'gpt-4o-mini': {
+    contextWindow: 128_000, maxOutputTokens: 16_384,
+    defaultOutputBudget: 2_000, supportsThinking: false, defaultThinkingBudget: 0,
+    costPer1kInput: 0.00015, costPer1kOutput: 0.0006, charsPerToken: 3.5,
+  },
+  'gpt-4o': {
+    contextWindow: 128_000, maxOutputTokens: 16_384,
+    defaultOutputBudget: 8_000, supportsThinking: false, defaultThinkingBudget: 0,
+    costPer1kInput: 0.0025, costPer1kOutput: 0.01, charsPerToken: 3.5,
+  },
+  'gpt-4.1': {
+    contextWindow: 1_000_000, maxOutputTokens: 32_768,
+    defaultOutputBudget: 8_000, supportsThinking: false, defaultThinkingBudget: 0,
+    costPer1kInput: 0.002, costPer1kOutput: 0.008, charsPerToken: 3.5,
+  },
+  'gpt-4.1-mini': {
+    contextWindow: 1_000_000, maxOutputTokens: 32_768,
+    defaultOutputBudget: 4_000, supportsThinking: false, defaultThinkingBudget: 0,
+    costPer1kInput: 0.0004, costPer1kOutput: 0.0016, charsPerToken: 3.5,
+  },
+  'gpt-4.1-nano': {
+    contextWindow: 1_000_000, maxOutputTokens: 32_768,
+    defaultOutputBudget: 2_000, supportsThinking: false, defaultThinkingBudget: 0,
+    costPer1kInput: 0.0001, costPer1kOutput: 0.0004, charsPerToken: 3.5,
+  },
+  'gpt-5': {
+    contextWindow: 1_000_000, maxOutputTokens: 64_000,
+    defaultOutputBudget: 16_000, supportsThinking: true, defaultThinkingBudget: 10_000,
+    costPer1kInput: 0.01, costPer1kOutput: 0.03, charsPerToken: 3.5,
+  },
+  'gpt-5-mini': {
+    contextWindow: 1_000_000, maxOutputTokens: 64_000,
+    defaultOutputBudget: 8_000, supportsThinking: true, defaultThinkingBudget: 4_000,
+    costPer1kInput: 0.003, costPer1kOutput: 0.012, charsPerToken: 3.5,
+  },
+  o3: {
+    contextWindow: 200_000, maxOutputTokens: 100_000,
+    defaultOutputBudget: 16_000, supportsThinking: true, defaultThinkingBudget: 10_000,
+    costPer1kInput: 0.01, costPer1kOutput: 0.04, charsPerToken: 3.5,
+  },
+  'o3-mini': {
+    contextWindow: 200_000, maxOutputTokens: 65_536,
+    defaultOutputBudget: 8_000, supportsThinking: true, defaultThinkingBudget: 4_000,
+    costPer1kInput: 0.0011, costPer1kOutput: 0.0044, charsPerToken: 3.5,
+  },
+  'o4-mini': {
+    contextWindow: 200_000, maxOutputTokens: 100_000,
+    defaultOutputBudget: 8_000, supportsThinking: true, defaultThinkingBudget: 4_000,
+    costPer1kInput: 0.0011, costPer1kOutput: 0.0044, charsPerToken: 3.5,
+  },
+};
 
 export class OpenAIProvider implements LLMProvider {
   id = 'openai';
@@ -147,7 +201,7 @@ export class OpenAIProvider implements LLMProvider {
           break;
         }
 
-        // Response completed — determine stop reason
+        // Response completed — determine stop reason + emit usage
         case 'response.completed': {
           const resp = event.response;
           const hasToolCalls = resp.output.some(
@@ -162,6 +216,21 @@ export class OpenAIProvider implements LLMProvider {
                 ? 'max_tokens'
                 : 'end_turn',
           };
+          // Emit real usage data from response
+          const respUsage = (resp as unknown as { usage?: Record<string, unknown> }).usage;
+          if (respUsage) {
+            const inputDetails = respUsage.input_tokens_details as Record<string, number> | undefined;
+            yield {
+              type: 'usage',
+              usage: {
+                inputTokens: (respUsage.input_tokens as number) ?? 0,
+                outputTokens: (respUsage.output_tokens as number) ?? 0,
+                cacheReadTokens: inputDetails?.cached_tokens ?? 0,
+                cacheWriteTokens: 0,
+                thinkingTokens: 0,
+              },
+            };
+          }
           break;
         }
 

@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
 	id: uuid('id').primaryKey().defaultRandom(),
@@ -167,6 +167,15 @@ export const agentRuns = pgTable('agent_runs', {
 	tokensUsed: integer('tokens_used').default(0),
 	durationMs: integer('duration_ms'),
 	error: text('error'),
+	// Detailed token breakdown (Phase 26)
+	inputTokens: integer('input_tokens').default(0),
+	outputTokens: integer('output_tokens').default(0),
+	cacheReadTokens: integer('cache_read_tokens').default(0),
+	cacheWriteTokens: integer('cache_write_tokens').default(0),
+	thinkingTokens: integer('thinking_tokens').default(0),
+	estimatedCostUsd: numeric('estimated_cost_usd', { precision: 10, scale: 6 }).default('0'),
+	model: text('model'),
+	provider: text('provider'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

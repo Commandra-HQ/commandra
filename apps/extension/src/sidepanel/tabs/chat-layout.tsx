@@ -447,16 +447,11 @@ function TabMentionPicker({
 
   useEffect(() => {
     if (!visible) return;
-    chrome.tabs.query({ currentWindow: true }, (allTabs) => {
-      const filtered = allTabs
-        .filter((t) => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('chrome-extension://') && !t.url.startsWith('about:'))
-        .map((t) => ({
-          tabId: t.id!,
-          title: t.title || '',
-          url: t.url || '',
-          active: t.active || false,
-        }));
-      setTabs(filtered);
+    // Get tabs from passive tab registry in background
+    chrome.runtime.sendMessage({ type: 'GET_TABS' }, (response) => {
+      if (response?.tabs) {
+        setTabs(response.tabs);
+      }
       setSelectedIndex(0);
     });
   }, [visible]);
@@ -599,7 +594,22 @@ export function ChatInput({
             <MousePointer size={14} />
           </button>
         </div>
-        <div className="relative flex-1 flex min-h-[40px] max-h-[120px] border border-input rounded-md bg-background focus-within:ring-2 focus-within:ring-ring">
+        <div className="relative flex-1 min-h-[40px] max-h-[120px] border border-input rounded-md bg-background focus-within:ring-2 focus-within:ring-ring">
+          {/* Highlight overlay for @mentions — mirrors textarea position */}
+          {input.includes('@[') && (
+            <div
+              className="absolute inset-0 py-2 pl-3 pr-10 text-sm pointer-events-none whitespace-pre-wrap break-words overflow-hidden"
+              aria-hidden="true"
+            >
+              {input.split(/(@\[[^\]]+\])/g).map((part, i) =>
+                part.startsWith('@[') ? (
+                  <span key={i} className="bg-blue-500/20 text-blue-400 rounded px-0.5">{part}</span>
+                ) : (
+                  <span key={i} className="invisible">{part}</span>
+                ),
+              )}
+            </div>
+          )}
           <TabMentionPicker
             visible={showTabPicker}
             query={mentionQuery}

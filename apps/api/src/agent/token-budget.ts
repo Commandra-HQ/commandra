@@ -25,7 +25,11 @@ import type {
 // Anthropic: ~1,600 tokens per 1280x720 image. OpenAI: ~1,100 tokens for high detail.
 // We use a flat 2,000 tokens per image as a safe estimate.
 export const IMAGE_TOKEN_ESTIMATE = 2_000;
-export const CHARS_PER_TOKEN = 4;
+export let CHARS_PER_TOKEN = 4;
+
+export function setCharsPerToken(value: number): void {
+	CHARS_PER_TOKEN = value;
+}
 
 // Default context limit — overridden per provider/model in the orchestrator
 export let MAX_INPUT_TOKENS = 200_000;
@@ -307,15 +311,94 @@ export function trimMessagesForTokenBudget(messages: Message[]): Message[] {
     result = collapseOldPageState(result);
   }
 
-  // Phase 3: If still over budget, drop oldest assistant+user pairs (keep first + last 4)
+  // Phase 3: If still over budget, drop messages by importance (preserve tool calls, user messages, recency)
   if (estimateMessageChars(result) > maxChars && result.length > 6) {
-    const keep = 4;
-    const trimmed = [result[0], ...result.slice(-keep)];
-    console.log(
-      `[Orchestrator] Token budget exceeded, dropped ${result.length - trimmed.length} messages`,
-    );
-    result = trimmed;
+    const scored = result.map((m, i) => ({
+      msg: m, idx: i, score: scoreMessageImportance(m, i, result.length),
+    }));
+
+    // Sort by score ascending — lowest importance dropped first
+    const droppable = scored
+      .filter(s => s.score < 10) // score >= 10 means protected (first msg, last 4)
+      .sort((a, b) => a.score - b.score);
+
+    let currentChars = estimateMessageChars(result);
+    const dropIndices = new Set<number>();
+
+    for (const item of droppable) {
+      if (currentChars <= maxChars) break;
+      dropIndices.add(item.idx);
+      currentChars -= estimateMessageChars([item.msg]);
+    }
+
+    if (dropIndices.size > 0) {
+      // Build summary of what was dropped for context
+      const droppedToolNames = scored
+        .filter(s => dropIndices.has(s.idx) && Array.isArray(s.msg.content))
+        .flatMap(s => (s.msg.content as ContentBlock[])
+          .filter((b): b is ToolUseBlock => b.type === 'tool_use')
+          .map(b => b.name))
+        .filter(Boolean);
+
+      const lastTool = droppedToolNames.length > 0
+        ? droppedToolNames[droppedToolNames.length - 1]
+        : 'various actions';
+
+      const kept = result.filter((_, i) => !dropIndices.has(i));
+      const placeholder: Message = {
+        role: 'user',
+        content: `[Trimmed: ${dropIndices.size} messages removed to save context — last action was ${lastTool}]`,
+      };
+
+      // Insert placeholder after first message to maintain context
+      result = [kept[0], placeholder, ...kept.slice(1)];
+      console.log(
+        `[TokenBudget] Importance-weighted trim: dropped ${dropIndices.size} messages (${droppedToolNames.length} with tool calls)`,
+      );
+    }
   }
 
   return result;
+}
+
+/**
+ * Score a message's importance for trimming decisions.
+ * Higher score = more important = kept longer.
+ * Score >= 10 means protected (never dropped).
+ */
+function scoreMessageImportance(m: Message, idx: number, total: number): number {
+  let score = 0;
+
+  // First message always protected (original user request)
+  if (idx === 0) return 10;
+  // Last 4 messages always protected (current context)
+  if (idx >= total - 4) return 10;
+
+  // User messages are important
+  if (m.role === 'user') score += 3;
+
+  // Messages with tool calls are high priority — they represent actions taken
+  if (Array.isArray(m.content)) {
+    const blocks = m.content as ContentBlock[];
+    if (blocks.some(b => b.type === 'tool_use' || b.type === 'tool_result')) {
+      score += 4;
+    }
+  }
+
+  // Plain assistant text without tools is lower priority
+  if (m.role === 'assistant') {
+    if (typeof m.content === 'string') {
+      score += 1;
+    } else if (Array.isArray(m.content)) {
+      const hasTools = (m.content as ContentBlock[]).some(b => b.type === 'tool_use');
+      score += hasTools ? 4 : 1;
+    }
+  }
+
+  // Compaction summaries are lowest priority
+  if (typeof m.content === 'string' && m.content.includes('[Conversation compacted')) {
+    score = 0;
+  }
+
+  return score;
 }

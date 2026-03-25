@@ -4,13 +4,13 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { resolveAgent } from '../agent/agent-registry.js';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
-import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
+import { analyzeAndImprove, calculateCost, recordAgentRun } from '../agent/self-improve.js';
 import { db } from '../db/index.js';
 import { agents, conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { loadDomainKnowledgeFromS3, syncDomainKnowledgeToS3 } from '../memory/domain.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
-import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
+import { getFastModel, getModelCapabilities, getProvider, getStrongModel } from '../llm/index.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { loadPlan } from '../storage/plan-files.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
@@ -328,13 +328,26 @@ chatRoutes.post('/', async (c) => {
 
 				// Record run in DB (only for named agents — coordinator has no DB row)
 				if (agentConfig.id !== '_coordinator') {
+					const runProviderName = process.env.LLM_PROVIDER || 'anthropic';
+					const runModel = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
+					const runCaps = getModelCapabilities(runProviderName, runModel);
+					const estimatedCost = calculateCost(result.usage, runCaps);
 					recordAgentRun({
 						agentId: agentConfig.id,
 						userId: user.id,
 						conversationId: convId,
 						status: 'completed',
 						toolCalls: result.toolCalls.length,
+						tokensUsed: result.usage.inputTokens + result.usage.outputTokens,
 						durationMs,
+						inputTokens: result.usage.inputTokens,
+						outputTokens: result.usage.outputTokens,
+						cacheReadTokens: result.usage.cacheReadTokens,
+						cacheWriteTokens: result.usage.cacheWriteTokens,
+						thinkingTokens: result.usage.thinkingTokens,
+						estimatedCostUsd: estimatedCost.toFixed(6),
+						model: runModel,
+						provider: runProviderName,
 					}).catch((err) => console.warn('[SelfImprove] recordAgentRun failed:', err));
 				}
 

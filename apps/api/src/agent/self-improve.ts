@@ -8,6 +8,7 @@
  */
 
 import type { AgentConfig } from '@afe/shared';
+import type { ModelCapabilities, TokenUsage } from '../llm/types.js';
 import { db } from '../db/index.js';
 import { agentRuns } from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
@@ -17,6 +18,18 @@ import { downloadDomainFile, uploadDomainFile } from '../storage/domain-files.js
 import { writeRunLog } from '../storage/run-files.js';
 import { normalizeEntry, similarity } from '../utils/text-similarity.js';
 import type { ToolCallRecord } from './orchestrator.js';
+
+/**
+ * Calculate estimated cost in USD from token usage and model capabilities.
+ */
+export function calculateCost(usage: TokenUsage, caps: ModelCapabilities): number {
+	const inputCost = (usage.inputTokens / 1000) * caps.costPer1kInput;
+	// Anthropic: cached reads are 10% of input cost, cache writes are 125%
+	const cacheReadCost = (usage.cacheReadTokens / 1000) * caps.costPer1kInput * 0.1;
+	const cacheWriteCost = (usage.cacheWriteTokens / 1000) * caps.costPer1kInput * 1.25;
+	const outputCost = (usage.outputTokens / 1000) * caps.costPer1kOutput;
+	return inputCost + cacheReadCost + cacheWriteCost + outputCost;
+}
 
 // Defaults — overrideable per agent via agentConfig.limits.selfImproveCap
 const DEFAULT_SOFT_CAP = 40; // Trigger consolidation
@@ -35,6 +48,15 @@ export async function recordAgentRun(params: {
 	tokensUsed?: number;
 	durationMs?: number;
 	error?: string;
+	// Detailed token breakdown (26a)
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheReadTokens?: number;
+	cacheWriteTokens?: number;
+	thinkingTokens?: number;
+	estimatedCostUsd?: string;
+	model?: string;
+	provider?: string;
 }): Promise<void> {
 	try {
 		await db.insert(agentRuns).values({
@@ -46,6 +68,14 @@ export async function recordAgentRun(params: {
 			tokensUsed: params.tokensUsed ?? 0,
 			durationMs: params.durationMs,
 			error: params.error,
+			inputTokens: params.inputTokens ?? 0,
+			outputTokens: params.outputTokens ?? 0,
+			cacheReadTokens: params.cacheReadTokens ?? 0,
+			cacheWriteTokens: params.cacheWriteTokens ?? 0,
+			thinkingTokens: params.thinkingTokens ?? 0,
+			estimatedCostUsd: params.estimatedCostUsd ?? '0',
+			model: params.model,
+			provider: params.provider,
 		});
 	} catch (err) {
 		console.warn('[SelfImprove] Failed to record agent run:', err);

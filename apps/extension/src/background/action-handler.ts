@@ -89,18 +89,17 @@ export async function handleActionRequest(
 		return;
 	}
 
-	// List all open browser tabs — agent uses this to discover available tabs
+	// List all open browser tabs from passive registry — zero overhead
 	if (action === 'list_tabs') {
 		try {
-			const allTabs = await chrome.tabs.query({ currentWindow: true });
-			const tabs = allTabs
-				.filter((t) => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('chrome-extension://') && !t.url.startsWith('about:'))
-				.map((t) => ({
-					tabId: t.id,
-					title: t.title || '',
-					url: t.url || '',
-					active: t.active || false,
-				}));
+			const { getTrackedTabs } = await import('./tab-registry.js');
+			const tabs = getTrackedTabs().map((t) => ({
+				tabId: t.tabId,
+				title: t.title,
+				url: t.url,
+				domain: t.domain,
+				active: t.active,
+			}));
 			ctx.sendResult(requestId, { success: true, data: { tabs } });
 		} catch (err) {
 			ctx.sendResult(requestId, {

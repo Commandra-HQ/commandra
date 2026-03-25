@@ -9,7 +9,9 @@ import type {
 	ContentBlock,
 	LLMProvider,
 	Message,
+	ModelCapabilities,
 	StreamEvent,
+	TokenUsage,
 	Tool,
 } from '../types.js';
 
@@ -23,6 +25,39 @@ const MODEL_MAP: Record<string, string> = {
 function resolveModel(model: string): string {
 	return MODEL_MAP[model] || model;
 }
+
+export const ANTHROPIC_MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
+	haiku: {
+		contextWindow: 200_000, maxOutputTokens: 8_192,
+		defaultOutputBudget: 2_000, supportsThinking: true, defaultThinkingBudget: 1_000,
+		costPer1kInput: 0.0008, costPer1kOutput: 0.004, charsPerToken: 4.2,
+	},
+	'claude-haiku-4-5-20251001': {
+		contextWindow: 200_000, maxOutputTokens: 8_192,
+		defaultOutputBudget: 2_000, supportsThinking: true, defaultThinkingBudget: 1_000,
+		costPer1kInput: 0.0008, costPer1kOutput: 0.004, charsPerToken: 4.2,
+	},
+	sonnet: {
+		contextWindow: 200_000, maxOutputTokens: 16_000,
+		defaultOutputBudget: 8_000, supportsThinking: true, defaultThinkingBudget: 4_000,
+		costPer1kInput: 0.003, costPer1kOutput: 0.015, charsPerToken: 4.2,
+	},
+	'claude-sonnet-4-20250514': {
+		contextWindow: 200_000, maxOutputTokens: 16_000,
+		defaultOutputBudget: 8_000, supportsThinking: true, defaultThinkingBudget: 4_000,
+		costPer1kInput: 0.003, costPer1kOutput: 0.015, charsPerToken: 4.2,
+	},
+	opus: {
+		contextWindow: 200_000, maxOutputTokens: 32_000,
+		defaultOutputBudget: 16_000, supportsThinking: true, defaultThinkingBudget: 10_000,
+		costPer1kInput: 0.015, costPer1kOutput: 0.075, charsPerToken: 4.2,
+	},
+	'claude-opus-4-20250514': {
+		contextWindow: 200_000, maxOutputTokens: 32_000,
+		defaultOutputBudget: 16_000, supportsThinking: true, defaultThinkingBudget: 10_000,
+		costPer1kInput: 0.015, costPer1kOutput: 0.075, charsPerToken: 4.2,
+	},
+};
 
 export class AnthropicProvider implements LLMProvider {
 	id = 'anthropic';
@@ -77,8 +112,21 @@ export class AnthropicProvider implements LLMProvider {
 		let currentToolName = '';
 		let toolJson = '';
 
+		// Track usage across message_start (input) and message_delta (output)
+		const usage: TokenUsage = {
+			inputTokens: 0, outputTokens: 0,
+			cacheReadTokens: 0, cacheWriteTokens: 0, thinkingTokens: 0,
+		};
+
 		for await (const event of response) {
-			if (event.type === 'content_block_start') {
+			if (event.type === 'message_start') {
+				const msg = (event as unknown as { message?: { usage?: Record<string, number> } }).message;
+				if (msg?.usage) {
+					usage.inputTokens = msg.usage.input_tokens ?? 0;
+					usage.cacheReadTokens = msg.usage.cache_read_input_tokens ?? 0;
+					usage.cacheWriteTokens = msg.usage.cache_creation_input_tokens ?? 0;
+				}
+			} else if (event.type === 'content_block_start') {
 				const block = event.content_block as { type: string; id?: string; name?: string };
 				console.log(`[Anthropic] content_block_start: type=${block.type}`);
 				currentBlockType = block.type;
@@ -125,6 +173,11 @@ export class AnthropicProvider implements LLMProvider {
 				}
 				currentBlockType = null;
 			} else if (event.type === 'message_delta') {
+				// Capture final output token count from message_delta usage
+				const deltaUsage = (event as unknown as { usage?: Record<string, number> }).usage;
+				if (deltaUsage) {
+					usage.outputTokens = deltaUsage.output_tokens ?? 0;
+				}
 				const reason = (event.delta as { stop_reason?: string }).stop_reason;
 				yield {
 					type: 'message_end',
@@ -135,8 +188,28 @@ export class AnthropicProvider implements LLMProvider {
 								? 'max_tokens'
 								: 'end_turn',
 				};
+				// Emit real usage data after message_end
+				yield { type: 'usage', usage };
 			}
 		}
+	}
+	/**
+	 * Free token counting via Anthropic's /v1/messages/count_tokens endpoint.
+	 * Use for pre-flight budget checks when context is >60%.
+	 */
+	async countTokens(params: {
+		model: string;
+		system: string;
+		messages: import('../types.js').Message[];
+		tools?: import('../types.js').Tool[];
+	}): Promise<number> {
+		const result = await this.client.messages.countTokens({
+			model: resolveModel(params.model),
+			system: [{ type: 'text', text: params.system }],
+			messages: toAnthropicMessages(params.messages),
+			tools: params.tools ? toAnthropicTools(params.tools) : undefined,
+		});
+		return result.input_tokens;
 	}
 }
 

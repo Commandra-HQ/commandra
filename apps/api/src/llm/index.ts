@@ -3,9 +3,10 @@
  * Returns a configured provider based on environment variables.
  */
 
-import { AnthropicProvider } from './providers/anthropic.js';
-import { OpenAIProvider } from './providers/openai.js';
-import type { LLMProvider } from './types.js';
+import { ANTHROPIC_MODEL_CAPABILITIES, AnthropicProvider } from './providers/anthropic.js';
+import { OPENAI_MODEL_CAPABILITIES, OpenAIProvider } from './providers/openai.js';
+import type { LLMProvider, ModelCapabilities } from './types.js';
+import { DEFAULT_CAPABILITIES } from './types.js';
 
 export type {
 	LLMProvider,
@@ -20,8 +21,23 @@ export type {
 	ToolResultBlock,
 	Tool,
 	JsonSchema,
+	TokenUsage,
+	ModelCapabilities,
 } from './types.js';
-export { collectStream } from './types.js';
+export { collectStream, emptyTokenUsage, DEFAULT_CAPABILITIES } from './types.js';
+
+/**
+ * Get model capabilities for a given provider and model.
+ * Looks up by alias (e.g. "sonnet") or full model ID.
+ */
+export function getModelCapabilities(providerName: string, model: string): ModelCapabilities {
+	const capMap = providerName === 'anthropic'
+		? ANTHROPIC_MODEL_CAPABILITIES
+		: providerName === 'openai'
+			? OPENAI_MODEL_CAPABILITIES
+			: {};
+	return capMap[model] ?? DEFAULT_CAPABILITIES;
+}
 
 let cachedProvider: LLMProvider | null = null;
 
