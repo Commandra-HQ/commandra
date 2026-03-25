@@ -24,7 +24,7 @@ import {
   Square,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage, SiteData } from './chat-types.js';
 
 export function ContextBar({
@@ -430,28 +430,35 @@ interface BrowserTab {
   active: boolean;
 }
 
-function TabMentionPicker({
-  visible,
-  query,
-  onSelect,
-  onClose,
-}: {
-  visible: boolean;
-  query: string;
-  onSelect: (tab: BrowserTab) => void;
-  onClose: () => void;
-}) {
+export interface TabPickerHandle {
+  selectCurrent: () => BrowserTab | null;
+  moveUp: () => void;
+  moveDown: () => void;
+  getFiltered: () => BrowserTab[];
+}
+
+function TabMentionPickerInner(
+  {
+    visible,
+    query,
+    onSelect,
+    onClose,
+  }: {
+    visible: boolean;
+    query: string;
+    onSelect: (tab: BrowserTab) => void;
+    onClose: () => void;
+  },
+  ref: React.Ref<TabPickerHandle>,
+) {
   const [tabs, setTabs] = useState<BrowserTab[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!visible) return;
-    // Get tabs from passive tab registry in background
     chrome.runtime.sendMessage({ type: 'GET_TABS' }, (response) => {
-      if (response?.tabs) {
-        setTabs(response.tabs);
-      }
+      if (response?.tabs) setTabs(response.tabs);
       setSelectedIndex(0);
     });
   }, [visible]);
@@ -462,17 +469,21 @@ function TabMentionPicker({
     return t.title.toLowerCase().includes(q) || t.url.toLowerCase().includes(q);
   });
 
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
+  useEffect(() => { setSelectedIndex(0); }, [query]);
 
   useEffect(() => {
-    const el = listRef.current?.children[selectedIndex] as HTMLElement;
+    const container = listRef.current?.querySelector('[data-items]');
+    const el = container?.children[selectedIndex] as HTMLElement;
     el?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex]);
 
-  // Keyboard navigation handled by parent textarea onKeyDown
-  // This component exposes selectedIndex and filtered list
+  // Expose imperative methods for keyboard navigation from parent
+  React.useImperativeHandle(ref, () => ({
+    selectCurrent: () => filtered[selectedIndex] ?? null,
+    moveUp: () => setSelectedIndex((i) => Math.max(0, i - 1)),
+    moveDown: () => setSelectedIndex((i) => Math.min(filtered.length - 1, i + 1)),
+    getFiltered: () => filtered,
+  }));
 
   if (!visible || filtered.length === 0) return null;
 
@@ -483,29 +494,33 @@ function TabMentionPicker({
     >
       <div className="py-1">
         <div className="px-3 py-1 text-[10px] text-muted-foreground font-mono uppercase">Open Tabs</div>
-        {filtered.map((tab, i) => {
-          const domain = (() => { try { return new URL(tab.url).hostname; } catch { return tab.url; } })();
-          return (
-            <button
-              key={tab.tabId}
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); onSelect(tab); }}
-              onMouseEnter={() => setSelectedIndex(i)}
-              className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-accent ${
-                i === selectedIndex ? 'bg-accent' : ''
-              }`}
-            >
-              <Globe size={12} className="text-muted-foreground shrink-0" />
-              <span className="truncate flex-1">{tab.title || domain}</span>
-              <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">{domain}</span>
-              {tab.active && <span className="text-[9px] text-green-500">●</span>}
-            </button>
-          );
-        })}
+        <div data-items>
+          {filtered.map((tab, i) => {
+            const domain = (() => { try { return new URL(tab.url).hostname; } catch { return tab.url; } })();
+            return (
+              <button
+                key={tab.tabId}
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); onSelect(tab); }}
+                onMouseEnter={() => setSelectedIndex(i)}
+                className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-accent ${
+                  i === selectedIndex ? 'bg-accent' : ''
+                }`}
+              >
+                <Globe size={12} className="text-muted-foreground shrink-0" />
+                <span className="truncate flex-1">{tab.title || domain}</span>
+                <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">{domain}</span>
+                {tab.active && <span className="text-[9px] text-green-500">●</span>}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
+
+const TabMentionPicker = React.forwardRef(TabMentionPickerInner);
 
 export function ChatInput({
   input,
