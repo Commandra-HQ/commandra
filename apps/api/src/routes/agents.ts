@@ -11,8 +11,9 @@ import {
 	loadAgent,
 	updateAgent,
 } from '../agent/agent-registry.js';
+import { runAgentNow } from '../agent/scheduler.js';
 import { db } from '../db/index.js';
-import { agentRuns } from '../db/schema.js';
+import { agentRuns, agents } from '../db/schema.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { downloadAgentFile, listAgentFiles, uploadAgentFile } from '../storage/agent-files.js';
 import { downloadRunLog, listRunLogs } from '../storage/run-files.js';
@@ -215,4 +216,37 @@ agentRoutes.get('/:id/runs', async (c) => {
 		.offset(offset);
 
 	return c.json({ runs, total: totalResult?.count ?? 0 });
+});
+
+// Run agent now (manual trigger)
+agentRoutes.post('/:id/run-now', async (c) => {
+	const user = c.get('user');
+	const agentId = c.req.param('id');
+	const result = await runAgentNow(agentId, user.id);
+	if ('error' in result) return c.json(result, 400);
+	return c.json(result);
+});
+
+// List all scheduled agents with their latest run
+agentRoutes.get('/scheduled', async (c) => {
+	const user = c.get('user');
+	const allAgents = await listAgents(user.id);
+	const scheduled = allAgents.filter(
+		(a) => (a.trigger as { cron?: string } | null)?.cron,
+	);
+
+	// Get latest run for each scheduled agent
+	const result = await Promise.all(
+		scheduled.map(async (agent) => {
+			const [latestRun] = await db
+				.select()
+				.from(agentRuns)
+				.where(eq(agentRuns.agentId, agent.id))
+				.orderBy(desc(agentRuns.createdAt))
+				.limit(1);
+			return { ...agent, latestRun: latestRun ?? null };
+		}),
+	);
+
+	return c.json({ data: result });
 });

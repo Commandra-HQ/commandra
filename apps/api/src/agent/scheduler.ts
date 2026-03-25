@@ -54,6 +54,46 @@ export function startScheduler(): void {
 	intervalId = setInterval(tick, SCHEDULER_INTERVAL);
 }
 
+/**
+ * Trigger an immediate run of a scheduled agent (used by "Run Now" API).
+ * Returns the conversation ID so the caller can track the run.
+ */
+export async function runAgentNow(agentId: string, userId: string): Promise<{ conversationId: string } | { error: string }> {
+	const connectionId = getConnectionByUser(userId);
+	if (!connectionId) {
+		return { error: 'Browser not connected — open the extension to run agents' };
+	}
+
+	const [agent] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1);
+	if (!agent || agent.userId !== userId) {
+		return { error: 'Agent not found' };
+	}
+
+	if (runningAgents.has(agentId)) {
+		return { error: 'Agent is already running' };
+	}
+
+	// Fire and forget — returns immediately with conversation ID
+	// We create the conversation here so we can return the ID
+	const taskMessage = `Execute your task now (manual trigger): ${agent.description}`;
+	const [conv] = await db
+		.insert(conversations)
+		.values({ userId, title: `[Manual] ${agent.name}` })
+		.returning();
+	await db.insert(messagesTable).values({
+		conversationId: conv.id,
+		role: 'user',
+		content: taskMessage,
+	});
+
+	// Run in background
+	runScheduledAgent(agent, connectionId).catch((err) =>
+		console.error(`[Scheduler] Manual run for "${agent.slug}" failed:`, err),
+	);
+
+	return { conversationId: conv.id };
+}
+
 export function stopScheduler(): void {
 	if (intervalId) {
 		clearInterval(intervalId);

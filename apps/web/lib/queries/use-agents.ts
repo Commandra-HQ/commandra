@@ -149,6 +149,39 @@ export function useDeleteAgentMutation() {
 	});
 }
 
+export interface ScheduledAgent extends Agent {
+	latestRun: (AgentRun & { inputTokens?: number; outputTokens?: number; estimatedCostUsd?: string }) | null;
+}
+
+export function useScheduledAgentsQuery() {
+	return useQuery({
+		queryKey: ['agents', 'scheduled'],
+		queryFn: async () => {
+			const res = await apiFetch('/api/agents/scheduled');
+			if (!res.ok) throw new Error('Failed to fetch scheduled agents');
+			return res.json() as Promise<{ data: ScheduledAgent[] }>;
+		},
+	});
+}
+
+export function useRunAgentNowMutation() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async (agentId: string) => {
+			const res = await apiFetch(`/api/agents/${agentId}/run-now`, { method: 'POST' });
+			if (!res.ok) {
+				const err = await res.json();
+				throw new Error(err.error || 'Failed to run agent');
+			}
+			return res.json() as Promise<{ conversationId: string }>;
+		},
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ['agents', 'scheduled'] });
+			queryClient.invalidateQueries({ queryKey: ['agentRuns'] });
+		},
+	});
+}
+
 export function useUpdateAgentFileMutation() {
 	const queryClient = useQueryClient();
 	return useMutation({
