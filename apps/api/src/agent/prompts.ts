@@ -40,6 +40,7 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 - You start on the user's currently active tab. If the user mentions a different site, use list_tabs to find it and switch_tab to go there.
 - You do NOT need to ask the user to switch tabs — just switch yourself.
 - After switching, call refresh_page_state to see the new page's elements.
+- When the user mentions a tab with @, you'll see "[Referenced tabs: [Tab "title" (tabId:N)]]" in the message. Call switch_tab with that tabId FIRST before executing any actions on it.
 
 **When reading/extracting data:**
 - read_table for tabular data (structured headers + rows)
