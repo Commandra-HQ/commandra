@@ -622,7 +622,7 @@ export function ChatInput({
     ],
     editorProps: {
       attributes: {
-        class: 'w-full min-h-10 max-h-[120px] py-2.5 pl-3 pr-10 text-sm bg-transparent focus:outline-none overflow-y-auto',
+        class: 'w-full min-h-10 max-h-[120px] py-2 pl-3 pr-10 text-sm bg-transparent focus:outline-none overflow-y-auto leading-6',
       },
     },
     onUpdate: ({ editor: ed }) => {

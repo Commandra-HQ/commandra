@@ -326,30 +326,28 @@ chatRoutes.post('/', async (c) => {
 				// This is what makes the system learn from every interaction.
 				const durationMs = Date.now() - startTime;
 
-				// Record run in DB (only for named agents — coordinator has no DB row)
-				if (agentConfig.id !== '_coordinator') {
-					const runProviderName = process.env.LLM_PROVIDER || 'anthropic';
-					const runModel = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
-					const runCaps = getModelCapabilities(runProviderName, runModel);
-					const estimatedCost = calculateCost(result.usage, runCaps);
-					recordAgentRun({
-						agentId: agentConfig.id,
-						userId: user.id,
-						conversationId: convId,
-						status: 'completed',
-						toolCalls: result.toolCalls.length,
-						tokensUsed: result.usage.inputTokens + result.usage.outputTokens,
-						durationMs,
-						inputTokens: result.usage.inputTokens,
-						outputTokens: result.usage.outputTokens,
-						cacheReadTokens: result.usage.cacheReadTokens,
-						cacheWriteTokens: result.usage.cacheWriteTokens,
-						thinkingTokens: result.usage.thinkingTokens,
-						estimatedCostUsd: estimatedCost.toFixed(6),
-						model: runModel,
-						provider: runProviderName,
-					}).catch((err) => console.warn('[SelfImprove] recordAgentRun failed:', err));
-				}
+				// Record run in DB — all chats including coordinator (agentId null for coordinator)
+				const runProviderName = process.env.LLM_PROVIDER || 'anthropic';
+				const runModel = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
+				const runCaps = getModelCapabilities(runProviderName, runModel);
+				const estimatedCost = calculateCost(result.usage, runCaps);
+				recordAgentRun({
+					agentId: agentConfig.id === '_coordinator' ? null : agentConfig.id,
+					userId: user.id,
+					conversationId: convId,
+					status: 'completed',
+					toolCalls: result.toolCalls.length,
+					tokensUsed: result.usage.inputTokens + result.usage.outputTokens,
+					durationMs,
+					inputTokens: result.usage.inputTokens,
+					outputTokens: result.usage.outputTokens,
+					cacheReadTokens: result.usage.cacheReadTokens,
+					cacheWriteTokens: result.usage.cacheWriteTokens,
+					thinkingTokens: result.usage.thinkingTokens,
+					estimatedCostUsd: estimatedCost.toFixed(6),
+					model: runModel,
+					provider: runProviderName,
+				}).catch((err) => console.warn('[SelfImprove] recordAgentRun failed:', err));
 
 				// Analyze and improve for ALL agents — coordinator writes to _coordinator/ in S3
 				if (result.toolCalls.length > 0 || fullResponse.length > 100) {
@@ -487,9 +485,10 @@ chatRoutes.post('/compact', async (c) => {
 		.where(and(eq(messages.conversationId, conversationId)))
 		.orderBy(asc(messages.createdAt));
 
-	if (msgs.length < 4) {
+	if (msgs.length < 2) {
 		return c.json({ error: 'Not enough messages to compact' }, 400);
 	}
+	console.log(`[Compact] Starting compaction for conversation ${conversationId} (${msgs.length} messages)`);
 
 	// Verify user owns conversation
 	const [conv] = await db

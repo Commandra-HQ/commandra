@@ -156,8 +156,7 @@ export const agents = pgTable('agents', {
 export const agentRuns = pgTable('agent_runs', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	agentId: uuid('agent_id')
-		.references(() => agents.id, { onDelete: 'cascade' })
-		.notNull(),
+		.references(() => agents.id, { onDelete: 'cascade' }),
 	conversationId: uuid('conversation_id').references(() => conversations.id),
 	userId: uuid('user_id')
 		.references(() => users.id)

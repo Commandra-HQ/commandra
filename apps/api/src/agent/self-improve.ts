@@ -40,7 +40,7 @@ const DEFAULT_TARGET = 30; // Post-consolidation target
  * Insert a row into the agent_runs table.
  */
 export async function recordAgentRun(params: {
-	agentId: string;
+	agentId?: string | null;
 	userId: string;
 	conversationId?: string;
 	status: 'running' | 'completed' | 'failed';
@@ -60,7 +60,7 @@ export async function recordAgentRun(params: {
 }): Promise<void> {
 	try {
 		await db.insert(agentRuns).values({
-			agentId: params.agentId,
+			agentId: params.agentId || null,
 			userId: params.userId,
 			conversationId: params.conversationId,
 			status: params.status,

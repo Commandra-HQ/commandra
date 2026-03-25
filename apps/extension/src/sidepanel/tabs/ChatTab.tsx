@@ -376,7 +376,7 @@ export function ChatTab() {
   async function handleManualCompact() {
     const convId = externalConvId || conversationIdRef.current;
     if (!convId || isActive) return;
-    if (chatMessages.length < 4) return; // Not enough to compact
+    if (chatMessages.length < 2) return;
 
     // Show compacting indicator as an assistant message
     const compactingMsgId = crypto.randomUUID();

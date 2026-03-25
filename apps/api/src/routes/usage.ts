@@ -60,7 +60,7 @@ usageRoutes.get('/by-agent', async (c) => {
 	const results = await db
 		.select({
 			agentId: agentRuns.agentId,
-			agentName: agents.name,
+			agentName: sql<string>`coalesce(${agents.name}, 'Coordinator')`,
 			totalRuns: sql<number>`count(*)::int`,
 			totalInputTokens: sql<number>`coalesce(sum(${agentRuns.inputTokens}), 0)::int`,
 			totalOutputTokens: sql<number>`coalesce(sum(${agentRuns.outputTokens}), 0)::int`,
