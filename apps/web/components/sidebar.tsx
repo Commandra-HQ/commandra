@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 import {
+  Activity,
   Bot,
   Brain,
   Building2,
@@ -37,6 +38,7 @@ const baseNavItems = [
   { href: '/agents', label: 'Agents', icon: Bot },
   { href: '/memory', label: 'Memory', icon: Brain },
   { href: '/storage', label: 'Storage', icon: HardDrive },
+  { href: '/usage', label: 'Usage', icon: Activity },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 

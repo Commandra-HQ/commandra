@@ -88,7 +88,8 @@ export async function onUserReconnected(userId: string, connectionId: string): P
 				continue;
 			}
 
-			// Load the agent
+			// Load the agent (skip coordinator runs — they have null agentId)
+			if (!run.agentId) continue;
 			const [agent] = await db
 				.select()
 				.from(agents)

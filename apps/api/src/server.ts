@@ -18,6 +18,7 @@ import { siteRoutes } from './routes/sites.js';
 import { statsRoutes } from './routes/stats.js';
 import { storageRoutes } from './routes/storage.js';
 import { tokenRoutes } from './routes/token.js';
+import { usageRoutes } from './routes/usage.js';
 import { initLocalStorage } from './storage/local.js';
 import { handleWsConnection } from './ws/handler.js';
 
@@ -58,6 +59,7 @@ app.route('/api/memory', memoryRoutes);
 app.route('/api/orgs', orgRoutes);
 app.route('/api/storage', storageRoutes);
 app.route('/api/agents', agentRoutes);
+app.route('/api/usage', usageRoutes);
 
 // Initialize local storage directories
 initLocalStorage();

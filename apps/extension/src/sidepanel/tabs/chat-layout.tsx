@@ -7,6 +7,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowUp,
+  AtSign,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -23,7 +24,11 @@ import {
   Square,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { EditorContent, useEditor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Mention from '@tiptap/extension-mention';
+import Placeholder from '@tiptap/extension-placeholder';
 import type { ChatMessage, SiteData } from './chat-types.js';
 
 export function ContextBar({
@@ -422,6 +427,79 @@ export function PlanPanel({
   );
 }
 
+interface BrowserTab {
+  tabId: number;
+  title: string;
+  url: string;
+  domain: string;
+  active: boolean;
+}
+
+/**
+ * Tab suggestion list component — rendered by Tiptap's Mention extension
+ * as a floating dropdown when the user types @.
+ */
+const TabSuggestionList = React.forwardRef(
+  (
+    props: {
+      items: BrowserTab[];
+      command: (item: { id: string; label: string }) => void;
+    },
+    ref: React.Ref<{ onKeyDown: (event: { event: KeyboardEvent }) => boolean }>,
+  ) => {
+    const [selectedIndex, setSelectedIndex] = useState(0);
+
+    useEffect(() => { setSelectedIndex(0); }, [props.items]);
+
+    React.useImperativeHandle(ref, () => ({
+      onKeyDown: ({ event }: { event: KeyboardEvent }) => {
+        if (event.key === 'ArrowUp') {
+          setSelectedIndex((i) => (i + props.items.length - 1) % props.items.length);
+          return true;
+        }
+        if (event.key === 'ArrowDown') {
+          setSelectedIndex((i) => (i + 1) % props.items.length);
+          return true;
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          const item = props.items[selectedIndex];
+          if (item) props.command({ id: String(item.tabId), label: item.title || item.domain });
+          return true;
+        }
+        return false;
+      },
+    }));
+
+    if (props.items.length === 0) return null;
+
+    return (
+      <div className="max-h-[200px] overflow-y-auto bg-background border border-border rounded-md shadow-xl">
+        <div className="py-1">
+          <div className="px-3 py-1 text-[10px] text-muted-foreground font-mono uppercase">
+            Open Tabs
+          </div>
+          {props.items.map((tab, i) => (
+            <button
+              key={tab.tabId}
+              type="button"
+              onClick={() => props.command({ id: String(tab.tabId), label: tab.title || tab.domain })}
+              onMouseEnter={() => setSelectedIndex(i)}
+              className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-accent ${
+                i === selectedIndex ? 'bg-accent' : ''
+              }`}
+            >
+              <Globe size={12} className="text-muted-foreground shrink-0" />
+              <span className="truncate flex-1">{tab.title || tab.domain}</span>
+              <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">{tab.domain}</span>
+              {tab.active && <span className="text-[9px] text-green-500">active</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  },
+);
+
 export function ChatInput({
   input,
   setInput,
@@ -449,6 +527,158 @@ export function ChatInput({
   onNewConversation: () => void;
   onClearSelection: () => void;
 }) {
+  // Tiptap editor instance with mention extension for @tab picker
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        // Disable features we don't need for chat input
+        heading: false,
+        blockquote: false,
+        codeBlock: false,
+        bulletList: false,
+        orderedList: false,
+        listItem: false,
+        horizontalRule: false,
+      }),
+      Placeholder.configure({
+        placeholder: selectedElements.length > 0
+          ? selectedElements.length === 1
+            ? `Instruct about this ${selectedElements[0].tag}...`
+            : `Instruct about ${selectedElements.length} elements...`
+          : 'Ask anything... type @ to mention a tab',
+      }),
+      Mention.configure({
+        HTMLAttributes: {
+          class: 'mention-tab',
+        },
+        suggestion: {
+          items: ({ query }: { query: string }) => {
+            return new Promise<BrowserTab[]>((resolve) => {
+              chrome.runtime.sendMessage({ type: 'GET_TABS' }, (response) => {
+                const tabs: BrowserTab[] = response?.tabs || [];
+                const q = query.toLowerCase();
+                resolve(q ? tabs.filter((t) => t.title.toLowerCase().includes(q) || t.url.toLowerCase().includes(q)) : tabs);
+              });
+            });
+          },
+          render: () => {
+            let popup: HTMLDivElement | null = null;
+            let reactRoot: ReturnType<typeof import('react-dom/client').createRoot> | null = null;
+            let currentProps: { items: BrowserTab[]; command: (item: { id: string; label: string }) => void } | null = null;
+            const componentRef = React.createRef<{ onKeyDown: (e: { event: KeyboardEvent }) => boolean }>();
+
+            const renderPopup = () => {
+              if (!popup || !currentProps) return;
+              if (!reactRoot) {
+                // biome-ignore lint: we need createRoot
+                import('react-dom/client').then(({ createRoot }) => {
+                  reactRoot = createRoot(popup!);
+                  reactRoot.render(
+                    <TabSuggestionList ref={componentRef} items={currentProps!.items} command={currentProps!.command} />,
+                  );
+                });
+              } else {
+                reactRoot.render(
+                  <TabSuggestionList ref={componentRef} items={currentProps!.items} command={currentProps!.command} />,
+                );
+              }
+            };
+
+            return {
+              onStart: (props: unknown) => {
+                const p = props as { editor: { view: { dom: HTMLElement } }; items: BrowserTab[]; command: (item: { id: string; label: string }) => void };
+                currentProps = { items: p.items, command: p.command };
+                popup = document.createElement('div');
+                popup.style.position = 'absolute';
+                popup.style.bottom = '100%';
+                popup.style.left = '0';
+                popup.style.right = '0';
+                popup.style.marginBottom = '4px';
+                popup.style.zIndex = '9999';
+                const parent = p.editor.view.dom.closest('.chat-editor-wrapper');
+                if (parent) parent.appendChild(popup);
+                renderPopup();
+              },
+              onUpdate: (props: unknown) => {
+                const p = props as { items: BrowserTab[]; command: (item: { id: string; label: string }) => void };
+                currentProps = { items: p.items, command: p.command };
+                renderPopup();
+              },
+              onKeyDown: (props: unknown) => {
+                const p = props as { event: KeyboardEvent };
+                if (p.event.key === 'Escape') { popup?.remove(); return true; }
+                return componentRef.current?.onKeyDown({ event: p.event }) ?? false;
+              },
+              onExit: () => {
+                reactRoot?.unmount();
+                popup?.remove();
+                popup = null;
+                reactRoot = null;
+              },
+            };
+          },
+        },
+      }),
+    ],
+    editorProps: {
+      attributes: {
+        class: 'w-full min-h-10 max-h-[120px] py-2 pl-3 pr-10 text-sm bg-transparent focus:outline-none overflow-y-auto leading-6',
+      },
+    },
+    onUpdate: ({ editor: ed }) => {
+      // Build text with inline mention markers: @[Title](tabId:N)
+      // This format is parseable by the message renderer AND the agent
+      let result = '';
+      ed.state.doc.descendants((node) => {
+        if (node.isText) {
+          result += node.text;
+        } else if (node.type.name === 'mention' && node.attrs.id) {
+          result += `@[${node.attrs.label || ''}](tabId:${node.attrs.id})`;
+        } else if (node.type.name === 'paragraph') {
+          if (result.length > 0) result += '\n';
+        }
+      });
+      setInput(result.trim());
+    },
+    immediatelyRender: false,
+    editable: !isActive,
+  });
+
+  // Sync editable state
+  useEffect(() => {
+    if (editor) editor.setEditable(!isActive);
+  }, [isActive, editor]);
+
+  // Clear editor when input is externally cleared (new conversation)
+  useEffect(() => {
+    if (editor && input === '' && editor.getText() !== '') {
+      editor.commands.clearContent();
+    }
+  }, [input, editor]);
+
+  // Enter = send, Shift+Enter = newline (like Cursor)
+  useEffect(() => {
+    if (!editor) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter') return;
+      if (event.shiftKey) return; // Allow Shift+Enter for newlines
+      if (isActive) return;
+
+      // Don't intercept if the mention suggestion popup is open
+      const popup = document.querySelector('.chat-editor-wrapper > div[style*="position: absolute"]');
+      if (popup) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      const text = editor.getText().trim();
+      if (text) onSend();
+    };
+    // Use capture phase to intercept before Tiptap's own Enter handler (which inserts a paragraph)
+    const editorDom = editor.view.dom;
+    editorDom.addEventListener('keydown', handler, true);
+    return () => editorDom.removeEventListener('keydown', handler, true);
+  }, [editor, isActive, onSend]);
+
   return (
     <div className="p-3 border-t border-border">
       {selectedElements.length > 0 && (
@@ -484,18 +714,12 @@ export function ChatInput({
         </div>
       )}
 
-      <form
-        onSubmit={e => {
-          e.preventDefault();
-          onSend();
-        }}
-        className="flex gap-2 items-center"
-      >
+      <div className="flex gap-2 items-end">
         <button
           type="button"
           onClick={onToggleSelector}
           title={selectorActive ? 'Cancel selector' : 'Select an element'}
-          className={`flex items-center justify-center h-[40px] w-10 text-sm rounded-md border shrink-0 ${
+          className={`flex items-center justify-center h-10 w-10 text-sm rounded-md border shrink-0 ${
             selectorActive
               ? 'border-blue-500 bg-blue-500/10 text-blue-400'
               : 'border-input text-muted-foreground hover:text-foreground hover:bg-secondary'
@@ -503,32 +727,13 @@ export function ChatInput({
         >
           <MousePointer size={14} />
         </button>
-        <div className="relative flex-1 flex min-h-[40px] max-h-[120px] border border-input rounded-md bg-background focus-within:ring-2 focus-within:ring-ring">
-          <textarea
-            ref={chatInputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (input.trim()) onSend();
-              }
-            }}
-            placeholder={
-              selectedElements.length > 0
-                ? selectedElements.length === 1
-                  ? `Instruct about this ${selectedElements[0].tag}...`
-                  : `Instruct about ${selectedElements.length} elements...`
-                : 'Ask about this page...'
-            }
-            disabled={isActive}
-            rows={1}
-            className="w-full min-h-[40px] max-h-[120px] py-2 pl-3 pr-10 text-sm resize-none border-0 bg-transparent focus:outline-none focus:ring-0 disabled:opacity-50 overflow-y-auto"
-          />
+        <div className="chat-editor-wrapper relative flex-1 min-h-10 max-h-[120px] border border-input rounded-md bg-background focus-within:border-foreground overflow-visible">
+          <EditorContent editor={editor} />
           {!isActive && (
             <button
-              type="submit"
-              disabled={!input.trim()}
+              type="button"
+              onClick={() => { if (editor?.getText().trim()) onSend(); }}
+              disabled={!editor?.getText().trim()}
               title="Send"
               className="absolute right-1.5 bottom-1.5 p-1.5 rounded-md text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 disabled:pointer-events-none"
             >
@@ -541,12 +746,40 @@ export function ChatInput({
             type="button"
             onClick={onStop}
             title="Stop"
-            className="flex items-center justify-center h-[40px] w-10 text-sm font-medium text-red-400 border border-red-500/50 rounded-md hover:bg-red-500/10 shrink-0"
+            className="flex items-center justify-center h-10 w-10 text-sm font-medium text-red-400 border border-red-500/50 rounded-md hover:bg-red-500/10 shrink-0"
           >
             <div className="w-4 h-4 bg-red-400" />
           </button>
         )}
-      </form>
+      </div>
+
+      {/* Mention chip styles */}
+      <style>{`
+        .mention-tab {
+          background: hsl(var(--muted));
+          border: 1px solid hsl(var(--border));
+          color: hsl(var(--foreground));
+          border-radius: 2px;
+          padding: 1px 5px;
+          font-size: 0.8em;
+          font-family: ui-monospace, monospace;
+          font-weight: 500;
+          white-space: nowrap;
+        }
+        .chat-editor-wrapper .tiptap {
+          outline: none;
+        }
+        .chat-editor-wrapper .tiptap p {
+          margin: 0;
+        }
+        .chat-editor-wrapper .tiptap p.is-editor-empty:first-child::before {
+          content: attr(data-placeholder);
+          float: left;
+          color: hsl(var(--muted-foreground));
+          pointer-events: none;
+          height: 0;
+        }
+      `}</style>
     </div>
   );
 }

@@ -89,6 +89,49 @@ export async function handleActionRequest(
 		return;
 	}
 
+	// List all open browser tabs from passive registry — zero overhead
+	if (action === 'list_tabs') {
+		try {
+			const { getTrackedTabs } = await import('./tab-registry.js');
+			const tabs = getTrackedTabs().map((t) => ({
+				tabId: t.tabId,
+				title: t.title,
+				url: t.url,
+				domain: t.domain,
+				active: t.active,
+			}));
+			ctx.sendResult(requestId, { success: true, data: { tabs } });
+		} catch (err) {
+			ctx.sendResult(requestId, {
+				success: false,
+				error: `Failed to list tabs: ${err instanceof Error ? err.message : String(err)}`,
+			});
+		}
+		return;
+	}
+
+	// Switch the agent's target to a specific tab
+	if (action === 'switch_tab') {
+		try {
+			const tabId = payload.tabId as number;
+			if (!tabId) throw new Error('tabId is required');
+			await chrome.tabs.update(tabId, { active: true });
+			// Wait for tab to become active
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			const tab = await chrome.tabs.get(tabId);
+			ctx.sendResult(requestId, {
+				success: true,
+				data: { tabId, url: tab.url, title: tab.title },
+			});
+		} catch (err) {
+			ctx.sendResult(requestId, {
+				success: false,
+				error: `Failed to switch tab: ${err instanceof Error ? err.message : String(err)}`,
+			});
+		}
+		return;
+	}
+
 	// Determine target tab: use explicit targetTabId/tabId for pinned conversations + sub-agents, else active tab
 	let tab: chrome.tabs.Tab | undefined;
 	const explicitTabId = (payload.targetTabId || payload.tabId) as number | undefined;

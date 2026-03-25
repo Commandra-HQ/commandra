@@ -4,13 +4,13 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { resolveAgent } from '../agent/agent-registry.js';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
-import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
+import { analyzeAndImprove, calculateCost, recordAgentRun } from '../agent/self-improve.js';
 import { db } from '../db/index.js';
 import { agents, conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { loadDomainKnowledgeFromS3, syncDomainKnowledgeToS3 } from '../memory/domain.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
-import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
+import { getFastModel, getModelCapabilities, getProvider, getStrongModel } from '../llm/index.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { loadPlan } from '../storage/plan-files.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
@@ -326,17 +326,28 @@ chatRoutes.post('/', async (c) => {
 				// This is what makes the system learn from every interaction.
 				const durationMs = Date.now() - startTime;
 
-				// Record run in DB (only for named agents — coordinator has no DB row)
-				if (agentConfig.id !== '_coordinator') {
-					recordAgentRun({
-						agentId: agentConfig.id,
-						userId: user.id,
-						conversationId: convId,
-						status: 'completed',
-						toolCalls: result.toolCalls.length,
-						durationMs,
-					}).catch((err) => console.warn('[SelfImprove] recordAgentRun failed:', err));
-				}
+				// Record run in DB — all chats including coordinator (agentId null for coordinator)
+				const runProviderName = process.env.LLM_PROVIDER || 'anthropic';
+				const runModel = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
+				const runCaps = getModelCapabilities(runProviderName, runModel);
+				const estimatedCost = calculateCost(result.usage, runCaps);
+				recordAgentRun({
+					agentId: agentConfig.id === '_coordinator' ? null : agentConfig.id,
+					userId: user.id,
+					conversationId: convId,
+					status: 'completed',
+					toolCalls: result.toolCalls.length,
+					tokensUsed: result.usage.inputTokens + result.usage.outputTokens,
+					durationMs,
+					inputTokens: result.usage.inputTokens,
+					outputTokens: result.usage.outputTokens,
+					cacheReadTokens: result.usage.cacheReadTokens,
+					cacheWriteTokens: result.usage.cacheWriteTokens,
+					thinkingTokens: result.usage.thinkingTokens,
+					estimatedCostUsd: estimatedCost.toFixed(6),
+					model: runModel,
+					provider: runProviderName,
+				}).catch((err) => console.warn('[SelfImprove] recordAgentRun failed:', err));
 
 				// Analyze and improve for ALL agents — coordinator writes to _coordinator/ in S3
 				if (result.toolCalls.length > 0 || fullResponse.length > 100) {
@@ -455,4 +466,76 @@ chatRoutes.post('/', async (c) => {
 			clearInterval(heartbeat);
 		}
 	});
+});
+
+/**
+ * POST /api/chat/compact — manually compact a conversation's messages.
+ * Summarizes history via fast model, saves transcript to S3, replaces messages.
+ */
+chatRoutes.post('/compact', async (c) => {
+	const user = c.get('user');
+	const { conversationId } = await c.req.json<{ conversationId: string }>();
+
+	if (!conversationId) return c.json({ error: 'conversationId required' }, 400);
+
+	// Load messages
+	const msgs = await db
+		.select()
+		.from(messages)
+		.where(and(eq(messages.conversationId, conversationId)))
+		.orderBy(asc(messages.createdAt));
+
+	if (msgs.length < 2) {
+		return c.json({ error: 'Not enough messages to compact' }, 400);
+	}
+	console.log(`[Compact] Starting compaction for conversation ${conversationId} (${msgs.length} messages)`);
+
+	// Verify user owns conversation
+	const [conv] = await db
+		.select()
+		.from(conversations)
+		.where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)));
+	if (!conv) return c.json({ error: 'Conversation not found' }, 404);
+
+	const provider = getProvider();
+	const fastModel = getFastModel();
+
+	const transcript = msgs
+		.map((m) => `${m.role}: ${typeof m.content === 'string' ? m.content : '[structured]'}`)
+		.join('\n\n');
+
+	try {
+		const { collectStream: collect } = await import('../llm/types.js');
+		const { saveCompaction } = await import('../storage/compaction-files.js');
+
+		const summaryStream = provider.chat({
+			model: fastModel,
+			system: 'Summarize this conversation concisely. Include: what was accomplished, what is in progress, key facts to continue. 2-3 paragraphs max.',
+			messages: [{ role: 'user', content: transcript.slice(-6000) }],
+			maxTokens: 500,
+		});
+		const summaryResponse = await collect(summaryStream);
+		const summary = summaryResponse.content
+			.filter((b) => b.type === 'text')
+			.map((b) => (b as { text: string }).text)
+			.join('');
+
+		if (!summary) return c.json({ error: 'Failed to generate summary' }, 500);
+
+		// Save full transcript to S3
+		const { path } = await saveCompaction(user.id, conversationId, transcript, summary);
+
+		// Delete old messages and insert compacted summary
+		await db.delete(messages).where(eq(messages.conversationId, conversationId));
+		await db.insert(messages).values({
+			conversationId,
+			role: 'user',
+			content: `[Conversation compacted — ${msgs.length} messages saved to ${path}]\n\nSummary:\n${summary}\n\nContinue from where we left off.`,
+		});
+
+		return c.json({ summary, path, messagesCompacted: msgs.length });
+	} catch (err) {
+		console.error('Manual compaction failed:', err);
+		return c.json({ error: 'Compaction failed' }, 500);
+	}
 });

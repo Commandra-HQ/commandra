@@ -54,6 +54,41 @@ function CopyButton({ text, className = '' }: { text: string; className?: string
 	);
 }
 
+// --- Mention rendering ---
+
+const TAB_MENTION_RE = /@\[([^\]]+)\]\(tabId:(\d+)\)/g;
+
+function UserMessageContent({ content }: { content: string }) {
+	if (!content.includes('@[')) return <>{content}</>;
+
+	const parts: React.ReactNode[] = [];
+	let lastIndex = 0;
+	let match: RegExpExecArray | null;
+	const re = new RegExp(TAB_MENTION_RE.source, 'g');
+
+	while ((match = re.exec(content)) !== null) {
+		if (match.index > lastIndex) {
+			parts.push(content.slice(lastIndex, match.index));
+		}
+		parts.push(
+			<span
+				key={match.index}
+				className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-primary-foreground/15 border border-primary-foreground/25 text-primary-foreground text-[11px] font-mono"
+			>
+				<Globe size={10} />
+				{match[1]}
+			</span>,
+		);
+		lastIndex = re.lastIndex;
+	}
+
+	if (lastIndex < content.length) {
+		parts.push(content.slice(lastIndex));
+	}
+
+	return <>{parts}</>;
+}
+
 // --- User & Assistant Messages ---
 
 export function UserMessage({ msg }: { msg: ChatMessage }) {
@@ -85,7 +120,7 @@ export function UserMessage({ msg }: { msg: ChatMessage }) {
 						)}
 					</div>
 				)}
-				{msg.content}
+				<UserMessageContent content={msg.content} />
 			</div>
 		</div>
 	);
