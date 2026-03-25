@@ -340,6 +340,10 @@ export async function executeToolBlock(
 		depth,
 		conversationId,
 		autonomy,
+		// When switch_tab is called, update the orchestrator context so subsequent tools target the new tab
+		onTabSwitch: (newTabId: number) => {
+			(context as { tabId?: number }).tabId = newTabId;
+		},
 	});
 	if (internalResult) return internalResult;
 

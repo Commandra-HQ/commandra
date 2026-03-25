@@ -22,6 +22,7 @@ import {
   uploadDomainFile,
 } from '../storage/domain-files.js';
 import { deduplicateLines } from '../utils/text-similarity.js';
+import { sendActionRequest } from '../ws/handler.js';
 import { getLocalFile, listLocalFiles, saveLocalFile } from '../storage/local.js';
 import {
   type StoredPlan,
@@ -55,6 +56,8 @@ export const INTERNAL_TOOL_NAMES = new Set([
   'read_local_file',
   'list_local_files',
   'browse_storage',
+  'list_tabs',
+  'switch_tab',
 ]);
 
 export interface InternalToolContext {
@@ -67,6 +70,8 @@ export interface InternalToolContext {
   depth?: number;
   conversationId?: string;
   autonomy?: 'supervised' | 'trusted' | 'autonomous';
+  /** Called when switch_tab changes the agent's target tab. Updates the orchestrator context. */
+  onTabSwitch?: (newTabId: number) => void;
 }
 
 /**
@@ -113,6 +118,10 @@ export async function executeInternalTool(
       return handleListLocalFiles(block, ctx);
     case 'browse_storage':
       return handleBrowseStorage(block, ctx);
+    case 'list_tabs':
+      return handleListTabs(block, ctx);
+    case 'switch_tab':
+      return handleSwitchTab(block, ctx);
     default:
       return null;
   }
@@ -1011,6 +1020,62 @@ async function handleBrowseStorage(
       path: prefix || '(root)',
       items,
       count: items.length,
+    });
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+// --- Tab Management Tools ---
+
+async function handleListTabs(
+  block: ToolUseBlock,
+  ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  try {
+    const result = await sendActionRequest(
+      ctx.connectionId,
+      'list_tabs',
+      { action: 'list_tabs' },
+      10000,
+    );
+    const data = result as { success?: boolean; data?: unknown; error?: string } | null;
+    if (!data?.success) {
+      return errorResult(block.id, new Error(data?.error || 'Failed to list tabs'));
+    }
+    return successResult(block.id, data.data);
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+async function handleSwitchTab(
+  block: ToolUseBlock,
+  ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  const args = block.input as { tabId: number };
+  if (!args.tabId) {
+    return errorResult(block.id, new Error('tabId is required'));
+  }
+  try {
+    const result = await sendActionRequest(
+      ctx.connectionId,
+      'switch_tab',
+      { action: 'switch_tab', tabId: args.tabId },
+      10000,
+    );
+    const data = result as { success?: boolean; data?: unknown; error?: string } | null;
+    if (!data?.success) {
+      return errorResult(block.id, new Error(data?.error || 'Failed to switch tab'));
+    }
+    // Update the orchestrator's tab context so subsequent actions target the new tab
+    ctx.onTabSwitch?.(args.tabId);
+
+    return successResult(block.id, {
+      switched: true,
+      tabId: args.tabId,
+      ...(data.data as object),
+      note: 'All subsequent actions will target this tab. Use get_page_state or refresh_page_state to see the page elements.',
     });
   } catch (err) {
     return errorResult(block.id, err);

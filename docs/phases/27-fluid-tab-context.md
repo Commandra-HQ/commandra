@@ -1,4 +1,4 @@
-# Phase 27 — Fluid Tab Context (like Cursor's @file for browser tabs)
+# Phase 27 — Fluid Tab Context (like Cursor's @file for browser tabs) [SHIPPED]
 
 ## Context
 

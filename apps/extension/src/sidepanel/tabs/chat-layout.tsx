@@ -7,6 +7,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowUp,
+  AtSign,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -23,7 +24,7 @@ import {
   Square,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage, SiteData } from './chat-types.js';
 
 export function ContextBar({
@@ -422,6 +423,95 @@ export function PlanPanel({
   );
 }
 
+interface BrowserTab {
+  tabId: number;
+  title: string;
+  url: string;
+  active: boolean;
+}
+
+function TabMentionPicker({
+  visible,
+  query,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  query: string;
+  onSelect: (tab: BrowserTab) => void;
+  onClose: () => void;
+}) {
+  const [tabs, setTabs] = useState<BrowserTab[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    chrome.tabs.query({ currentWindow: true }, (allTabs) => {
+      const filtered = allTabs
+        .filter((t) => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('chrome-extension://') && !t.url.startsWith('about:'))
+        .map((t) => ({
+          tabId: t.id!,
+          title: t.title || '',
+          url: t.url || '',
+          active: t.active || false,
+        }));
+      setTabs(filtered);
+      setSelectedIndex(0);
+    });
+  }, [visible]);
+
+  const filtered = tabs.filter((t) => {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    return t.title.toLowerCase().includes(q) || t.url.toLowerCase().includes(q);
+  });
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [query]);
+
+  useEffect(() => {
+    const el = listRef.current?.children[selectedIndex] as HTMLElement;
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [selectedIndex]);
+
+  // Keyboard navigation handled by parent textarea onKeyDown
+  // This component exposes selectedIndex and filtered list
+
+  if (!visible || filtered.length === 0) return null;
+
+  return (
+    <div
+      ref={listRef}
+      className="absolute bottom-full left-0 right-0 mb-1 max-h-[200px] overflow-y-auto bg-popover border border-border rounded-lg shadow-lg z-50"
+    >
+      <div className="py-1">
+        <div className="px-3 py-1 text-[10px] text-muted-foreground font-mono uppercase">Open Tabs</div>
+        {filtered.map((tab, i) => {
+          const domain = (() => { try { return new URL(tab.url).hostname; } catch { return tab.url; } })();
+          return (
+            <button
+              key={tab.tabId}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); onSelect(tab); }}
+              onMouseEnter={() => setSelectedIndex(i)}
+              className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-accent ${
+                i === selectedIndex ? 'bg-accent' : ''
+              }`}
+            >
+              <Globe size={12} className="text-muted-foreground shrink-0" />
+              <span className="truncate flex-1">{tab.title || domain}</span>
+              <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">{domain}</span>
+              {tab.active && <span className="text-[9px] text-green-500">●</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function ChatInput({
   input,
   setInput,
@@ -449,6 +539,10 @@ export function ChatInput({
   onNewConversation: () => void;
   onClearSelection: () => void;
 }) {
+  // @tab mention state
+  const [showTabPicker, setShowTabPicker] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const mentionStartRef = useRef<number>(-1);
   return (
     <div className="p-3 border-t border-border">
       {selectedElements.length > 0 && (
@@ -487,31 +581,76 @@ export function ChatInput({
       <form
         onSubmit={e => {
           e.preventDefault();
-          onSend();
+          if (!showTabPicker) onSend();
         }}
         className="flex gap-2 items-center"
       >
-        <button
-          type="button"
-          onClick={onToggleSelector}
-          title={selectorActive ? 'Cancel selector' : 'Select an element'}
-          className={`flex items-center justify-center h-[40px] w-10 text-sm rounded-md border shrink-0 ${
-            selectorActive
-              ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-              : 'border-input text-muted-foreground hover:text-foreground hover:bg-secondary'
-          }`}
-        >
-          <MousePointer size={14} />
-        </button>
+        <div className="flex flex-col gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={onToggleSelector}
+            title={selectorActive ? 'Cancel selector' : 'Select an element'}
+            className={`flex items-center justify-center h-[40px] w-10 text-sm rounded-md border shrink-0 ${
+              selectorActive
+                ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                : 'border-input text-muted-foreground hover:text-foreground hover:bg-secondary'
+            }`}
+          >
+            <MousePointer size={14} />
+          </button>
+        </div>
         <div className="relative flex-1 flex min-h-[40px] max-h-[120px] border border-input rounded-md bg-background focus-within:ring-2 focus-within:ring-ring">
+          <TabMentionPicker
+            visible={showTabPicker}
+            query={mentionQuery}
+            onSelect={(tab) => {
+              // Replace @query with @[Tab Title](tabId:N) mention
+              const before = input.slice(0, mentionStartRef.current);
+              const after = input.slice(chatInputRef.current?.selectionStart ?? input.length);
+              const domain = (() => { try { return new URL(tab.url).hostname; } catch { return tab.url; } })();
+              const mention = `@[${tab.title || domain}] `;
+              setInput(before + mention + after);
+              setShowTabPicker(false);
+              setMentionQuery('');
+              mentionStartRef.current = -1;
+              chatInputRef.current?.focus();
+            }}
+            onClose={() => {
+              setShowTabPicker(false);
+              setMentionQuery('');
+              mentionStartRef.current = -1;
+            }}
+          />
           <textarea
             ref={chatInputRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={e => {
+              const val = e.target.value;
+              setInput(val);
+              // Detect @ trigger for tab mention
+              const cursor = e.target.selectionStart;
+              const textBefore = val.slice(0, cursor);
+              const atMatch = textBefore.match(/@([^\s@]*)$/);
+              if (atMatch) {
+                mentionStartRef.current = cursor - atMatch[0].length;
+                setMentionQuery(atMatch[1]);
+                setShowTabPicker(true);
+              } else {
+                setShowTabPicker(false);
+                setMentionQuery('');
+              }
+            }}
             onKeyDown={e => {
+              if (showTabPicker) {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setShowTabPicker(false);
+                  return;
+                }
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (input.trim()) onSend();
+                if (!showTabPicker && input.trim()) onSend();
               }
             }}
             placeholder={
@@ -519,7 +658,7 @@ export function ChatInput({
                 ? selectedElements.length === 1
                   ? `Instruct about this ${selectedElements[0].tag}...`
                   : `Instruct about ${selectedElements.length} elements...`
-                : 'Ask about this page...'
+                : 'Ask anything... (type @ to mention a tab)'
             }
             disabled={isActive}
             rows={1}

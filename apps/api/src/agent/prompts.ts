@@ -34,6 +34,13 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 - Use go_back to return to the previous page
 - Confirm what you did after completing the task
 
+**Tab Management — you can work across any open tab:**
+- **list_tabs**: See all open browser tabs (tabId, title, URL, active status)
+- **switch_tab**: Change your target to a different tab — all subsequent actions execute there
+- You start on the user's currently active tab. If the user mentions a different site, use list_tabs to find it and switch_tab to go there.
+- You do NOT need to ask the user to switch tabs — just switch yourself.
+- After switching, call refresh_page_state to see the new page's elements.
+
 **When reading/extracting data:**
 - read_table for tabular data (structured headers + rows)
 - read_text for specific element content

@@ -47,8 +47,8 @@ export function ChatTab() {
 	const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
 	const [pendingPlanApproval, setPendingPlanApproval] = useState<PlanApprovalRequest | null>(null);
 	const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
-	const [originTabId, setOriginTabId] = useState<number | null>(null);
-	const [originDomain, setOriginDomain] = useState<string>('');
+	// originTabId removed — agent now always targets the current active tab
+	// and uses list_tabs/switch_tab tools to change targets
 	const isActiveRef = useRef(false);
 	const [selectorActive, setSelectorActive] = useState(false);
 	const [contextStatus, setContextStatus] = useState<{
@@ -309,8 +309,6 @@ export function ChatTab() {
 	function handleNewConversation() {
 		setChatMessages([]);
 		setPendingApprovals([]);
-		setOriginTabId(null);
-		setOriginDomain('');
 		setContextStatus(null);
 		setPlanState(null);
 		resetConversation();
@@ -389,14 +387,8 @@ export function ChatTab() {
 		const els = selectedElements.length > 0 ? selectedElements : undefined;
 		setSelectedElements([]);
 
-		// Pin conversation to the tab where the first message was sent
-		if (!originTabId && tabId) {
-			setOriginTabId(tabId);
-			setOriginDomain(domain);
-		}
-		const chatTabId = originTabId || tabId;
-
-		await sendMessage(text, { pageIndex, selectedElements: els, tabId: chatTabId });
+		// Always use the current active tab — agent uses switch_tab tool if it needs a different one
+		await sendMessage(text, { pageIndex, selectedElements: els, tabId });
 	}
 
 	async function loadConversation(convId: string) {
@@ -574,13 +566,6 @@ export function ChatTab() {
 
 	return (
 		<div className="flex flex-col h-full">
-			{/* Different-tab warning */}
-			{isActive && originDomain && originDomain !== domain && (
-				<div className="px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-[10px] font-mono text-blue-400">
-					Task running on <span className="font-semibold">{originDomain}</span>
-				</div>
-			)}
-
 			{/* Plan panel */}
 			{showPlanPanel && planState && (
 				<PlanPanel planState={planState} onClose={() => setShowPlanPanel(false)} />

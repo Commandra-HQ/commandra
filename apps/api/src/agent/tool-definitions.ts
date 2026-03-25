@@ -429,8 +429,37 @@ export function buildToolList(
     },
   };
 
+  const listTabsTool = {
+    name: 'list_tabs',
+    description:
+      'List all open browser tabs. Returns tabId, title, URL, and whether each tab is active. Use this to discover available tabs before switching.',
+    parameters: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  };
+
+  const switchTabTool = {
+    name: 'switch_tab',
+    description:
+      'Switch your target to a different browser tab. After switching, all subsequent actions (click, type, navigate, screenshot) will execute on the new tab. Call list_tabs first to find the right tabId.',
+    parameters: {
+      type: 'object' as const,
+      properties: {
+        tabId: {
+          type: 'number',
+          description: 'The browser tab ID to switch to (from list_tabs results)',
+        },
+      },
+      required: ['tabId'],
+    },
+  };
+
   return [
     ...browserTools,
+    listTabsTool,
+    switchTabTool,
     saveMemoryTool,
     recallMemoryTool,
     saveKnowledgeTool,
