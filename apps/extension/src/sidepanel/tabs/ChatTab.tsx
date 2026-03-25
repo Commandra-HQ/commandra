@@ -376,6 +376,20 @@ export function ChatTab() {
   async function handleManualCompact() {
     const convId = externalConvId || conversationIdRef.current;
     if (!convId || isActive) return;
+    if (chatMessages.length < 4) return; // Not enough to compact
+
+    // Show compacting indicator as an assistant message
+    const compactingMsgId = crypto.randomUUID();
+    setChatMessages(prev => [
+      ...prev,
+      {
+        id: compactingMsgId,
+        role: 'assistant' as const,
+        content: '',
+        blocks: [{ type: 'text' as const, content: '*Compacting conversation...*' }],
+      },
+    ]);
+
     try {
       const stored = await chrome.storage.local.get(['authToken']);
       const token = stored.authToken;
@@ -390,18 +404,47 @@ export function ChatTab() {
       });
       if (res.ok) {
         const data = await res.json();
-        // Replace local messages with compacted summary
+        // Replace all messages with compacted summary
         setChatMessages([
           {
             id: crypto.randomUUID(),
-            role: 'user',
-            content: `[Compacted ${data.messagesCompacted} messages]\n\n${data.summary}`,
+            role: 'assistant' as const,
+            content: data.summary,
+            blocks: [
+              {
+                type: 'text' as const,
+                content: `---\n**Conversation compacted** — ${data.messagesCompacted} messages saved\n\n${data.summary}\n\n_Transcript: \`${data.path}\`_\n\n---`,
+              },
+            ],
           },
         ]);
-        setContextStatus(null);
+        // Re-estimate context after compaction
+        const estimatedTokens = Math.round(data.summary.length / 4);
+        setContextStatus({
+          used: estimatedTokens,
+          limit: contextStatus?.limit || 160_000,
+          percent: Math.min(Math.round((estimatedTokens / (contextStatus?.limit || 160_000)) * 100), 100),
+        });
+      } else {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        // Remove compacting message and show error
+        setChatMessages(prev =>
+          prev.map(m =>
+            m.id === compactingMsgId
+              ? { ...m, blocks: [{ type: 'text' as const, content: `*Compaction failed: ${err.error}*` }] }
+              : m,
+          ),
+        );
       }
     } catch (err) {
       console.error('Manual compact failed:', err);
+      setChatMessages(prev =>
+        prev.map(m =>
+          m.id === compactingMsgId
+            ? { ...m, blocks: [{ type: 'text' as const, content: '*Compaction failed — check your connection.*' }] }
+            : m,
+        ),
+      );
     }
   }
 
