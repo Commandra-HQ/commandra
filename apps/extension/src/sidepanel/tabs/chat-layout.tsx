@@ -757,11 +757,13 @@ export function ChatInput({
       {/* Mention chip styles */}
       <style>{`
         .mention-tab {
-          background: hsl(var(--accent));
-          color: hsl(var(--accent-foreground));
-          border-radius: 4px;
-          padding: 1px 4px;
+          background: rgba(59, 130, 246, 0.15);
+          border: 1px solid rgba(96, 165, 250, 0.35);
+          color: rgb(147, 197, 253);
+          border-radius: 2px;
+          padding: 1px 5px;
           font-size: 0.8em;
+          font-family: ui-monospace, monospace;
           font-weight: 500;
           white-space: nowrap;
         }

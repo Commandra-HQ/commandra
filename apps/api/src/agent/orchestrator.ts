@@ -342,6 +342,22 @@ export async function runOrchestrator(
     await onEvent({ type: 'text_delta', text: msg });
   }
 
+  // Emit real token usage to the client (works for all chats including coordinator)
+  if (accumulatedUsage.inputTokens > 0 || accumulatedUsage.outputTokens > 0) {
+    const caps = capabilities;
+    const { calculateCost } = await import('./self-improve.js');
+    const estimatedCostUsd = calculateCost(accumulatedUsage, caps);
+    await onEvent({
+      type: 'usage_total',
+      inputTokens: accumulatedUsage.inputTokens,
+      outputTokens: accumulatedUsage.outputTokens,
+      cacheReadTokens: accumulatedUsage.cacheReadTokens,
+      cacheWriteTokens: accumulatedUsage.cacheWriteTokens,
+      thinkingTokens: accumulatedUsage.thinkingTokens,
+      estimatedCostUsd,
+    });
+  }
+
   return { response: fullResponse, toolCalls: allToolCalls, usage: accumulatedUsage };
 }
 

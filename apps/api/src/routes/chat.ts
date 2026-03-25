@@ -469,3 +469,74 @@ chatRoutes.post('/', async (c) => {
 		}
 	});
 });
+
+/**
+ * POST /api/chat/compact — manually compact a conversation's messages.
+ * Summarizes history via fast model, saves transcript to S3, replaces messages.
+ */
+chatRoutes.post('/compact', async (c) => {
+	const user = c.get('user');
+	const { conversationId } = await c.req.json<{ conversationId: string }>();
+
+	if (!conversationId) return c.json({ error: 'conversationId required' }, 400);
+
+	// Load messages
+	const msgs = await db
+		.select()
+		.from(messages)
+		.where(and(eq(messages.conversationId, conversationId)))
+		.orderBy(asc(messages.createdAt));
+
+	if (msgs.length < 4) {
+		return c.json({ error: 'Not enough messages to compact' }, 400);
+	}
+
+	// Verify user owns conversation
+	const [conv] = await db
+		.select()
+		.from(conversations)
+		.where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)));
+	if (!conv) return c.json({ error: 'Conversation not found' }, 404);
+
+	const provider = getProvider();
+	const fastModel = getFastModel();
+
+	const transcript = msgs
+		.map((m) => `${m.role}: ${typeof m.content === 'string' ? m.content : '[structured]'}`)
+		.join('\n\n');
+
+	try {
+		const { collectStream: collect } = await import('../llm/types.js');
+		const { saveCompaction } = await import('../storage/compaction-files.js');
+
+		const summaryStream = provider.chat({
+			model: fastModel,
+			system: 'Summarize this conversation concisely. Include: what was accomplished, what is in progress, key facts to continue. 2-3 paragraphs max.',
+			messages: [{ role: 'user', content: transcript.slice(-6000) }],
+			maxTokens: 500,
+		});
+		const summaryResponse = await collect(summaryStream);
+		const summary = summaryResponse.content
+			.filter((b) => b.type === 'text')
+			.map((b) => (b as { text: string }).text)
+			.join('');
+
+		if (!summary) return c.json({ error: 'Failed to generate summary' }, 500);
+
+		// Save full transcript to S3
+		const { path } = await saveCompaction(user.id, conversationId, transcript, summary);
+
+		// Delete old messages and insert compacted summary
+		await db.delete(messages).where(eq(messages.conversationId, conversationId));
+		await db.insert(messages).values({
+			conversationId,
+			role: 'user',
+			content: `[Conversation compacted — ${msgs.length} messages saved to ${path}]\n\nSummary:\n${summary}\n\nContinue from where we left off.`,
+		});
+
+		return c.json({ summary, path, messagesCompacted: msgs.length });
+	} catch (err) {
+		console.error('Manual compaction failed:', err);
+		return c.json({ error: 'Compaction failed' }, 500);
+	}
+});

@@ -73,9 +73,9 @@ function UserMessageContent({ content }: { content: string }) {
 		parts.push(
 			<span
 				key={match.index}
-				className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs font-medium"
+				className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-blue-500/25 border border-blue-400/40 text-blue-200 text-[11px] font-mono"
 			>
-				<Globe size={10} className="opacity-70" />
+				<Globe size={10} />
 				{match[1]}
 			</span>,
 		);

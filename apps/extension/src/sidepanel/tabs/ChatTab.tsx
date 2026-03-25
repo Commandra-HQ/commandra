@@ -25,7 +25,7 @@ import {
 	OnboardingView,
 	UserMessage,
 } from './message-blocks.js';
-import { useChatStream } from './use-chat-stream.js';
+import { useChatStream, type UsageTotal } from './use-chat-stream.js';
 
 export function ChatTab() {
 	const { conversationId: externalConvId } = useParams<{ conversationId?: string }>();
@@ -56,6 +56,7 @@ export function ChatTab() {
 		limit: number;
 		percent: number;
 	} | null>(null);
+	const [usageTotal, setUsageTotal] = useState<UsageTotal | null>(null);
 	const [planState, setPlanState] = useState<{
 		description: string;
 		steps: { label: string; status: string }[];
@@ -73,6 +74,7 @@ export function ChatTab() {
 		setChatMessages,
 		setIsActive,
 		setContextStatus,
+		setUsageTotal,
 		setPlanState,
 		setPendingApprovals,
 		setPendingPlanApproval,
@@ -257,6 +259,7 @@ export function ChatTab() {
 					.join('\n\n');
 				navigator.clipboard.writeText(text);
 			}
+			if (action === 'compact') handleManualCompact();
 		}
 		window.addEventListener('commandra-tab-action', handleTabAction);
 		return () => window.removeEventListener('commandra-tab-action', handleTabAction);
@@ -303,6 +306,33 @@ export function ChatTab() {
 		} else {
 			chrome.runtime.sendMessage({ type: 'SELECTOR_START', payload: { tabId } });
 			setSelectorActive(true);
+		}
+	}
+
+	async function handleManualCompact() {
+		const convId = externalConvId || conversationIdRef.current;
+		if (!convId || isActive) return;
+		try {
+			const stored = await chrome.storage.local.get(['authToken']);
+			const token = stored.authToken;
+			if (!token) return;
+			const res = await fetch(`${API_URL}/api/chat/compact`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+				body: JSON.stringify({ conversationId: convId }),
+			});
+			if (res.ok) {
+				const data = await res.json();
+				// Replace local messages with compacted summary
+				setChatMessages([{
+					id: crypto.randomUUID(),
+					role: 'user',
+					content: `[Compacted ${data.messagesCompacted} messages]\n\n${data.summary}`,
+				}]);
+				setContextStatus(null);
+			}
+		} catch (err) {
+			console.error('Manual compact failed:', err);
 		}
 	}
 
@@ -564,9 +594,48 @@ export function ChatTab() {
 		return <CrawlingView progress={crawlProgress} domain={domain} onStop={handleStopCrawl} />;
 	}
 
+	// Expose contextStatus to HubLayout tab menu via custom event
+	useEffect(() => {
+		const detail = { contextStatus, usageTotal, conversationId: externalConvId || conversationIdRef.current };
+		window.dispatchEvent(new CustomEvent('commandra-context-update', { detail }));
+	}, [contextStatus, usageTotal]);
+
 	return (
 		<div className="flex flex-col h-full">
-			{/* Plan panel */}
+			{/* Context indicator + plan panel */}
+			{contextStatus && contextStatus.percent > 0 && (
+				<div className="px-3 py-1 border-b border-border flex items-center gap-2 text-[10px] text-muted-foreground">
+					<div
+						className="relative w-5 h-5 flex-shrink-0"
+						title={
+							usageTotal
+								? `Context: ${contextStatus.percent}% used\nInput: ${(usageTotal.inputTokens / 1000).toFixed(1)}K tokens\nOutput: ${(usageTotal.outputTokens / 1000).toFixed(1)}K tokens\nCached: ${(usageTotal.cacheReadTokens / 1000).toFixed(1)}K tokens\nCost: $${usageTotal.estimatedCostUsd.toFixed(4)}`
+								: `Context: ${Math.round(contextStatus.used / 1000)}K / ${Math.round(contextStatus.limit / 1000)}K tokens (${contextStatus.percent}%)`
+						}
+					>
+						<svg viewBox="0 0 20 20" className="w-5 h-5 -rotate-90">
+							<circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" className="text-secondary" />
+							<circle
+								cx="10" cy="10" r="8" fill="none" strokeWidth="2.5"
+								strokeDasharray={`${contextStatus.percent * 0.502} 50.2`}
+								strokeLinecap="round"
+								className={contextStatus.percent > 80 ? 'text-red-500' : contextStatus.percent > 60 ? 'text-yellow-500' : 'text-green-500'}
+							/>
+						</svg>
+						<span className="absolute inset-0 flex items-center justify-center text-[6px] font-bold">
+							{contextStatus.percent}
+						</span>
+					</div>
+					<span className="tabular-nums">
+						{Math.round(contextStatus.used / 1000)}K / {Math.round(contextStatus.limit / 1000)}K
+					</span>
+					{usageTotal && usageTotal.estimatedCostUsd > 0 && (
+						<span className="ml-auto tabular-nums text-muted-foreground/60">
+							${usageTotal.estimatedCostUsd < 0.01 ? usageTotal.estimatedCostUsd.toFixed(4) : usageTotal.estimatedCostUsd.toFixed(2)}
+						</span>
+					)}
+				</div>
+			)}
 			{showPlanPanel && planState && (
 				<PlanPanel planState={planState} onClose={() => setShowPlanPanel(false)} />
 			)}

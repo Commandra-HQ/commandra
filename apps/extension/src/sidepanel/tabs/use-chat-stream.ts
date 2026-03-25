@@ -11,12 +11,22 @@ import type {
 } from './chat-types.js';
 import { API_URL, parseSSEBuffer } from './chat-types.js';
 
+export interface UsageTotal {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  thinkingTokens: number;
+  estimatedCostUsd: number;
+}
+
 interface UseChatStreamOptions {
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   setIsActive: (v: boolean) => void;
   setContextStatus: (
     v: { used: number; limit: number; percent: number } | null,
   ) => void;
+  setUsageTotal: (v: UsageTotal | null) => void;
   setPlanState: (
     v: {
       description: string;
@@ -48,6 +58,7 @@ export function useChatStream(options: UseChatStreamOptions) {
     setChatMessages,
     setIsActive,
     setContextStatus,
+    setUsageTotal,
     setPlanState,
     setShowPlanPanel,
     planState,
@@ -314,6 +325,17 @@ export function useChatStream(options: UseChatStreamOptions) {
         scheduleFlush();
         break;
       }
+
+      case 'usage_total':
+        setUsageTotal({
+          inputTokens: (event as unknown as UsageTotal).inputTokens,
+          outputTokens: (event as unknown as UsageTotal).outputTokens,
+          cacheReadTokens: (event as unknown as UsageTotal).cacheReadTokens,
+          cacheWriteTokens: (event as unknown as UsageTotal).cacheWriteTokens,
+          thinkingTokens: (event as unknown as UsageTotal).thinkingTokens,
+          estimatedCostUsd: (event as unknown as UsageTotal).estimatedCostUsd,
+        });
+        break;
 
       case 'done':
         if (event.conversationId) {
