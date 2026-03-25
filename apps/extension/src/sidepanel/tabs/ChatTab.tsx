@@ -386,7 +386,9 @@ export function ChatTab() {
         id: compactingMsgId,
         role: 'assistant' as const,
         content: '',
-        blocks: [{ type: 'text' as const, content: '*Compacting conversation...*' }],
+        blocks: [
+          { type: 'text' as const, content: '*Compacting conversation...*' },
+        ],
       },
     ]);
 
@@ -423,7 +425,12 @@ export function ChatTab() {
         setContextStatus({
           used: estimatedTokens,
           limit: contextStatus?.limit || 160_000,
-          percent: Math.min(Math.round((estimatedTokens / (contextStatus?.limit || 160_000)) * 100), 100),
+          percent: Math.min(
+            Math.round(
+              (estimatedTokens / (contextStatus?.limit || 160_000)) * 100,
+            ),
+            100,
+          ),
         });
       } else {
         const err = await res.json().catch(() => ({ error: 'Unknown error' }));
@@ -431,7 +438,15 @@ export function ChatTab() {
         setChatMessages(prev =>
           prev.map(m =>
             m.id === compactingMsgId
-              ? { ...m, blocks: [{ type: 'text' as const, content: `*Compaction failed: ${err.error}*` }] }
+              ? {
+                  ...m,
+                  blocks: [
+                    {
+                      type: 'text' as const,
+                      content: `*Compaction failed: ${err.error}*`,
+                    },
+                  ],
+                }
               : m,
           ),
         );
@@ -441,7 +456,15 @@ export function ChatTab() {
       setChatMessages(prev =>
         prev.map(m =>
           m.id === compactingMsgId
-            ? { ...m, blocks: [{ type: 'text' as const, content: '*Compaction failed — check your connection.*' }] }
+            ? {
+                ...m,
+                blocks: [
+                  {
+                    type: 'text' as const,
+                    content: '*Compaction failed — check your connection.*',
+                  },
+                ],
+              }
             : m,
         ),
       );
