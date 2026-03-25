@@ -18,6 +18,8 @@ import type {
 	ViewMode,
 } from './chat-types.js';
 import { API_URL, formatRelativeTime, formatToolLabel } from './chat-types.js';
+import { ContextSquare } from '../components/ContextSquare.js';
+import { Tooltip } from '../components/Tooltip.js';
 import { PlanPanel, ChatInput } from './chat-layout.js';
 import {
 	AssistantMessage,
@@ -605,32 +607,54 @@ export function ChatTab() {
 			{/* Context indicator + plan panel */}
 			{contextStatus && contextStatus.percent > 0 && (
 				<div className="px-3 py-1 border-b border-border flex items-center gap-2 text-[10px] text-muted-foreground">
-					<div
-						className="relative w-[14px] h-[14px] flex-shrink-0"
-						title={
-							usageTotal
-								? `Context: ${contextStatus.percent}% used\nInput: ${(usageTotal.inputTokens / 1000).toFixed(1)}K tokens\nOutput: ${(usageTotal.outputTokens / 1000).toFixed(1)}K tokens\nCached: ${(usageTotal.cacheReadTokens / 1000).toFixed(1)}K tokens\nCost: $${usageTotal.estimatedCostUsd.toFixed(4)}`
-								: `Context: ${Math.round(contextStatus.used / 1000)}K / ${Math.round(contextStatus.limit / 1000)}K tokens (${contextStatus.percent}%)`
-						}
-					>
-						{/* Square progress indicator — path starts from top-center (12 o'clock) */}
-						<svg viewBox="0 0 16 16" className="w-[14px] h-[14px]">
-							{/* Background track */}
-							<path d="M8,1 L15,1 L15,15 L1,15 L1,1 Z" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-secondary" />
-							{/* Progress fill — starts top-center, goes clockwise */}
-							<path
-								d="M8,1 L15,1 L15,15 L1,15 L1,1 L8,1" fill="none" stroke="currentColor" strokeWidth="1.5"
-								strokeDasharray={`${contextStatus.percent * 0.56} 56`}
-								strokeDashoffset="0"
-								className="text-foreground"
-							/>
-						</svg>
-					</div>
+					<ContextSquare percent={contextStatus.percent} />
 					<span className="tabular-nums">
 						{Math.round(contextStatus.used / 1000)}K / {Math.round(contextStatus.limit / 1000)}K
 					</span>
+					<Tooltip
+						side="bottom"
+						align="start"
+						content={
+							usageTotal ? (
+								<div className="space-y-1">
+									<div className="font-semibold text-foreground">Context {contextStatus.percent}% used</div>
+									<div className="space-y-0.5 text-muted-foreground">
+										<div className="flex justify-between gap-4">
+											<span>Input</span>
+											<span className="text-foreground tabular-nums">{fmtK(usageTotal.inputTokens)}</span>
+										</div>
+										<div className="flex justify-between gap-4">
+											<span>Output</span>
+											<span className="text-foreground tabular-nums">{fmtK(usageTotal.outputTokens)}</span>
+										</div>
+										{usageTotal.cacheReadTokens > 0 && (
+											<div className="flex justify-between gap-4">
+												<span>Cached</span>
+												<span className="text-foreground tabular-nums">{fmtK(usageTotal.cacheReadTokens)}</span>
+											</div>
+										)}
+									</div>
+									{usageTotal.estimatedCostUsd > 0 && (
+										<div className="flex justify-between gap-4 pt-1 mt-1 border-t border-border text-muted-foreground">
+											<span>Estimated cost</span>
+											<span className="text-foreground font-medium tabular-nums">
+												${usageTotal.estimatedCostUsd < 0.01 ? usageTotal.estimatedCostUsd.toFixed(4) : usageTotal.estimatedCostUsd.toFixed(2)}
+											</span>
+										</div>
+									)}
+								</div>
+							) : (
+								<span>Context: {Math.round(contextStatus.used / 1000)}K / {Math.round(contextStatus.limit / 1000)}K tokens</span>
+							)
+						}
+					>
+						<svg viewBox="0 0 16 16" className="w-3 h-3 text-muted-foreground/40 hover:text-muted-foreground cursor-help transition-colors">
+							<circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.5" />
+							<text x="8" y="11.5" textAnchor="middle" fill="currentColor" fontSize="9" fontWeight="600" fontFamily="system-ui">i</text>
+						</svg>
+					</Tooltip>
 					{usageTotal && usageTotal.estimatedCostUsd > 0 && (
-						<span className="ml-auto tabular-nums text-muted-foreground/60">
+						<span className="ml-auto tabular-nums text-muted-foreground/40">
 							${usageTotal.estimatedCostUsd < 0.01 ? usageTotal.estimatedCostUsd.toFixed(4) : usageTotal.estimatedCostUsd.toFixed(2)}
 						</span>
 					)}

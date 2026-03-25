@@ -756,7 +756,7 @@ export function ChatInput({
       {/* Mention chip styles */}
       <style>{`
         .mention-tab {
-          background: hsl(var(--accent));
+          background: hsl(var(--muted));
           border: 1px solid hsl(var(--border));
           color: hsl(var(--foreground));
           border-radius: 2px;
