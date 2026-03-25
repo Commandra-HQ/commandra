@@ -1,185 +1,108 @@
-# Phase 26 — Token System Management
+# Phase 28 — Token System Management
 
-> Real token tracking from providers, per-model output budgets, cost analytics, and smarter context management. Replaces estimation-only system with actual usage data.
+> Real token tracking from providers, per-model output budgets, cost analytics, smarter context management, live context indicators, and manual compaction. Replaces estimation-only system with actual usage data.
 
 ## Why
 
-The token system runs on character-based estimation (`chars / 4`) and never captures real usage from provider responses. This means:
-1. **`agent_runs.tokensUsed` is always 0** — no cost tracking per conversation, agent, or user
+The token system ran on character-based estimation (`chars / 4`) and never captured real usage from provider responses:
+1. **`agent_runs.tokensUsed` always 0** — no cost tracking per conversation, agent, or user
 2. **Same output budget (8K) for all models** — wasteful for fast models, too small for reasoning models
-3. **No pre-flight budget checks** — wasted tokens on `context_length_exceeded` errors that could be prevented
-4. **Compaction race condition** — multiple iterations can trigger `autoCompact()` simultaneously
-5. **Phase 3 trim drops critical context** — "keep first + last 4" erases the core of long conversations
-6. **No cost visibility** — users and admins have zero insight into token spend
+3. **No pre-flight budget checks** — wasted tokens on `context_length_exceeded` errors
+4. **Compaction race condition** — multiple iterations could trigger `autoCompact()` simultaneously
+5. **Phase 3 trim dropped critical context** — "keep first + last 4" erased the core of long conversations
+6. **No cost visibility** — users had zero insight into token spend
+7. **No manual compaction** — users couldn't compact on demand, only auto at 80%
+8. **Coordinator chats not tracked** — only named agents recorded usage in `agent_runs`
 
-## What Ships
+## What Shipped
 
-### 26a. Capture Real Token Usage from Providers
+### 28a. Real Token Usage from Providers
+- `TokenUsage` interface + `emptyTokenUsage()` helper + `usage` event in `StreamEvent` union
+- **Anthropic**: captures `input_tokens` + `cache_read/write` from `message_start`, `output_tokens` from `message_delta`
+- **OpenAI**: captures usage from `response.completed` event including `input_tokens_details.cached_tokens`
+- Orchestrator accumulates usage across all iterations via `accumulatedUsage`, returns in `OrchestratorResult`
+- `collectStream()` also captures and returns `usage` in `ChatResponse`
 
-**Problem:** Both Anthropic and OpenAI return `usage` data on stream completion (`message_end`), but our streaming loops ignore it.
+### 28b. Per-Model Output Budgets
+- `ModelCapabilities` interface with `contextWindow`, `maxOutputTokens`, `defaultOutputBudget`, `supportsThinking`, `defaultThinkingBudget`, `costPer1kInput`, `costPer1kOutput`, `charsPerToken`
+- `ANTHROPIC_MODEL_CAPABILITIES`: 6 entries (haiku, sonnet, opus + full model IDs)
+- `OPENAI_MODEL_CAPABILITIES`: 10 entries (gpt-4o, gpt-4.1, gpt-5, o3, o4-mini, etc.)
+- `getModelCapabilities(provider, model)` with `DEFAULT_CAPABILITIES` fallback
+- Orchestrator uses `capabilities.defaultOutputBudget` instead of hardcoded `8000`, `capabilities.defaultThinkingBudget` instead of `4000`, `capabilities.contextWindow * 0.8` instead of `if/else` provider checks
+- Models that don't support thinking get `undefined` instead of a budget (prevents sending thinking params to non-thinking models)
 
-**Changes:**
-- Add `usage` event type to `StreamEvent` in `apps/api/src/llm/types.ts`:
-  ```typescript
-  { type: 'usage', inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheWriteTokens?: number, thinkingTokens?: number }
-  ```
-- **Anthropic adapter**: capture `usage` from `message_delta` event (contains `usage.input_tokens`, `output_tokens`). Emit `usage` StreamEvent.
-- **OpenAI adapter**: capture `usage` from `response.completed` event. Emit `usage` StreamEvent.
-- **Orchestrator**: accumulate usage across iterations. Store totals on conversation completion.
-- **`recordAgentRun()`**: pass accumulated `tokensUsed` (input + output) — no longer always 0.
+### 28c. Cost Tracking & Analytics
+- 8 new columns on `agent_runs`: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens`, `estimated_cost_usd` (numeric 10,6), `model`, `provider`
+- `agent_runs.agentId` made nullable — coordinator chats record usage with `agentId: null`
+- All chats (including coordinator) now insert `agent_runs` rows with full token breakdown
+- `calculateCost()` utility: input cost + cache read (10%) + cache write (125%) + output cost
+- 3 usage API endpoints on `/api/usage`:
+  - `GET /summary` — total tokens + cost, filterable by date range + agent
+  - `GET /by-agent` — per-agent breakdown, coordinator shown as "Coordinator"
+  - `GET /by-conversation/:id` — per-conversation run detail
+- Dashboard usage page: summary cards (runs, input tokens, output tokens, cost) + per-agent table
+- "Usage" nav link in sidebar with Activity icon
 
-| File | Change |
-|------|--------|
-| `apps/api/src/llm/types.ts` | Add `usage` to `StreamEvent` union |
-| `apps/api/src/llm/providers/anthropic.ts` | Emit `usage` event from `message_delta` |
-| `apps/api/src/llm/providers/openai.ts` | Emit `usage` event from `response.completed` |
-| `apps/api/src/agent/orchestrator.ts` | Accumulate usage per iteration, pass to `recordAgentRun()` |
-| `apps/api/src/agent/self-improve.ts` | Accept and store real `tokensUsed` |
+### 28d. Compaction Safety
+- Module-level `compactionLocks` Set prevents concurrent compaction per conversation
+- `compactedThisRun` flag prevents repeated compaction in same orchestrator run
+- Lock acquired before compact, always released in `finally` block
 
-### 26b. Per-Model Output Budgets
+### 28e. Importance-Weighted Context Trimming
+- `scoreMessageImportance()`: tool calls score 4, user messages 3, plain text 1, compaction summaries 0
+- First message + last 4 always protected (score 10)
+- Messages dropped lowest-score-first until under budget
+- Placeholder inserted: `[Trimmed: N messages — last action was {toolName}]`
 
-**Problem:** `maxTokens: 8000` and `thinking.budgetTokens: 4000` are the same for every model. Fast models waste budget, reasoning models are constrained.
+### 28f. Pre-flight Token Counting
+- `countTokens()` added to `LLMProvider` interface (optional)
+- Anthropic implements via free `/v1/messages/count_tokens` endpoint
+- Orchestrator calls pre-flight when estimated context >60%; if actual >95%, trims before sending
+- `CHARS_PER_TOKEN` now settable per-provider: 4.2 for Anthropic, 3.5 for OpenAI
 
-**Changes:**
-- Add model capability metadata to provider layer:
-  ```typescript
-  interface ModelCapabilities {
-    contextWindow: number       // e.g., 200_000, 1_000_000
-    maxOutputTokens: number     // e.g., 4096, 8192, 64000
-    defaultOutputBudget: number // what we request by default
-    supportsThinking: boolean
-    defaultThinkingBudget: number
-    costPer1kInput: number      // USD
-    costPer1kOutput: number     // USD
-  }
-  ```
-- Define per-model defaults:
-  | Model Class | Output Budget | Thinking Budget | Context Window |
-  |-------------|--------------|-----------------|----------------|
-  | Fast (Haiku, GPT-4o-mini) | 2,000 | 0 | 200K |
-  | Strong (Sonnet, GPT-4o) | 8,000 | 4,000 | 200K |
-  | Reasoning (Opus, o3, GPT-5) | 16,000 | 10,000 | 1M |
-- Move `MAX_INPUT_TOKENS` from `if/else` in orchestrator to `ModelCapabilities.contextWindow` on the provider
-- `AgentConfig.llm` overrides still take precedence (existing behavior preserved)
+### 28g. Live Context Indicator in Extension
+- `usage_total` SSE event emitted at end of every orchestrator run with full `TokenUsage` + `estimatedCostUsd`
+- **ContextSquare component**: square SVG progress indicator, fills clockwise from 12 o'clock, `text-foreground` color
+- **Tooltip component**: portal-rendered to `document.body`, hover-triggered (150ms delay), opaque background via inline HSL
+- Context bar in ChatTab: square indicator + `XK / YK` + info icon with detailed tooltip (input/output/cached/cost) + cost display
+- Context estimated from loaded messages on history open (shows immediately without active orchestrator)
 
-| File | Change |
-|------|--------|
-| `apps/api/src/llm/types.ts` | Add `ModelCapabilities` interface |
-| `apps/api/src/llm/providers/anthropic.ts` | Export model capabilities map |
-| `apps/api/src/llm/providers/openai.ts` | Export model capabilities map |
-| `apps/api/src/llm/index.ts` | `getModelCapabilities(provider, model)` helper |
-| `apps/api/src/agent/orchestrator.ts` | Use capabilities for output budget + context window |
+### 28h. Manual Compaction
+- "Compact chat" in tab context menu (right-click tab → Minimize2 icon)
+- `POST /api/chat/compact`: loads conversation messages, summarizes via fast model, saves transcript to S3 via `saveCompaction()`, deletes old messages, inserts compacted summary
+- Extension: shows "*Compacting conversation...*" assistant message, replaces with styled summary on success, shows error on failure
+- Context indicator updates after compaction
 
-### 26c. Cost Tracking & Analytics
-
-**Problem:** No way to know how much any conversation, agent, or user costs.
-
-**Changes:**
-- New DB columns on `agent_runs`:
-  ```sql
-  ALTER TABLE agent_runs ADD COLUMN input_tokens integer DEFAULT 0;
-  ALTER TABLE agent_runs ADD COLUMN output_tokens integer DEFAULT 0;
-  ALTER TABLE agent_runs ADD COLUMN cache_read_tokens integer DEFAULT 0;
-  ALTER TABLE agent_runs ADD COLUMN cache_write_tokens integer DEFAULT 0;
-  ALTER TABLE agent_runs ADD COLUMN thinking_tokens integer DEFAULT 0;
-  ALTER TABLE agent_runs ADD COLUMN estimated_cost_usd numeric(10,6) DEFAULT 0;
-  ALTER TABLE agent_runs ADD COLUMN model text;
-  ALTER TABLE agent_runs ADD COLUMN provider text;
-  ```
-- Cost calculation uses `ModelCapabilities.costPer1kInput/Output` with cache discount (Anthropic cached reads = 10% of input cost)
-- New API endpoints:
-  - `GET /api/usage/summary` — total tokens + cost for current user (filterable by date range, agent)
-  - `GET /api/usage/by-agent` — breakdown per agent
-  - `GET /api/usage/by-conversation/:id` — per-conversation detail
-- Dashboard usage page showing token spend over time, per agent, per provider
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `apps/api/src/db/schema.ts` | Add columns to `agentRuns` |
-| `drizzle/migrations/` | New migration |
-| `apps/api/src/agent/self-improve.ts` | Populate all token columns + estimated cost |
-| `apps/api/src/routes/usage.ts` | New route file for usage endpoints |
-| `apps/web/app/(dashboard)/usage/page.tsx` | New dashboard page |
-| `apps/web/lib/queries/use-usage.ts` | TanStack Query hooks for usage data |
+| `apps/api/src/llm/types.ts` | `TokenUsage`, `ModelCapabilities`, `DEFAULT_CAPABILITIES`, `usage` StreamEvent, `countTokens` on LLMProvider |
+| `apps/api/src/llm/index.ts` | Export new types, `getModelCapabilities()` |
+| `apps/api/src/llm/providers/anthropic.ts` | `ANTHROPIC_MODEL_CAPABILITIES`, usage from `message_start`/`message_delta`, `countTokens()` |
+| `apps/api/src/llm/providers/openai.ts` | `OPENAI_MODEL_CAPABILITIES`, usage from `response.completed` |
+| `apps/api/src/agent/orchestrator.ts` | Per-model budgets, usage accumulation, compaction lock, pre-flight, `usage_total` SSE |
+| `apps/api/src/agent/token-budget.ts` | `setCharsPerToken()`, importance-weighted Phase 3 |
+| `apps/api/src/agent/self-improve.ts` | `calculateCost()`, extended `recordAgentRun()` with token breakdown + nullable agentId |
+| `apps/api/src/agent/scheduler.ts` | Null guard for nullable `agentId` |
+| `apps/api/src/db/schema.ts` | 8 new columns on `agentRuns`, nullable `agentId`, `numeric` import |
+| `apps/api/src/routes/chat.ts` | Record usage for all chats, `POST /compact` endpoint |
+| `apps/api/src/routes/usage.ts` | New: 3 usage API endpoints |
+| `apps/api/src/server.ts` | Register `/api/usage` routes |
+| `packages/shared/src/types/sse.ts` | `usage_total` SSE event type |
+| `apps/extension/src/sidepanel/components/ContextSquare.tsx` | New: square progress indicator |
+| `apps/extension/src/sidepanel/components/Tooltip.tsx` | New: portal-rendered tooltip |
+| `apps/extension/src/sidepanel/tabs/ChatTab.tsx` | Context bar, tooltip, manual compact, history estimation |
+| `apps/extension/src/sidepanel/tabs/use-chat-stream.ts` | `UsageTotal` type, `usage_total` handler |
+| `apps/extension/src/sidepanel/layouts/HubLayout.tsx` | "Compact chat" in tab menu |
+| `apps/web/app/(dashboard)/usage/page.tsx` | New: usage dashboard page |
+| `apps/web/lib/queries/use-usage.ts` | New: TanStack Query hooks |
+| `apps/web/components/sidebar.tsx` | "Usage" nav link |
+| `apps/api/drizzle/0021_token_tracking.sql` | Migration: token columns |
+| `apps/api/drizzle/0022_agent_runs_nullable.sql` | Migration: nullable agentId |
 
-### 26d. Compaction Safety
+## Migration Notes
 
-**Problem:** Multiple iterations can trigger `autoCompact()` simultaneously. If connection drops mid-compaction, transcript is lost.
-
-**Changes:**
-- Add in-memory compaction lock per conversation (simple `Set<string>` of conversation IDs currently compacting)
-- Save transcript to S3 **before** replacing messages (already partially done — ensure atomicity)
-- Skip compaction if lock is held — next iteration will pick it up
-- Add compaction counter to prevent repeated compaction in same orchestrator run
-
-| File | Change |
-|------|--------|
-| `apps/api/src/agent/orchestrator.ts` | Add compaction lock, save-before-replace |
-
-### 26e. Smarter Context Trimming
-
-**Problem:** Phase 3 trim ("keep first + last 4 messages") drops the middle of conversations, losing critical tool call context.
-
-**Changes:**
-- **Importance scoring** for messages during trim:
-  - Tool call messages (both request and result): high priority — preserve these
-  - User messages: high priority
-  - Plain assistant text: lower priority
-  - Already-compacted summaries: lowest priority
-- When dropping messages, generate a 1-line summary per dropped message (via string truncation, not LLM — keep it fast)
-- Insert `[Trimmed: N messages — last action was {toolName} on {target}]` placeholder
-- Preserve all messages from current task/plan step (never trim active work)
-
-| File | Change |
-|------|--------|
-| `apps/api/src/agent/token-budget.ts` | Importance-weighted Phase 3, summary placeholders |
-
-### 26f. Pre-flight Token Estimation Improvement
-
-**Problem:** `context_length_exceeded` wastes tokens on the failed call. Character-based estimation has ±20% error.
-
-**Changes:**
-- For **Anthropic**: use the free `/v1/messages/count_tokens` endpoint before sending when estimated context is >60% of limit
-  - Only call pre-flight when close to budget — don't add latency to every request
-  - Cache the system prompt token count (it doesn't change within a conversation)
-- For **OpenAI**: no free counting endpoint — continue with char estimation but use provider-specific `CHARS_PER_TOKEN` (3.5 for OpenAI vs 4.2 for Anthropic)
-- Move `CHARS_PER_TOKEN` from global constant to per-provider value in `ModelCapabilities`
-
-| File | Change |
-|------|--------|
-| `apps/api/src/llm/providers/anthropic.ts` | Add `countTokens()` method using `/v1/messages/count_tokens` |
-| `apps/api/src/llm/types.ts` | Add optional `countTokens` to `LLMProvider` interface |
-| `apps/api/src/agent/orchestrator.ts` | Pre-flight check when >60% estimated context |
-| `apps/api/src/agent/token-budget.ts` | Use per-provider chars-per-token |
-
-## Implementation Order
-
-1. **26a** first — foundation for everything else (usage data flows through the system)
-2. **26b** next — per-model budgets use the same provider metadata
-3. **26d** + **26e** together — both are orchestrator/trimming improvements
-4. **26f** — builds on provider interface changes from 26b
-5. **26c** last — requires 26a data flowing + schema migration, plus dashboard UI
-
-## Files Modified (Summary)
-
-| File | Phases |
-|------|--------|
-| `apps/api/src/llm/types.ts` | 26a, 26b, 26f |
-| `apps/api/src/llm/index.ts` | 26b |
-| `apps/api/src/llm/providers/anthropic.ts` | 26a, 26b, 26f |
-| `apps/api/src/llm/providers/openai.ts` | 26a, 26b |
-| `apps/api/src/agent/orchestrator.ts` | 26a, 26b, 26d, 26f |
-| `apps/api/src/agent/token-budget.ts` | 26e, 26f |
-| `apps/api/src/agent/self-improve.ts` | 26a, 26c |
-| `apps/api/src/db/schema.ts` | 26c |
-| `apps/api/src/routes/usage.ts` | 26c (new) |
-| `apps/web/app/(dashboard)/usage/page.tsx` | 26c (new) |
-| `apps/web/lib/queries/use-usage.ts` | 26c (new) |
-
-## What This Does NOT Include
-
-- **OpenAI prompt caching** — OpenAI handles caching automatically on their side, no client-side API needed
-- **Per-tool token budgets** — premature; current pool-based approach works fine
-- **Provider-specific tokenizers** (tiktoken) — adds dependency weight; pre-flight counting + better estimation covers 90% of the gap
-- **Per-tool-execution checkpointing** — LangGraph pattern, significant complexity for marginal crash recovery benefit
-- **Reflexion pattern** (feeding ERRORS.md into planning) — valuable but separate concern, not token management
+- Run `pnpm db:migrate` in `apps/api` to apply migrations 0021 + 0022
+- Existing `agent_runs` rows retain `0` for new token columns — only new runs populate real data
+- Coordinator runs now insert rows with `agentId: null`

@@ -72,6 +72,10 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | 27    | [Fluid Tab Context](27-fluid-tab-context.md)                        | list_tabs + switch_tab agent tools, passive tab registry (Chrome events),                                                                    | ✅ Done |
 |       |                                                                     | originTabId pinning removed, @tab mention picker (Tiptap + mention extension),                                                               |         |
 |       |                                                                     | mention chips in message bubbles, tab context in system prompt.                                                                              |         |
+| 28    | [Token System Management](28-token-system-management.md)            | Real token tracking from Anthropic/OpenAI streams, per-model output budgets                                                                  | ✅ Done |
+|       |                                                                     | (ModelCapabilities), cost tracking with usage dashboard, compaction safety,                                                                   |         |
+|       |                                                                     | importance-weighted trimming, pre-flight token counting, live context                                                                        |         |
+|       |                                                                     | indicator (ContextSquare), manual compaction, coordinator usage tracking.                                                                     |         |
 
 ---
 
