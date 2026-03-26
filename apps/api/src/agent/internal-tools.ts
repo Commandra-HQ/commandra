@@ -58,6 +58,7 @@ export const INTERNAL_TOOL_NAMES = new Set([
   'browse_storage',
   'list_tabs',
   'switch_tab',
+  'schedule_agent',
 ]);
 
 export interface InternalToolContext {
