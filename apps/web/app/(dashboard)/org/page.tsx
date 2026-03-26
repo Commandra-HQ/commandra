@@ -12,7 +12,7 @@ import {
 	useRemoveMemberMutation,
 	useUpdateMemberRoleMutation,
 } from '@/lib/queries/use-org';
-import { Building2, ExternalLink, Trash2, UserPlus } from 'lucide-react';
+import { Building2, Trash2, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 
 export default function OrgPage() {
@@ -113,8 +113,8 @@ export default function OrgPage() {
 				</div>
 			)}
 
-			{/* Invite form: only for self-hosted (non-Clerk) admins */}
-			{isAdmin && !isClerkManaged && (
+			{/* Invite form (admin only) */}
+			{isAdmin && (
 				<Card>
 					<CardHeader>
 						<CardTitle className="text-lg">Invite Member</CardTitle>
@@ -163,19 +163,6 @@ export default function OrgPage() {
 				</Card>
 			)}
 
-			{/* Clerk-managed notice for admins */}
-			{isAdmin && isClerkManaged && (
-				<Card>
-					<CardContent className="py-4">
-						<p className="text-sm text-muted-foreground">
-							Members are managed through your organization&apos;s auth provider.
-							Invite or remove members from your organization settings, and changes
-							will sync automatically.
-						</p>
-					</CardContent>
-				</Card>
-			)}
-
 			{/* Members list */}
 			<Card>
 				<CardHeader>
@@ -194,8 +181,8 @@ export default function OrgPage() {
 										{member.role}
 									</Badge>
 								</div>
-								{/* Admin controls: only for self-hosted orgs */}
-								{isAdmin && !isClerkManaged && member.userId !== user.id && (
+								{/* Admin controls */}
+								{isAdmin && member.userId !== user.id && (
 									<div className="flex items-center gap-2">
 										<Select
 											value={member.role}
