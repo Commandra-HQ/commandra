@@ -153,13 +153,25 @@ export interface ScheduledAgent extends Agent {
 	latestRun: (AgentRun & { inputTokens?: number; outputTokens?: number; estimatedCostUsd?: string }) | null;
 }
 
+export interface ScheduledTask {
+	id: string;
+	agentId: string | null;
+	agentName: string | null;
+	agentSlug: string | null;
+	task: string;
+	runAt: string;
+	status: string;
+	error: string | null;
+	createdAt: string;
+}
+
 export function useScheduledAgentsQuery() {
 	return useQuery({
 		queryKey: ['agents', 'scheduled'],
 		queryFn: async () => {
 			const res = await apiFetch('/api/agents/scheduled');
 			if (!res.ok) throw new Error('Failed to fetch scheduled agents');
-			return res.json() as Promise<{ data: ScheduledAgent[] }>;
+			return res.json() as Promise<{ data: ScheduledAgent[]; tasks: ScheduledTask[] }>;
 		},
 	});
 }

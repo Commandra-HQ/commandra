@@ -5,8 +5,9 @@ import {
 	useRunAgentNowMutation,
 	useUpdateAgentMutation,
 	type ScheduledAgent,
+	type ScheduledTask,
 } from '@/lib/queries/use-agents';
-import { CheckCircle2, Clock, Loader2, Play, Power, PowerOff, XCircle } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Clock, Loader2, Play, Power, PowerOff, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 function cronToHuman(cron: string): string {
@@ -55,6 +56,23 @@ function formatTimeAgo(dateStr: string): string {
 	return `${days}d ago`;
 }
 
+function formatRunAt(dateStr: string): string {
+	const d = new Date(dateStr);
+	const now = Date.now();
+	const diff = d.getTime() - now;
+	const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+	const dateStr2 = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+	if (diff > 0) {
+		const mins = Math.floor(diff / 60000);
+		if (mins < 60) return `${timeStr} (in ${mins}m)`;
+		const hours = Math.floor(mins / 60);
+		if (hours < 24) return `${timeStr} (in ${hours}h)`;
+		return `${dateStr2} ${timeStr}`;
+	}
+	return `${dateStr2} ${timeStr}`;
+}
+
 export default function SchedulesPage() {
 	const { data, isLoading } = useScheduledAgentsQuery();
 	const runNow = useRunAgentNowMutation();
@@ -62,6 +80,8 @@ export default function SchedulesPage() {
 	const [runningId, setRunningId] = useState<string | null>(null);
 
 	const agents = data?.data ?? [];
+	const tasks = data?.tasks ?? [];
+	const hasAny = agents.length > 0 || tasks.length > 0;
 
 	async function handleToggle(agent: ScheduledAgent) {
 		const newEnabled = agent.trigger?.enabled === false;
@@ -89,94 +109,154 @@ export default function SchedulesPage() {
 
 			{isLoading ? (
 				<p className="text-muted-foreground text-sm">Loading...</p>
-			) : agents.length === 0 ? (
-				<div className="border border-dashed border-border rounded-lg p-8 text-center">
+			) : !hasAny ? (
+				<div className="border border-dashed border-border p-8 text-center">
 					<Clock className="mx-auto h-8 w-8 text-muted-foreground/30 mb-3" />
-					<p className="text-sm text-muted-foreground">No scheduled agents yet.</p>
-					<p className="text-xs text-muted-foreground/60 mt-1">Create an agent with a cron schedule from the Agents page.</p>
+					<p className="text-sm text-muted-foreground">No scheduled jobs yet.</p>
+					<p className="text-xs text-muted-foreground/60 mt-1">Create an agent with a cron schedule, or ask an agent to schedule a task.</p>
 				</div>
 			) : (
-				<div className="space-y-3">
-					{agents.map((agent) => {
-						const trigger = agent.trigger;
-						const enabled = trigger?.enabled !== false;
-						const run = agent.latestRun;
-						const isRunning = runningId === agent.id;
+				<>
+					{/* One-time scheduled tasks */}
+					{tasks.length > 0 && (
+						<div className="space-y-3">
+							<h2 className="text-sm font-medium text-muted-foreground">Scheduled Tasks</h2>
+							{tasks.map((task) => (
+								<ScheduledTaskRow key={task.id} task={task} />
+							))}
+						</div>
+					)}
 
-						return (
-							<div key={agent.id} className="border border-border rounded-lg p-4">
-								<div className="flex items-start justify-between gap-4">
-									<div className="min-w-0 flex-1">
-										<div className="flex items-center gap-2">
-											<h3 className="font-medium text-sm truncate">{agent.name}</h3>
-											<span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-												enabled ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
-											}`}>
-												{enabled ? 'Active' : 'Paused'}
-											</span>
+					{/* Recurring cron agents */}
+					{agents.length > 0 && (
+						<div className="space-y-3">
+							<h2 className="text-sm font-medium text-muted-foreground">Recurring Schedules</h2>
+							{agents.map((agent) => {
+								const trigger = agent.trigger;
+								const enabled = trigger?.enabled !== false;
+								const run = agent.latestRun;
+								const isRunning = runningId === agent.id;
+
+								return (
+									<div key={agent.id} className="border border-border p-4">
+										<div className="flex items-start justify-between gap-4">
+											<div className="min-w-0 flex-1">
+												<div className="flex items-center gap-2">
+													<h3 className="font-medium text-sm truncate">{agent.name}</h3>
+													<span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium ${
+														enabled ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
+													}`}>
+														{enabled ? 'Active' : 'Paused'}
+													</span>
+												</div>
+												{agent.description && (
+													<p className="text-xs text-muted-foreground mt-0.5 truncate">{agent.description}</p>
+												)}
+												<div className="flex items-center gap-3 mt-2">
+													<code className="text-[11px] bg-muted px-1.5 py-0.5 font-mono">{trigger?.cron}</code>
+													<span className="text-xs text-muted-foreground">{cronToHuman(trigger?.cron ?? '')}</span>
+													{agent.domains?.length ? (
+														<span className="text-[10px] text-muted-foreground/60">{agent.domains.join(', ')}</span>
+													) : null}
+												</div>
+											</div>
+
+											<div className="flex items-center gap-1.5 flex-shrink-0">
+												<button
+													onClick={() => handleRunNow(agent.id)}
+													disabled={isRunning || !enabled}
+													className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs border border-border hover:bg-muted disabled:opacity-40 transition-colors"
+													title="Run now"
+												>
+													{isRunning ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+													Run
+												</button>
+												<button
+													onClick={() => handleToggle(agent)}
+													className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs border transition-colors ${
+														enabled
+															? 'border-border hover:bg-red-500/10 hover:text-red-600 hover:border-red-200'
+															: 'border-border hover:bg-green-500/10 hover:text-green-600 hover:border-green-200'
+													}`}
+													title={enabled ? 'Pause schedule' : 'Enable schedule'}
+												>
+													{enabled ? <PowerOff size={12} /> : <Power size={12} />}
+													{enabled ? 'Pause' : 'Enable'}
+												</button>
+											</div>
 										</div>
-										{agent.description && (
-											<p className="text-xs text-muted-foreground mt-0.5 truncate">{agent.description}</p>
+
+										{/* Latest run */}
+										{run && (
+											<div className="mt-3 pt-3 border-t border-border flex items-center gap-4 text-xs text-muted-foreground">
+												<div className="flex items-center gap-1">
+													{run.status === 'completed' ? (
+														<CheckCircle2 size={12} className="text-green-500" />
+													) : run.status === 'failed' ? (
+														<XCircle size={12} className="text-red-500" />
+													) : (
+														<Loader2 size={12} className="animate-spin" />
+													)}
+													<span className={run.status === 'failed' ? 'text-red-500' : ''}>{run.status}</span>
+												</div>
+												<span>{formatTimeAgo(run.createdAt)}</span>
+												<span>{formatDuration(run.durationMs)}</span>
+												{run.toolCalls > 0 && <span>{run.toolCalls} tools</span>}
+												{run.error && (
+													<span className="text-red-500 truncate max-w-[200px]" title={run.error}>{run.error}</span>
+												)}
+											</div>
 										)}
-										<div className="flex items-center gap-3 mt-2">
-											<code className="text-[11px] bg-muted px-1.5 py-0.5 rounded font-mono">{trigger?.cron}</code>
-											<span className="text-xs text-muted-foreground">{cronToHuman(trigger?.cron ?? '')}</span>
-											{agent.domains?.length ? (
-												<span className="text-[10px] text-muted-foreground/60">{agent.domains.join(', ')}</span>
-											) : null}
-										</div>
 									</div>
+								);
+							})}
+						</div>
+					)}
+				</>
+			)}
+		</div>
+	);
+}
 
-									<div className="flex items-center gap-1.5 flex-shrink-0">
-										<button
-											onClick={() => handleRunNow(agent.id)}
-											disabled={isRunning || !enabled}
-											className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded border border-border hover:bg-muted disabled:opacity-40 transition-colors"
-											title="Run now"
-										>
-											{isRunning ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-											Run
-										</button>
-										<button
-											onClick={() => handleToggle(agent)}
-											className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded border transition-colors ${
-												enabled
-													? 'border-border hover:bg-red-500/10 hover:text-red-600 hover:border-red-200'
-													: 'border-border hover:bg-green-500/10 hover:text-green-600 hover:border-green-200'
-											}`}
-											title={enabled ? 'Pause schedule' : 'Enable schedule'}
-										>
-											{enabled ? <PowerOff size={12} /> : <Power size={12} />}
-											{enabled ? 'Pause' : 'Enable'}
-										</button>
-									</div>
-								</div>
+function ScheduledTaskRow({ task }: { task: ScheduledTask }) {
+	const isPending = task.status === 'pending';
+	const isFailed = task.status === 'failed';
+	const isCompleted = task.status === 'completed';
+	const isRunning = task.status === 'running';
 
-								{/* Latest run */}
-								{run && (
-									<div className="mt-3 pt-3 border-t border-border flex items-center gap-4 text-xs text-muted-foreground">
-										<div className="flex items-center gap-1">
-											{run.status === 'completed' ? (
-												<CheckCircle2 size={12} className="text-green-500" />
-											) : run.status === 'failed' ? (
-												<XCircle size={12} className="text-red-500" />
-											) : (
-												<Loader2 size={12} className="animate-spin" />
-											)}
-											<span className={run.status === 'failed' ? 'text-red-500' : ''}>{run.status}</span>
-										</div>
-										<span>{formatTimeAgo(run.createdAt)}</span>
-										<span>{formatDuration(run.durationMs)}</span>
-										{run.toolCalls > 0 && <span>{run.toolCalls} tools</span>}
-										{run.error && (
-											<span className="text-red-500 truncate max-w-[200px]" title={run.error}>{run.error}</span>
-										)}
-									</div>
-								)}
-							</div>
-						);
-					})}
+	return (
+		<div className="border border-border p-4">
+			<div className="flex items-start justify-between gap-4">
+				<div className="min-w-0 flex-1">
+					<div className="flex items-center gap-2">
+						<CalendarClock size={14} className="text-muted-foreground flex-shrink-0" />
+						<h3 className="font-medium text-sm truncate">
+							{task.agentName || task.agentSlug || 'Unknown agent'}
+						</h3>
+						<span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium ${
+							isPending ? 'bg-blue-500/10 text-blue-600' :
+							isRunning ? 'bg-yellow-500/10 text-yellow-600' :
+							isCompleted ? 'bg-green-500/10 text-green-600' :
+							'bg-red-500/10 text-red-600'
+						}`}>
+							{task.status}
+						</span>
+					</div>
+					<p className="text-xs text-muted-foreground mt-1 line-clamp-2">{task.task}</p>
+					<div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+						<span className="font-medium">{formatRunAt(task.runAt)}</span>
+						<span>created {formatTimeAgo(task.createdAt)}</span>
+					</div>
 				</div>
+				<div className="flex-shrink-0">
+					{isPending && <Clock size={14} className="text-blue-500" />}
+					{isRunning && <Loader2 size={14} className="text-yellow-500 animate-spin" />}
+					{isCompleted && <CheckCircle2 size={14} className="text-green-500" />}
+					{isFailed && <XCircle size={14} className="text-red-500" />}
+				</div>
+			</div>
+			{task.error && (
+				<p className="mt-2 text-xs text-red-500 truncate" title={task.error}>{task.error}</p>
 			)}
 		</div>
 	);

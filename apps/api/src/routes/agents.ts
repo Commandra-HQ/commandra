@@ -126,11 +126,13 @@ agentRoutes.get('/scheduled', async (c) => {
 		}),
 	);
 
-	// Also get one-time scheduled tasks
+	// Also get one-time scheduled tasks with agent names
 	const tasks = await db
 		.select({
 			id: scheduledTasks.id,
 			agentId: scheduledTasks.agentId,
+			agentName: agents.name,
+			agentSlug: agents.slug,
 			task: scheduledTasks.task,
 			runAt: scheduledTasks.runAt,
 			status: scheduledTasks.status,
@@ -138,6 +140,7 @@ agentRoutes.get('/scheduled', async (c) => {
 			createdAt: scheduledTasks.createdAt,
 		})
 		.from(scheduledTasks)
+		.leftJoin(agents, eq(scheduledTasks.agentId, agents.id))
 		.where(eq(scheduledTasks.userId, user.id))
 		.orderBy(desc(scheduledTasks.runAt))
 		.limit(20);
