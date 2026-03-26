@@ -12,7 +12,7 @@ import {
 	useRemoveMemberMutation,
 	useUpdateMemberRoleMutation,
 } from '@/lib/queries/use-org';
-import { Building2, Trash2, UserPlus } from 'lucide-react';
+import { Building2, Clock, Trash2, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 
 export default function OrgPage() {
@@ -28,6 +28,7 @@ export default function OrgPage() {
 	const [success, setSuccess] = useState<string | null>(null);
 
 	const members = data?.members ?? [];
+	const pendingInvites = data?.pendingInvites ?? [];
 	const isAdmin = user?.role === 'admin';
 	const isClerkManaged = user?.isClerkManaged;
 
@@ -84,6 +85,8 @@ export default function OrgPage() {
 		);
 	}
 
+	const totalCount = members.length + pendingInvites.length;
+
 	return (
 		<div className="space-y-6">
 			{/* Org header */}
@@ -95,7 +98,8 @@ export default function OrgPage() {
 					<h2 className="text-lg font-medium">{user.orgName || 'Organization'}</h2>
 					<p className="text-xs text-muted-foreground">
 						{members.length} member{members.length !== 1 ? 's' : ''}
-						{isClerkManaged && ' · Synced from your auth provider'}
+						{pendingInvites.length > 0 && ` · ${pendingInvites.length} pending`}
+						{isClerkManaged && ' · Synced'}
 					</p>
 				</div>
 			</div>
@@ -168,7 +172,7 @@ export default function OrgPage() {
 				<CardHeader>
 					<CardTitle className="text-lg">Members</CardTitle>
 					<CardDescription>
-						{members.length} member{members.length !== 1 ? 's' : ''}
+						{members.length} active member{members.length !== 1 ? 's' : ''}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -208,6 +212,38 @@ export default function OrgPage() {
 					</div>
 				</CardContent>
 			</Card>
+
+			{/* Pending invitations */}
+			{pendingInvites.length > 0 && (
+				<Card>
+					<CardHeader>
+						<CardTitle className="text-lg">Pending Invitations</CardTitle>
+						<CardDescription>
+							{pendingInvites.length} invitation{pendingInvites.length !== 1 ? 's' : ''} awaiting acceptance
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						<div className="divide-y divide-border">
+							{pendingInvites.map((invite) => (
+								<div key={invite.id} className="flex items-center justify-between py-3">
+									<div>
+										<p className="text-sm font-medium text-muted-foreground">{invite.email}</p>
+										<div className="flex items-center gap-1.5 mt-1">
+											<Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-600">
+												<Clock size={8} className="mr-1" />
+												pending
+											</Badge>
+											<Badge variant="outline" className="text-[10px]">
+												{invite.role}
+											</Badge>
+										</div>
+									</div>
+								</div>
+							))}
+						</div>
+					</CardContent>
+				</Card>
+			)}
 		</div>
 	);
 }

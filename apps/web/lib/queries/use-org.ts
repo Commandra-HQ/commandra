@@ -9,13 +9,25 @@ export interface OrgMember {
 	createdAt: string;
 }
 
+export interface PendingInvite {
+	id: string;
+	email: string;
+	role: string;
+	status: string;
+	createdAt: number;
+}
+
 export function useOrgMembersQuery(orgId: string | null | undefined) {
 	return useQuery({
 		queryKey: ['orgMembers', orgId],
 		queryFn: async () => {
 			const res = await apiFetch(`/api/orgs/${orgId}/members`);
 			if (!res.ok) throw new Error('Failed to fetch members');
-			return res.json() as Promise<{ members: OrgMember[]; total: number }>;
+			return res.json() as Promise<{
+				members: OrgMember[];
+				pendingInvites: PendingInvite[];
+				total: number;
+			}>;
 		},
 		enabled: !!orgId,
 	});
