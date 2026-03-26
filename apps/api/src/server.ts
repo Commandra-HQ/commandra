@@ -17,6 +17,7 @@ import { settingsRoutes } from './routes/settings.js';
 import { siteRoutes } from './routes/sites.js';
 import { statsRoutes } from './routes/stats.js';
 import { storageRoutes } from './routes/storage.js';
+import { syncRoutes } from './routes/sync.js';
 import { tokenRoutes } from './routes/token.js';
 import { usageRoutes } from './routes/usage.js';
 import { initLocalStorage } from './storage/local.js';
@@ -41,7 +42,7 @@ app.use(
 			return null;
 		},
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-		allowHeaders: ['Content-Type', 'Authorization'],
+		allowHeaders: ['Content-Type', 'Authorization', 'X-Sync-Secret'],
 	}),
 );
 
@@ -56,6 +57,7 @@ app.route('/api/sites', siteRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/stats', statsRoutes);
 app.route('/api/memory', memoryRoutes);
+app.route('/api/orgs/sync', syncRoutes);
 app.route('/api/orgs', orgRoutes);
 app.route('/api/storage', storageRoutes);
 app.route('/api/agents', agentRoutes);

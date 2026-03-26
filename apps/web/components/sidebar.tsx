@@ -123,7 +123,7 @@ export function Sidebar() {
   const navItems = user?.orgId
     ? [
         ...baseNavItems,
-        { href: '/org', label: 'Organization', icon: Building2 },
+        { href: '/org', label: user.orgName || 'Organization', icon: Building2 },
       ]
     : baseNavItems;
 
