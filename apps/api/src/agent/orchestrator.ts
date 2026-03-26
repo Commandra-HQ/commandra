@@ -259,6 +259,19 @@ export async function runOrchestrator(
       accumulatedUsage.cacheReadTokens += streamResult.usage.cacheReadTokens;
       accumulatedUsage.cacheWriteTokens += streamResult.usage.cacheWriteTokens;
       accumulatedUsage.thinkingTokens += streamResult.usage.thinkingTokens;
+
+      // Emit live usage update so the client can show cost during the run
+      const caps = capabilities;
+      const { calculateCost: calcCost } = await import('./self-improve.js');
+      await onEvent({
+        type: 'usage_total',
+        inputTokens: accumulatedUsage.inputTokens,
+        outputTokens: accumulatedUsage.outputTokens,
+        cacheReadTokens: accumulatedUsage.cacheReadTokens,
+        cacheWriteTokens: accumulatedUsage.cacheWriteTokens,
+        thinkingTokens: accumulatedUsage.thinkingTokens,
+        estimatedCostUsd: calcCost(accumulatedUsage, caps),
+      });
     }
 
     if (streamResult.contextError) {

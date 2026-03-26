@@ -1,6 +1,5 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 import {
@@ -10,14 +9,13 @@ import {
   Building2,
   ChevronsLeft,
   ChevronsRight,
+  Clock,
   Globe,
   HardDrive,
   History,
   Home,
   LogOut,
-  Menu,
   Moon,
-  Settings,
   Shield,
   Sun,
   X,
@@ -28,6 +26,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+// Hook so the Topbar can open the mobile sidebar via custom DOM event
+export function useSidebarMobile() {
+  return { openMobile: () => window.dispatchEvent(new CustomEvent('sidebar-open-mobile')) };
+}
+
 
 
 const baseNavItems = [
@@ -36,10 +39,10 @@ const baseNavItems = [
   { href: '/audit', label: 'Audit Log', icon: Shield },
   { href: '/sites', label: 'Sites', icon: Globe },
   { href: '/agents', label: 'Agents', icon: Bot },
+  { href: '/schedules', label: 'Schedules', icon: Clock },
   { href: '/memory', label: 'Memory', icon: Brain },
   { href: '/storage', label: 'Storage', icon: HardDrive },
   { href: '/usage', label: 'Usage', icon: Activity },
-  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 const MIN_WIDTH = 56;
@@ -125,23 +128,18 @@ export function Sidebar() {
     : baseNavItems;
 
   const sidebarW = collapsed ? MIN_WIDTH : width;
+  // On mobile, always render expanded (never icon-only mode)
+  const isCollapsed = collapsed && !mobileOpen;
+
+  // Listen for mobile open event from Topbar
+  useEffect(() => {
+    const handler = () => setMobileOpen(true);
+    window.addEventListener('sidebar-open-mobile', handler);
+    return () => window.removeEventListener('sidebar-open-mobile', handler);
+  }, []);
 
   return (
     <>
-      {/* Mobile toggle */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="fixed top-3 left-3 z-50 md:hidden"
-        onClick={() => setMobileOpen(!mobileOpen)}
-      >
-        {mobileOpen ? (
-          <X size={18} strokeWidth={1.5} />
-        ) : (
-          <Menu size={18} strokeWidth={1.5} />
-        )}
-      </Button>
-
       {/* Overlay */}
       {mobileOpen && (
         <div
@@ -156,7 +154,7 @@ export function Sidebar() {
         ref={sidebarRef}
         className={cn(
           'fixed inset-y-0 left-0 z-40 flex flex-col bg-surface border-r border-border md:translate-x-0 md:static select-none overflow-hidden',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          mobileOpen ? 'translate-x-0 !w-[220px]' : '-translate-x-full',
           isResizing ? '' : 'transition-all duration-200',
         )}
         style={{ width: sidebarW }}
@@ -165,15 +163,15 @@ export function Sidebar() {
         <div
           className={cn(
             'flex items-center h-12 border-b border-border flex-shrink-0',
-            collapsed ? 'justify-center px-0' : 'justify-between px-3',
+            isCollapsed ? 'justify-center px-0' : 'justify-between px-3',
           )}
           onMouseEnter={() => setLogoHovered(true)}
           onMouseLeave={() => setLogoHovered(false)}
         >
-          {!collapsed && (
+          {!isCollapsed && (
             <div className="flex items-center gap-2">
               <VoxelLogo
-                size={collapsed ? 18 : 20}
+                size={isCollapsed ? 18 : 20}
                 className="text-foreground flex-shrink-0"
                 hovered={logoHovered}
               />
@@ -183,7 +181,7 @@ export function Sidebar() {
               </span>
             </div>
           )}
-          {!collapsed && (
+          {!isCollapsed && !mobileOpen && (
             <button
               onClick={toggleCollapsed}
               className="p-1 text-muted-foreground hover:text-foreground transition-colors"
@@ -192,7 +190,16 @@ export function Sidebar() {
               <ChevronsLeft size={14} strokeWidth={1.5} />
             </button>
           )}
-          {collapsed && (
+          {mobileOpen && (
+            <button
+              onClick={() => setMobileOpen(false)}
+              className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+              title="Close menu"
+            >
+              <X size={14} strokeWidth={1.5} />
+            </button>
+          )}
+          {isCollapsed && (
             <button
               onClick={toggleCollapsed}
               className="w-full flex items-center justify-center p-3 text-muted-foreground hover:text-foreground hover:bg-elevated transition-colors"
@@ -207,7 +214,7 @@ export function Sidebar() {
         <nav
           className={cn(
             'flex-1 py-2 space-y-0.5 overflow-y-auto',
-            collapsed ? 'px-1' : 'px-2',
+            isCollapsed ? 'px-1' : 'px-2',
           )}
         >
           {navItems.map(item => {
@@ -220,10 +227,10 @@ export function Sidebar() {
                 key={item.href}
                 href={item.href}
                 onClick={() => setMobileOpen(false)}
-                title={collapsed ? item.label : undefined}
+                title={isCollapsed ? item.label : undefined}
                 className={cn(
                   'flex items-center text-sm font-medium transition-colors',
-                  collapsed ? 'justify-center p-2' : 'gap-3 px-3 py-1.5',
+                  isCollapsed ? 'justify-center p-2' : 'gap-3 px-3 py-1.5',
                   isActive
                     ? 'bg-elevated text-foreground'
                     : 'text-muted-foreground hover:bg-elevated/50 hover:text-foreground',
@@ -234,7 +241,7 @@ export function Sidebar() {
                   strokeWidth={1.5}
                   className="flex-shrink-0"
                 />
-                {!collapsed && <span className="truncate">{item.label}</span>}
+                {!isCollapsed && <span className="truncate">{item.label}</span>}
               </Link>
             );
           })}
@@ -242,12 +249,12 @@ export function Sidebar() {
 
         {/* Bottom: theme + user */}
         <div className="flex-shrink-0">
-          <div className={cn('h-px bg-border', collapsed ? 'mx-1' : 'mx-2')} />
+          <div className={cn('h-px bg-border', isCollapsed ? 'mx-1' : 'mx-2')} />
 
           <div
             className={cn(
               'flex items-center',
-              collapsed ? 'flex-col gap-1 py-2' : 'gap-2 px-3 py-2',
+              isCollapsed ? 'flex-col gap-1 py-2' : 'gap-2 px-3 py-2',
             )}
           >
             {/* Theme toggle */}
@@ -265,7 +272,7 @@ export function Sidebar() {
               </button>
             )}
 
-            {!collapsed && (
+            {!isCollapsed && (
               <>
                 {/* User */}
                 <div className="flex-1 min-w-0">

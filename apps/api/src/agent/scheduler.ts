@@ -9,10 +9,10 @@
  * - Jitter (0-30s random delay to prevent thundering herd)
  */
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, lte, sql } from 'drizzle-orm';
 import type { SSEEvent } from '@afe/shared';
 import { db } from '../db/index.js';
-import { agentRuns, agents, conversations, messages as messagesTable } from '../db/schema.js';
+import { agentRuns, agents, conversations, messages as messagesTable, scheduledTasks } from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
 import { collectStream } from '../llm/types.js';
 import { loadDomainKnowledgeFromS3 } from '../memory/domain.js';
@@ -52,6 +52,46 @@ export function startScheduler(): void {
 	if (intervalId) return;
 	console.log('[Scheduler] Starting agent scheduler (60s interval)');
 	intervalId = setInterval(tick, SCHEDULER_INTERVAL);
+}
+
+/**
+ * Trigger an immediate run of a scheduled agent (used by "Run Now" API).
+ * Returns the conversation ID so the caller can track the run.
+ */
+export async function runAgentNow(agentId: string, userId: string): Promise<{ conversationId: string } | { error: string }> {
+	const connectionId = getConnectionByUser(userId);
+	if (!connectionId) {
+		return { error: 'Browser not connected — open the extension to run agents' };
+	}
+
+	const [agent] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1);
+	if (!agent || agent.userId !== userId) {
+		return { error: 'Agent not found' };
+	}
+
+	if (runningAgents.has(agentId)) {
+		return { error: 'Agent is already running' };
+	}
+
+	// Fire and forget — returns immediately with conversation ID
+	// We create the conversation here so we can return the ID
+	const taskMessage = `Execute your task now (manual trigger): ${agent.description}`;
+	const [conv] = await db
+		.insert(conversations)
+		.values({ userId, title: `[Manual] ${agent.name}` })
+		.returning();
+	await db.insert(messagesTable).values({
+		conversationId: conv.id,
+		role: 'user',
+		content: taskMessage,
+	});
+
+	// Run in background
+	runScheduledAgent(agent, connectionId).catch((err) =>
+		console.error(`[Scheduler] Manual run for "${agent.slug}" failed:`, err),
+	);
+
+	return { conversationId: conv.id };
 }
 
 export function stopScheduler(): void {
@@ -116,8 +156,64 @@ export async function onUserReconnected(userId: string, connectionId: string): P
 	}
 }
 
+/**
+ * Process one-time scheduled tasks whose runAt has passed.
+ */
+async function processScheduledTasks(): Promise<void> {
+	const now = new Date();
+	const pending = await db
+		.select()
+		.from(scheduledTasks)
+		.where(and(eq(scheduledTasks.status, 'pending'), lte(scheduledTasks.runAt, now)))
+		.limit(10);
+
+	for (const task of pending) {
+		// Mark as running
+		await db.update(scheduledTasks).set({ status: 'running' }).where(eq(scheduledTasks.id, task.id));
+
+		const connectionId = getConnectionByUser(task.userId);
+		if (!connectionId) {
+			console.log(`[Scheduler] Skipping scheduled task "${task.id}" — user not connected`);
+			continue; // Will retry on next tick (still pending → running, reset below)
+		}
+
+		if (!task.agentId) {
+			await db.update(scheduledTasks).set({ status: 'failed', error: 'No agent specified' }).where(eq(scheduledTasks.id, task.id));
+			continue;
+		}
+
+		const [agent] = await db.select().from(agents).where(eq(agents.id, task.agentId)).limit(1);
+		if (!agent) {
+			await db.update(scheduledTasks).set({ status: 'failed', error: 'Agent not found' }).where(eq(scheduledTasks.id, task.id));
+			continue;
+		}
+
+		console.log(`[Scheduler] Running scheduled task "${task.id}" — agent: ${agent.slug}, task: ${task.task}`);
+
+		try {
+			await runScheduledAgent(agent, connectionId);
+			await db.update(scheduledTasks).set({ status: 'completed' }).where(eq(scheduledTasks.id, task.id));
+			console.log(`[Scheduler] Scheduled task "${task.id}" completed`);
+		} catch (err) {
+			const errMsg = err instanceof Error ? err.message : String(err);
+			await db.update(scheduledTasks).set({ status: 'failed', error: errMsg }).where(eq(scheduledTasks.id, task.id));
+			console.error(`[Scheduler] Scheduled task "${task.id}" failed:`, errMsg);
+		}
+	}
+
+	// Reset "running" tasks that have been stuck for >5 minutes back to pending (crash recovery)
+	const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
+	await db
+		.update(scheduledTasks)
+		.set({ status: 'pending' })
+		.where(and(eq(scheduledTasks.status, 'running'), lte(scheduledTasks.runAt, fiveMinAgo)));
+}
+
 async function tick(): Promise<void> {
 	try {
+		// Process one-time scheduled tasks whose runAt has passed
+		await processScheduledTasks();
+
 		// Process retries first
 		await processRetries();
 

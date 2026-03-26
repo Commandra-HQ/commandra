@@ -17,12 +17,22 @@ export function clickInPage(
     l: string,
     et: string,
   ): { element: Element | null; usedSelector: string; method: string } {
-    let el = document.querySelector(s);
+    // Safe querySelector — handles special chars like colons in Gmail IDs (#:vd)
+    function safeQS(sel: string): Element | null {
+      try { return document.querySelector(sel); } catch {
+        if (sel.startsWith('#')) {
+          const id = sel.slice(1);
+          try { return document.querySelector(`#${CSS.escape(id)}`); } catch { return document.getElementById(id); }
+        }
+        return null;
+      }
+    }
+    let el = safeQS(s);
     if (el) return { element: el, usedSelector: s, method: 'primary' };
     const fbs = fb ? fb.split('|||') : [];
     for (const f of fbs) {
       if (!f) continue;
-      el = document.querySelector(f);
+      el = safeQS(f);
       if (el) return { element: el, usedSelector: f, method: 'fallback' };
     }
     if (!l) return { element: null, usedSelector: s, method: 'none' };
@@ -117,12 +127,22 @@ export function typeInPage(
     l: string,
     et: string,
   ): { element: Element | null; usedSelector: string; method: string } {
-    let el = document.querySelector(s);
+    // Safe querySelector — handles special chars like colons in Gmail IDs (#:vd)
+    function safeQS(sel: string): Element | null {
+      try { return document.querySelector(sel); } catch {
+        if (sel.startsWith('#')) {
+          const id = sel.slice(1);
+          try { return document.querySelector(`#${CSS.escape(id)}`); } catch { return document.getElementById(id); }
+        }
+        return null;
+      }
+    }
+    let el = safeQS(s);
     if (el) return { element: el, usedSelector: s, method: 'primary' };
     const fbs = fb ? fb.split('|||') : [];
     for (const f of fbs) {
       if (!f) continue;
-      el = document.querySelector(f);
+      el = safeQS(f);
       if (el) return { element: el, usedSelector: f, method: 'fallback' };
     }
     if (!l) return { element: null, usedSelector: s, method: 'none' };
@@ -255,12 +275,22 @@ export function selectInPage(
     l: string,
     et: string,
   ): { element: Element | null; usedSelector: string; method: string } {
-    let el = document.querySelector(s);
+    // Safe querySelector — handles special chars like colons in Gmail IDs (#:vd)
+    function safeQS(sel: string): Element | null {
+      try { return document.querySelector(sel); } catch {
+        if (sel.startsWith('#')) {
+          const id = sel.slice(1);
+          try { return document.querySelector(`#${CSS.escape(id)}`); } catch { return document.getElementById(id); }
+        }
+        return null;
+      }
+    }
+    let el = safeQS(s);
     if (el) return { element: el, usedSelector: s, method: 'primary' };
     const fbs = fb ? fb.split('|||') : [];
     for (const f of fbs) {
       if (!f) continue;
-      el = document.querySelector(f);
+      el = safeQS(f);
       if (el) return { element: el, usedSelector: f, method: 'fallback' };
     }
     if (!l) return { element: null, usedSelector: s, method: 'none' };

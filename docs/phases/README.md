@@ -76,6 +76,8 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 |       |                                                                     | (ModelCapabilities), cost tracking with usage dashboard, compaction safety,                                                                   |         |
 |       |                                                                     | importance-weighted trimming, pre-flight token counting, live context                                                                        |         |
 |       |                                                                     | indicator (ContextSquare), manual compaction, coordinator usage tracking.                                                                     |         |
+| 29    | [Scheduled Jobs Dashboard](29-scheduled-jobs-dashboard.md)          | Dedicated schedules page with all cron agents, run/pause/run-now controls,                                                                   | ✅ Done |
+|       |                                                                     | latest run status, `POST /agents/:id/run-now` endpoint, `GET /agents/scheduled` endpoint.                                                    |         |
 
 ---
 

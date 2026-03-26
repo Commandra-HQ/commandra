@@ -214,7 +214,7 @@ export function buildSystemPrompt(
 	// Inject today's date
 	const now = new Date();
 	const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-	const dateStr = `**Today:** ${dayNames[now.getDay()]}, ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} (${now.toISOString().slice(0, 10)})`;
+	const dateStr = `**Today:** ${dayNames[now.getDay()]}, ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} (${now.toISOString().slice(0, 10)})\n**Current time:** ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} (${now.toISOString()})`;
 
 	if (!pageIndex) {
 		return `${basePrompt}

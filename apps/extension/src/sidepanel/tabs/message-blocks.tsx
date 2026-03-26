@@ -295,7 +295,7 @@ export function InlineApprovalBlock({
 
 	if (responded) {
 		return (
-			<div className={`rounded-md px-3 py-2 text-xs border ${responded === 'approved' ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
+			<div className={`px-3 py-2 text-xs border ${responded === 'approved' ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
 				{responded === 'approved' ? (
 					<span className="text-green-500 font-medium">Approved</span>
 				) : (
@@ -309,7 +309,7 @@ export function InlineApprovalBlock({
 	}
 
 	return (
-		<div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2.5 space-y-2">
+		<div className="border border-yellow-500/30 bg-yellow-500/5 px-3 py-2.5 space-y-2">
 			{type === 'tool' ? (
 				<>
 					<p className="text-xs font-medium text-foreground">
@@ -324,7 +324,7 @@ export function InlineApprovalBlock({
 					<p className="text-xs font-semibold text-foreground">Create Agent: {label}</p>
 					{reason && <p className="text-[11px] text-muted-foreground">{reason}</p>}
 					{agentPreview && (
-						<div className="mt-1 p-2 rounded bg-secondary/50 text-[11px] space-y-1">
+						<div className="mt-1 p-2 bg-secondary/50 text-[11px] space-y-1">
 							<div><span className="text-muted-foreground">Slug:</span> <code className="font-mono">{agentPreview.slug}</code></div>
 							{agentPreview.domains?.length ? (
 								<div><span className="text-muted-foreground">Domains:</span> {agentPreview.domains.join(', ')}</div>
@@ -351,13 +351,13 @@ export function InlineApprovalBlock({
 			<div className="flex gap-2">
 				<button
 					onClick={() => handleClick(true)}
-					className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
+					className="px-3 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700"
 				>
 					{type === 'plan' ? 'Approve Plan' : type === 'agent' ? 'Create Agent' : 'Approve'}
 				</button>
 				<button
 					onClick={() => handleClick(false)}
-					className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700"
+					className="px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700"
 				>
 					Reject
 				</button>

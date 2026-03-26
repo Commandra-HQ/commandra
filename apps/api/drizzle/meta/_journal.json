@@ -162,6 +162,13 @@
       "when": 1775020800000,
       "tag": "0022_agent_runs_nullable",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1775107200000,
+      "tag": "0023_scheduled_tasks",
+      "breakpoints": true
     }
   ]
 }

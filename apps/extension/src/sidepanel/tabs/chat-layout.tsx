@@ -226,7 +226,7 @@ function PlanHeaderButton({
     <button
       type="button"
       onClick={onToggle}
-      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ${
+      className={`flex items-center gap-1.5 px-2 py-1 text-xs transition-colors ${
         showPlanPanel
           ? 'bg-secondary text-foreground'
           : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -330,7 +330,7 @@ export function PlanPanel({
             {planState.description}
           </p>
           <span
-            className={`text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-full ${
+            className={`text-[10px] font-semibold tabular-nums px-1.5 py-0.5 ${
               allDone && !failed
                 ? 'bg-green-500/15 text-green-400'
                 : allDone && failed > 0
@@ -343,7 +343,7 @@ export function PlanPanel({
           <button
             type="button"
             onClick={onClose}
-            className="p-0.5 text-muted-foreground/50 hover:text-muted-foreground rounded transition-colors"
+            className="p-0.5 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
           >
             <X size={11} />
           </button>
@@ -360,7 +360,7 @@ export function PlanPanel({
             return (
               <div
                 key={`plan-step-${i}`}
-                className={`flex items-center gap-2 px-2 py-1 rounded-md text-[11px] transition-all ${
+                className={`flex items-center gap-2 px-2 py-1 text-[11px] transition-all ${
                   isRunning ? 'bg-blue-500/8' : isFailed ? 'bg-red-500/8' : ''
                 }`}
               >
@@ -372,7 +372,7 @@ export function PlanPanel({
                   ) : isFailed ? (
                     <AlertCircle size={13} className="text-red-400" />
                   ) : (
-                    <div className="w-[7px] h-[7px] rounded-full border-[1.5px] border-muted-foreground/30" />
+                    <div className="w-[7px] h-[7px] border-[1.5px] border-muted-foreground/30" />
                   )}
                 </span>
                 <span

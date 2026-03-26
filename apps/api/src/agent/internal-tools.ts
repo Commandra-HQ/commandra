@@ -6,7 +6,7 @@
 import type { AgentConfig, SSEEvent } from '@afe/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { conversations } from '../db/schema.js';
+import { agents, conversations, scheduledTasks } from '../db/schema.js';
 import { searchUserMemories } from '../db/vector-search.js';
 import type { ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { appendDomainWorkflow } from '../memory/domain.js';
@@ -58,6 +58,7 @@ export const INTERNAL_TOOL_NAMES = new Set([
   'browse_storage',
   'list_tabs',
   'switch_tab',
+  'schedule_agent',
 ]);
 
 export interface InternalToolContext {
@@ -122,6 +123,8 @@ export async function executeInternalTool(
       return handleListTabs(block, ctx);
     case 'switch_tab':
       return handleSwitchTab(block, ctx);
+    case 'schedule_agent':
+      return handleScheduleAgent(block, ctx);
     default:
       return null;
   }
@@ -543,9 +546,10 @@ async function handleCreateAgent(
     // Approval gate — ask user before creating an agent (skip for autonomous)
     const autoApprove = ctx.autonomy === 'autonomous';
     if (!autoApprove) {
+      const agentApprovalId = `${block.id}-agent-approval`;
       await ctx.onEvent({
         type: 'approval_inline',
-        requestId: `${block.id}-agent-approval`,
+        requestId: agentApprovalId,
         action: 'create_agent',
         label: `Create agent "${args.name}" (${args.slug})`,
         reason: args.description,
@@ -568,7 +572,7 @@ async function handleCreateAgent(
         soul: args.soul.slice(0, 500),
         domains: args.domains,
         cron: args.cron,
-      });
+      }, 60000, agentApprovalId);
 
       if (!approval.approved) {
         return successResult(block.id, {
@@ -710,10 +714,11 @@ async function handleSubmitPlan(
     const autoApprovePlan =
       ctx.autonomy === 'trusted' || ctx.autonomy === 'autonomous';
 
+    const planApprovalId = `${block.id}-plan-approval`;
     if (!autoApprovePlan) {
       await ctx.onEvent({
         type: 'approval_inline',
-        requestId: `${block.id}-plan-approval`,
+        requestId: planApprovalId,
         action: 'submit_plan',
         label: args.description,
         reason: `Plan with ${args.steps.length} steps`,
@@ -729,7 +734,7 @@ async function handleSubmitPlan(
           planId,
           description: args.description,
           steps: plan.steps.map((s) => s.label),
-        });
+        }, 60000, planApprovalId);
 
     if (approval.approved) {
       if (ctx.conversationId) {
@@ -1077,6 +1082,92 @@ async function handleSwitchTab(
       ...(data.data as object),
       note: 'All subsequent actions will target this tab. Use get_page_state or refresh_page_state to see the page elements.',
     });
+  } catch (err) {
+    return errorResult(block.id, err);
+  }
+}
+
+async function handleScheduleAgent(
+  block: ToolUseBlock,
+  ctx: InternalToolContext,
+): Promise<ToolResultBlock> {
+  const args = block.input as {
+    agentSlug: string;
+    task: string;
+    runAt?: string;
+    cron?: string;
+  };
+
+  if (!args.agentSlug || !args.task) {
+    return errorResult(block.id, new Error('agentSlug and task are required'));
+  }
+  if (!args.runAt && !args.cron) {
+    return errorResult(block.id, new Error('Either runAt (ISO datetime for one-time) or cron (expression for recurring) is required'));
+  }
+
+  try {
+    // Find the agent by slug
+    const [agent] = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.slug, args.agentSlug))
+      .limit(1);
+
+    if (!agent) {
+      return errorResult(block.id, new Error(`Agent "${args.agentSlug}" not found. Check the slug.`));
+    }
+    if (agent.userId !== ctx.userId) {
+      return errorResult(block.id, new Error(`Agent "${args.agentSlug}" does not belong to you.`));
+    }
+
+    // One-time task via runAt
+    if (args.runAt) {
+      const runAt = new Date(args.runAt);
+      if (isNaN(runAt.getTime())) {
+        return errorResult(block.id, new Error(`Invalid runAt datetime: "${args.runAt}". Use ISO 8601 format.`));
+      }
+      if (runAt.getTime() < Date.now() - 5000) {
+        return errorResult(block.id, new Error('runAt must be in the future.'));
+      }
+
+      const [task] = await db.insert(scheduledTasks).values({
+        userId: ctx.userId,
+        agentId: agent.id,
+        task: args.task,
+        runAt,
+        status: 'pending',
+      }).returning();
+
+      return successResult(block.id, {
+        scheduled: true,
+        type: 'one-time',
+        taskId: task.id,
+        agentSlug: args.agentSlug,
+        agentName: agent.name,
+        runAt: runAt.toISOString(),
+        task: args.task,
+        note: `Task scheduled. Agent "${agent.name}" will run at ${runAt.toLocaleString()}. The user's browser must be open with the extension running.`,
+      });
+    }
+
+    // Recurring via cron
+    if (args.cron) {
+      await db.update(agents).set({
+        trigger: { cron: args.cron, enabled: true },
+      }).where(eq(agents.id, agent.id));
+
+      return successResult(block.id, {
+        scheduled: true,
+        type: 'recurring',
+        agentSlug: args.agentSlug,
+        agentName: agent.name,
+        cron: args.cron,
+        task: args.task,
+        note: `Recurring schedule set on agent "${agent.name}" with cron: ${args.cron}. The agent's description will be used as the task. The user's browser must be open with the extension running.`,
+      });
+    }
+
+    return errorResult(block.id, new Error('Unreachable'));
   } catch (err) {
     return errorResult(block.id, err);
   }

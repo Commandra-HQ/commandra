@@ -4,7 +4,7 @@ import type { HTMLAttributes } from 'react';
 function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 	return (
 		<div
-			className={cn('border border-border bg-card text-card-foreground', className)}
+			className={cn('border border-border bg-card text-card-foreground overflow-hidden', className)}
 			{...props}
 		/>
 	);

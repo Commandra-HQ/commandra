@@ -28,7 +28,7 @@ import {
   UserMessage,
 } from './message-blocks.js';
 import { useChatStream, type UsageTotal } from './use-chat-stream.js';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, ListChecks } from 'lucide-react';
 
 export function ChatTab() {
   const { conversationId: externalConvId } = useParams<{
@@ -259,17 +259,6 @@ export function ChatTab() {
             },
           ]);
         }
-        const approvalPayload = req.payload;
-        const isPlan = approvalPayload.type === 'plan_approval';
-        const approvalContent = isPlan
-          ? `__approval__:plan:${req.requestId}:${approvalPayload.description}:${(approvalPayload.steps as string[]).join('|')}`
-          : `__approval__:tool:${req.requestId}:${(approvalPayload as unknown as ApprovalRequest).action}:${(approvalPayload as unknown as ApprovalRequest).label || ''}:${(approvalPayload as unknown as ApprovalRequest).reason}`;
-
-        blocksRef.current.push({
-          type: 'text' as const,
-          content: approvalContent,
-        });
-        scheduleFlush();
       } else if (message.type === 'ELEMENT_SELECTED') {
         const els = message.payload as SelectedElement[];
         setSelectedElements(els);
@@ -386,7 +375,9 @@ export function ChatTab() {
         id: compactingMsgId,
         role: 'assistant' as const,
         content: '',
-        blocks: [{ type: 'text' as const, content: '*Compacting conversation...*' }],
+        blocks: [
+          { type: 'text' as const, content: '*Compacting conversation...*' },
+        ],
       },
     ]);
 
@@ -423,7 +414,12 @@ export function ChatTab() {
         setContextStatus({
           used: estimatedTokens,
           limit: contextStatus?.limit || 160_000,
-          percent: Math.min(Math.round((estimatedTokens / (contextStatus?.limit || 160_000)) * 100), 100),
+          percent: Math.min(
+            Math.round(
+              (estimatedTokens / (contextStatus?.limit || 160_000)) * 100,
+            ),
+            100,
+          ),
         });
       } else {
         const err = await res.json().catch(() => ({ error: 'Unknown error' }));
@@ -431,7 +427,15 @@ export function ChatTab() {
         setChatMessages(prev =>
           prev.map(m =>
             m.id === compactingMsgId
-              ? { ...m, blocks: [{ type: 'text' as const, content: `*Compaction failed: ${err.error}*` }] }
+              ? {
+                  ...m,
+                  blocks: [
+                    {
+                      type: 'text' as const,
+                      content: `*Compaction failed: ${err.error}*`,
+                    },
+                  ],
+                }
               : m,
           ),
         );
@@ -441,7 +445,15 @@ export function ChatTab() {
       setChatMessages(prev =>
         prev.map(m =>
           m.id === compactingMsgId
-            ? { ...m, blocks: [{ type: 'text' as const, content: '*Compaction failed — check your connection.*' }] }
+            ? {
+                ...m,
+                blocks: [
+                  {
+                    type: 'text' as const,
+                    content: '*Compaction failed — check your connection.*',
+                  },
+                ],
+              }
             : m,
         ),
       );
@@ -837,8 +849,18 @@ export function ChatTab() {
           >
             <ChevronDown size={12} />
           </Tooltip>
+          {planState && !showPlanPanel && (
+            <button
+              type="button"
+              onClick={() => setShowPlanPanel(true)}
+              className="ml-auto p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              title="Show plan"
+            >
+              <ListChecks size={13} />
+            </button>
+          )}
           {usageTotal && usageTotal.estimatedCostUsd > 0 && (
-            <span className="ml-auto tabular-nums text-muted-foreground/40">
+            <span className={`tabular-nums text-muted-foreground/40 ${planState && !showPlanPanel ? '' : 'ml-auto'}`}>
               $
               {usageTotal.estimatedCostUsd < 0.01
                 ? usageTotal.estimatedCostUsd.toFixed(4)
