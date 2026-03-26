@@ -64,10 +64,7 @@ function SiteCard({ site }: { site: Site }) {
 	return (
 		<div className="border border-border hover:border-foreground/10 transition-colors">
 			{/* Header */}
-			<button
-				onClick={loadPages}
-				className="w-full p-4 flex items-start gap-3 text-left"
-			>
+			<button onClick={loadPages} className="w-full p-4 flex items-start gap-3 text-left">
 				<div className="mt-0.5">
 					{expanded ? (
 						<ChevronDown size={14} className="text-muted-foreground" />
@@ -86,9 +83,7 @@ function SiteCard({ site }: { site: Site }) {
 						<span>{site.totalElements} elements</span>
 						<span className="text-border">|</span>
 						<span>
-							{site.lastCrawledAt
-								? `indexed ${timeAgo(site.lastCrawledAt)}`
-								: 'not crawled'}
+							{site.lastCrawledAt ? `indexed ${timeAgo(site.lastCrawledAt)}` : 'not crawled'}
 						</span>
 						<span className="text-border">|</span>
 						<Link
@@ -134,7 +129,9 @@ function SiteCard({ site }: { site: Site }) {
 												<Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
 													{page.pageType || 'other'}
 												</Badge>
-												<span className="text-muted-foreground font-mono">{elemCount} elements</span>
+												<span className="text-muted-foreground font-mono">
+													{elemCount} elements
+												</span>
 												{page.lastIndexedAt && (
 													<span className="text-muted-foreground font-mono">
 														{timeAgo(page.lastIndexedAt)}

@@ -9,10 +9,16 @@
  * - Jitter (0-30s random delay to prevent thundering herd)
  */
 
-import { and, eq, lte, sql } from 'drizzle-orm';
 import type { SSEEvent } from '@afe/shared';
+import { and, eq, lte, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { agentRuns, agents, conversations, messages as messagesTable, scheduledTasks } from '../db/schema.js';
+import {
+	agentRuns,
+	agents,
+	conversations,
+	messages as messagesTable,
+	scheduledTasks,
+} from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
 import { collectStream } from '../llm/types.js';
 import { loadDomainKnowledgeFromS3 } from '../memory/domain.js';
@@ -59,7 +65,10 @@ export function startScheduler(): void {
  * Trigger an immediate run of a scheduled agent (used by "Run Now" API).
  * Returns the conversation ID so the caller can track the run.
  */
-export async function runAgentNow(agentId: string, userId: string): Promise<{ conversationId: string } | { error: string }> {
+export async function runAgentNow(
+	agentId: string,
+	userId: string,
+): Promise<{ conversationId: string } | { error: string }> {
 	const connectionId = getConnectionByUser(userId);
 	if (!connectionId) {
 		return { error: 'Browser not connected — open the extension to run agents' };
@@ -116,7 +125,9 @@ export async function onUserReconnected(userId: string, connectionId: string): P
 
 		if (queued.length === 0) return;
 
-		console.log(`[Scheduler] User ${userId.slice(0, 8)} reconnected — ${queued.length} queued runs`);
+		console.log(
+			`[Scheduler] User ${userId.slice(0, 8)} reconnected — ${queued.length} queued runs`,
+		);
 
 		for (const run of queued) {
 			// Skip stale queued runs (older than 24h)
@@ -131,11 +142,7 @@ export async function onUserReconnected(userId: string, connectionId: string): P
 
 			// Load the agent (skip coordinator runs — they have null agentId)
 			if (!run.agentId) continue;
-			const [agent] = await db
-				.select()
-				.from(agents)
-				.where(eq(agents.id, run.agentId))
-				.limit(1);
+			const [agent] = await db.select().from(agents).where(eq(agents.id, run.agentId)).limit(1);
 
 			if (!agent) continue;
 
@@ -170,7 +177,10 @@ async function processScheduledTasks(): Promise<void> {
 
 	for (const task of pending) {
 		// Mark as running
-		await db.update(scheduledTasks).set({ status: 'running' }).where(eq(scheduledTasks.id, task.id));
+		await db
+			.update(scheduledTasks)
+			.set({ status: 'running' })
+			.where(eq(scheduledTasks.id, task.id));
 
 		const connectionId = getConnectionByUser(task.userId);
 		if (!connectionId) {
@@ -179,25 +189,39 @@ async function processScheduledTasks(): Promise<void> {
 		}
 
 		if (!task.agentId) {
-			await db.update(scheduledTasks).set({ status: 'failed', error: 'No agent specified' }).where(eq(scheduledTasks.id, task.id));
+			await db
+				.update(scheduledTasks)
+				.set({ status: 'failed', error: 'No agent specified' })
+				.where(eq(scheduledTasks.id, task.id));
 			continue;
 		}
 
 		const [agent] = await db.select().from(agents).where(eq(agents.id, task.agentId)).limit(1);
 		if (!agent) {
-			await db.update(scheduledTasks).set({ status: 'failed', error: 'Agent not found' }).where(eq(scheduledTasks.id, task.id));
+			await db
+				.update(scheduledTasks)
+				.set({ status: 'failed', error: 'Agent not found' })
+				.where(eq(scheduledTasks.id, task.id));
 			continue;
 		}
 
-		console.log(`[Scheduler] Running scheduled task "${task.id}" — agent: ${agent.slug}, task: ${task.task}`);
+		console.log(
+			`[Scheduler] Running scheduled task "${task.id}" — agent: ${agent.slug}, task: ${task.task}`,
+		);
 
 		try {
 			await runScheduledAgent(agent, connectionId);
-			await db.update(scheduledTasks).set({ status: 'completed' }).where(eq(scheduledTasks.id, task.id));
+			await db
+				.update(scheduledTasks)
+				.set({ status: 'completed' })
+				.where(eq(scheduledTasks.id, task.id));
 			console.log(`[Scheduler] Scheduled task "${task.id}" completed`);
 		} catch (err) {
 			const errMsg = err instanceof Error ? err.message : String(err);
-			await db.update(scheduledTasks).set({ status: 'failed', error: errMsg }).where(eq(scheduledTasks.id, task.id));
+			await db
+				.update(scheduledTasks)
+				.set({ status: 'failed', error: errMsg })
+				.where(eq(scheduledTasks.id, task.id));
 			console.error(`[Scheduler] Scheduled task "${task.id}" failed:`, errMsg);
 		}
 	}
@@ -281,12 +305,7 @@ async function queueOfflineRun(agent: typeof agents.$inferSelect): Promise<void>
 		const existing = await db
 			.select({ id: agentRuns.id })
 			.from(agentRuns)
-			.where(
-				and(
-					eq(agentRuns.agentId, agent.id),
-					eq(agentRuns.status, 'queued'),
-				),
-			);
+			.where(and(eq(agentRuns.agentId, agent.id), eq(agentRuns.status, 'queued')));
 
 		if (existing.length >= QUEUE_MAX_DEPTH) {
 			console.log(
@@ -303,7 +322,9 @@ async function queueOfflineRun(agent: typeof agents.$inferSelect): Promise<void>
 			tokensUsed: 0,
 		});
 
-		console.log(`[Scheduler] Queued run for "${agent.slug}" — user ${agent.userId.slice(0, 8)} offline`);
+		console.log(
+			`[Scheduler] Queued run for "${agent.slug}" — user ${agent.userId.slice(0, 8)} offline`,
+		);
 	} catch (err) {
 		console.error(`[Scheduler] Failed to queue run for "${agent.slug}":`, err);
 	}
@@ -539,7 +560,11 @@ async function fireAlertWebhook(
 	error: string,
 	attempts: number,
 ): Promise<void> {
-	const trigger = agent.trigger as { cron?: string; enabled?: boolean; alertWebhook?: string } | null;
+	const trigger = agent.trigger as {
+		cron?: string;
+		enabled?: boolean;
+		alertWebhook?: string;
+	} | null;
 	const webhookUrl = trigger?.alertWebhook;
 	if (!webhookUrl) return;
 

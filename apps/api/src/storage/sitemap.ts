@@ -8,11 +8,11 @@
  * S3 path: domains/{userId}/{domain}/SITEMAP.yaml
  */
 
-import yaml from 'js-yaml';
 import { normalizeUrlPattern } from '@afe/shared';
-import { downloadDomainFile, uploadDomainFile } from './domain-files.js';
+import yaml from 'js-yaml';
 import { getFastModel, getProvider } from '../llm/index.js';
 import { collectStream } from '../llm/types.js';
+import { downloadDomainFile, uploadDomainFile } from './domain-files.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -141,9 +141,7 @@ export function mergePage(sitemap: Sitemap, pageIndex: PageIndexInput): boolean 
 
 			let targetPattern: string;
 			try {
-				const targetPath = link.href.startsWith('http')
-					? new URL(link.href).pathname
-					: link.href;
+				const targetPath = link.href.startsWith('http') ? new URL(link.href).pathname : link.href;
 				targetPattern = normalizeUrlPattern(targetPath);
 			} catch {
 				continue;
@@ -153,9 +151,7 @@ export function mergePage(sitemap: Sitemap, pageIndex: PageIndexInput): boolean 
 			if (targetPattern === pattern) continue;
 
 			// Find existing edge
-			const edgeIdx = sitemap.edges.findIndex(
-				(e) => e.from === pattern && e.to === targetPattern,
-			);
+			const edgeIdx = sitemap.edges.findIndex((e) => e.from === pattern && e.to === targetPattern);
 
 			if (edgeIdx >= 0) {
 				// Update label if the new one is longer/better
@@ -184,9 +180,7 @@ export function mergePage(sitemap: Sitemap, pageIndex: PageIndexInput): boolean 
 		sitemap.stats.totalEdges = sitemap.edges.length;
 		sitemap.stats.totalVisits = nodes.reduce((sum, n) => sum + n.visits, 0);
 		sitemap.stats.coverageScore =
-			nodes.length > 0
-				? nodes.filter((n) => n.description).length / nodes.length
-				: 0;
+			nodes.length > 0 ? nodes.filter((n) => n.description).length / nodes.length : 0;
 		sitemap.lastUpdated = now;
 	}
 
@@ -243,7 +237,8 @@ Write a single concise sentence (under 100 chars) describing this page's purpose
 
 		const stream = provider.chat({
 			model,
-			system: 'You describe web pages in one short sentence. Be specific about what actions are available.',
+			system:
+				'You describe web pages in one short sentence. Be specific about what actions are available.',
 			messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
 		});
 
@@ -259,9 +254,7 @@ Write a single concise sentence (under 100 chars) describing this page's purpose
 			// Recompute coverage
 			const nodes = Object.values(sitemap.nodes);
 			sitemap.stats.coverageScore =
-				nodes.length > 0
-					? nodes.filter((n) => n.description).length / nodes.length
-					: 0;
+				nodes.length > 0 ? nodes.filter((n) => n.description).length / nodes.length : 0;
 			await saveSitemap(userId, domain, sitemap);
 		}
 	} catch (err) {
@@ -280,9 +273,7 @@ export function renderSitemapTree(sitemap: Sitemap, maxLines = 80): string {
 	if (sitemap.stats.totalNodes === 0) return '';
 
 	const lines: string[] = [];
-	lines.push(
-		`## Site Navigation Graph (${sitemap.domain})`,
-	);
+	lines.push(`## Site Navigation Graph (${sitemap.domain})`);
 	lines.push(
 		`${sitemap.stats.totalNodes} pages mapped, ${sitemap.stats.totalEdges} navigation paths, ${sitemap.stats.totalVisits} total visits`,
 	);
@@ -318,7 +309,9 @@ export function renderSitemapTree(sitemap: Sitemap, maxLines = 80): string {
 	}
 
 	if (sortedPatterns.length > lines.length - 3) {
-		lines.push(`\n... and ${sortedPatterns.length - (lines.length - 3)} more pages. Use read_knowledge to see the full SITEMAP.yaml.`);
+		lines.push(
+			`\n... and ${sortedPatterns.length - (lines.length - 3)} more pages. Use read_knowledge to see the full SITEMAP.yaml.`,
+		);
 	}
 
 	return lines.join('\n');

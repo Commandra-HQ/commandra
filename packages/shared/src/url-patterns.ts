@@ -21,9 +21,7 @@ export function normalizeUrlPattern(pathname: string): string {
 			if (!segment) return segment;
 
 			// UUIDs: abc12345-def6-7890-abcd-ef1234567890
-			if (
-				/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(segment)
-			)
+			if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(segment))
 				return ':id';
 
 			// Numeric IDs: 123, 42
@@ -36,11 +34,7 @@ export function normalizeUrlPattern(pathname: string): string {
 			if (/^[a-f0-9]{8,}$/i.test(segment)) return ':id';
 
 			// NanoIDs / CUIDs: V1StGXR8_Z5jdHi6B-myT (20+ alphanum with mixed case)
-			if (
-				/^[a-zA-Z0-9_-]{20,}$/.test(segment) &&
-				/[a-z]/.test(segment) &&
-				/[A-Z]/.test(segment)
-			)
+			if (/^[a-zA-Z0-9_-]{20,}$/.test(segment) && /[a-z]/.test(segment) && /[A-Z]/.test(segment))
 				return ':id';
 
 			// Date segments: 2026-03-27, 2026-03, standalone year 2020-2099

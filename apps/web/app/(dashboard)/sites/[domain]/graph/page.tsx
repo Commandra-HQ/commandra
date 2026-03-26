@@ -1,25 +1,25 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
 import {
-	ReactFlow,
 	Background,
 	Controls,
-	MiniMap,
-	useNodesState,
-	useEdgesState,
-	type Node,
 	type Edge,
-	MarkerType,
 	Handle,
+	MarkerType,
+	MiniMap,
+	type Node,
 	Position,
+	ReactFlow,
+	useEdgesState,
+	useNodesState,
 } from '@xyflow/react';
+import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useMemo, useState } from 'react';
 import '@xyflow/react/dist/style.css';
+import { Badge } from '@/components/ui/badge';
+import { type GraphEdge, type GraphNode, useSiteGraph } from '@/lib/queries/use-site-graph';
 import dagre from 'dagre';
 import { ArrowLeft, Map } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { type GraphNode, type GraphEdge, useSiteGraph } from '@/lib/queries/use-site-graph';
 
 // ── Colors by page type ──────────────────────────────────────────────────
 
@@ -56,9 +56,16 @@ function SiteNode({ data }: { data: SiteNodeData }) {
 			}}
 			className="px-3 py-2.5 rounded-md shadow-lg"
 		>
-			<Handle type="target" position={Position.Top} className="!bg-transparent !border-0 !w-0 !h-0" />
+			<Handle
+				type="target"
+				position={Position.Top}
+				className="!bg-transparent !border-0 !w-0 !h-0"
+			/>
 			<div className="flex items-center gap-1.5 mb-1">
-				<span className="font-mono text-[11px] font-semibold truncate" style={{ color: colors.text }}>
+				<span
+					className="font-mono text-[11px] font-semibold truncate"
+					style={{ color: colors.text }}
+				>
 					{d.id}
 				</span>
 			</div>
@@ -77,7 +84,11 @@ function SiteNode({ data }: { data: SiteNodeData }) {
 				<span>{d.elements} el</span>
 				<span>{d.visits} visits</span>
 			</div>
-			<Handle type="source" position={Position.Bottom} className="!bg-transparent !border-0 !w-0 !h-0" />
+			<Handle
+				type="source"
+				position={Position.Bottom}
+				className="!bg-transparent !border-0 !w-0 !h-0"
+			/>
 		</div>
 	);
 }
@@ -160,9 +171,7 @@ function NodeDetail({ node, onClose }: { node: GraphNode; onClose: () => void })
 
 			<div className="space-y-1.5">
 				<p className="text-sm font-medium">{node.title}</p>
-				{node.description && (
-					<p className="text-xs text-muted-foreground">{node.description}</p>
-				)}
+				{node.description && <p className="text-xs text-muted-foreground">{node.description}</p>}
 			</div>
 
 			<div className="grid grid-cols-3 gap-2 text-center">
@@ -175,7 +184,11 @@ function NodeDetail({ node, onClose }: { node: GraphNode; onClose: () => void })
 					<p className="text-[10px] text-muted-foreground">elements</p>
 				</div>
 				<div className="bg-surface p-2 rounded">
-					<Badge variant="outline" className="text-[10px]" style={{ color: colors.text, borderColor: colors.border }}>
+					<Badge
+						variant="outline"
+						className="text-[10px]"
+						style={{ color: colors.text, borderColor: colors.border }}
+					>
 						{node.type}
 					</Badge>
 				</div>
@@ -274,7 +287,8 @@ export default function SiteGraphPage() {
 					<div>
 						<h2 className="text-sm font-medium font-mono">{domain}</h2>
 						<p className="text-[11px] text-muted-foreground font-mono mt-0.5">
-							{data.stats.totalNodes} pages · {data.stats.totalEdges} paths · {data.stats.totalVisits} total visits
+							{data.stats.totalNodes} pages · {data.stats.totalEdges} paths ·{' '}
+							{data.stats.totalVisits} total visits
 							{data.stats.coverageScore < 1 && (
 								<span> · {Math.round(data.stats.coverageScore * 100)}% described</span>
 							)}
@@ -283,15 +297,14 @@ export default function SiteGraphPage() {
 				</div>
 				{/* Legend */}
 				<div className="flex items-center gap-3">
-					{Object.entries(TYPE_COLORS).slice(0, 5).map(([type, colors]) => (
-						<div key={type} className="flex items-center gap-1">
-							<div
-								className="w-2 h-2 rounded-full"
-								style={{ backgroundColor: colors.border }}
-							/>
-							<span className="text-[10px] text-muted-foreground font-mono">{type}</span>
-						</div>
-					))}
+					{Object.entries(TYPE_COLORS)
+						.slice(0, 5)
+						.map(([type, colors]) => (
+							<div key={type} className="flex items-center gap-1">
+								<div className="w-2 h-2 rounded-full" style={{ backgroundColor: colors.border }} />
+								<span className="text-[10px] text-muted-foreground font-mono">{type}</span>
+							</div>
+						))}
 				</div>
 			</div>
 
@@ -328,9 +341,7 @@ export default function SiteGraphPage() {
 					/>
 				</ReactFlow>
 
-				{selectedNode && (
-					<NodeDetail node={selectedNode} onClose={() => setSelectedNode(null)} />
-				)}
+				{selectedNode && <NodeDetail node={selectedNode} onClose={() => setSelectedNode(null)} />}
 			</div>
 		</div>
 	);

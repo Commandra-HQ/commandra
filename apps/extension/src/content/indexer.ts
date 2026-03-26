@@ -1,4 +1,9 @@
-import { type ElementType, type IndexedElement, type PageIndex, normalizeUrlPattern } from '@afe/shared';
+import {
+	type ElementType,
+	type IndexedElement,
+	type PageIndex,
+	normalizeUrlPattern,
+} from '@afe/shared';
 
 const INTERACTIVE_SELECTORS = [
 	'button',
@@ -68,9 +73,14 @@ function getLabel(el: Element): string {
 	if (name) return name;
 
 	// Check child elements for labels (wrapper divs in Gmail, etc.)
-	const childInput = el.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]');
+	const childInput = el.querySelector(
+		'input, textarea, [contenteditable="true"], [role="textbox"]',
+	);
 	if (childInput) {
-		const childLabel = childInput.getAttribute('aria-label') || childInput.getAttribute('placeholder') || childInput.getAttribute('name');
+		const childLabel =
+			childInput.getAttribute('aria-label') ||
+			childInput.getAttribute('placeholder') ||
+			childInput.getAttribute('name');
 		if (childLabel) return childLabel;
 	}
 
@@ -128,7 +138,9 @@ function buildSelector(el: Element): string {
 		const selector = `${tag}[aria-label="${escaped}"]`;
 		try {
 			if (document.querySelectorAll(selector).length <= 3) return selector;
-		} catch { /* fall through */ }
+		} catch {
+			/* fall through */
+		}
 	}
 
 	// name attribute — stable for form inputs
@@ -150,7 +162,9 @@ function buildSelector(el: Element): string {
 		const escaped = `#${cssEscape(el.id)}`;
 		try {
 			if (document.querySelector(escaped) === el) return escaped;
-		} catch { /* fall through */ }
+		} catch {
+			/* fall through */
+		}
 	}
 
 	// Placeholder — useful for inputs without labels
@@ -160,7 +174,9 @@ function buildSelector(el: Element): string {
 		const selector = `${tag}[placeholder="${escaped}"]`;
 		try {
 			if (document.querySelectorAll(selector).length === 1) return selector;
-		} catch { /* fall through */ }
+		} catch {
+			/* fall through */
+		}
 	}
 
 	// Classes — escaped, only if unique
@@ -170,7 +186,9 @@ function buildSelector(el: Element): string {
 		const selector = `${tag}.${escapedClasses}`;
 		try {
 			if (document.querySelectorAll(selector).length === 1) return selector;
-		} catch { /* fall through */ }
+		} catch {
+			/* fall through */
+		}
 	}
 
 	// Fallback: nth-child path (always produces valid selectors)
@@ -242,7 +260,12 @@ function isVisible(el: Element): boolean {
 	// Check if element is within viewport (or close to it for scrollable areas)
 	const viewportHeight = window.innerHeight;
 	const viewportWidth = window.innerWidth;
-	if (rect.bottom < -100 || rect.top > viewportHeight + 500 || rect.right < -100 || rect.left > viewportWidth + 100)
+	if (
+		rect.bottom < -100 ||
+		rect.top > viewportHeight + 500 ||
+		rect.right < -100 ||
+		rect.left > viewportWidth + 100
+	)
 		return false;
 
 	return true;
@@ -328,7 +351,12 @@ function detectUserIdentity(): { username?: string; avatar?: string } | undefine
 				}
 				// Check text content
 				const text = el.textContent?.trim();
-				if (text && text.length > 1 && text.length < 40 && !text.match(/^(sign|log|menu|account)/i)) {
+				if (
+					text &&
+					text.length > 1 &&
+					text.length < 40 &&
+					!text.match(/^(sign|log|menu|account)/i)
+				) {
 					identity.username = text;
 					break;
 				}
@@ -338,7 +366,8 @@ function detectUserIdentity(): { username?: string; avatar?: string } | undefine
 
 	// Strategy 3: Check meta tags (some apps set user info in meta)
 	if (!identity.username) {
-		const metaUser = document.querySelector('meta[name="user-login"]')?.getAttribute('content') ||
+		const metaUser =
+			document.querySelector('meta[name="user-login"]')?.getAttribute('content') ||
 			document.querySelector('meta[name="octolytics-actor-login"]')?.getAttribute('content') ||
 			document.querySelector('meta[name="user"]')?.getAttribute('content');
 		if (metaUser) identity.username = metaUser;

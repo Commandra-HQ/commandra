@@ -6,7 +6,6 @@ import { resolveAgent } from '../agent/agent-registry.js';
 import type { OrchestratorResult } from '../agent/orchestrator.js';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
 import {
-	type ActiveRun,
 	abortPromise,
 	completeRun,
 	createDurableOnEvent,
@@ -14,18 +13,17 @@ import {
 	getRun,
 	saveFinalMessage,
 	subscribeSSE,
-	updateConversationStatus,
 } from '../agent/run-registry.js';
 import { analyzeAndImprove, calculateCost, recordAgentRun } from '../agent/self-improve.js';
 import { db } from '../db/index.js';
 import { agents, conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
+import { getFastModel, getModelCapabilities, getProvider, getStrongModel } from '../llm/index.js';
 import { loadDomainKnowledgeFromS3, syncDomainKnowledgeToS3 } from '../memory/domain.js';
 import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
-import { loadSitemap, renderSitemapTree } from '../storage/sitemap.js';
-import { getFastModel, getModelCapabilities, getProvider, getStrongModel } from '../llm/index.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { loadPlan } from '../storage/plan-files.js';
+import { loadSitemap, renderSitemapTree } from '../storage/sitemap.js';
 import { getConnectionByUser, resetKill } from '../ws/handler.js';
 
 /**
@@ -319,7 +317,13 @@ chatRoutes.post('/', async (c) => {
 						(text): OrchestratorResult => ({
 							response: text,
 							toolCalls: [],
-							usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, thinkingTokens: 0 },
+							usage: {
+								inputTokens: 0,
+								outputTokens: 0,
+								cacheReadTokens: 0,
+								cacheWriteTokens: 0,
+								thinkingTokens: 0,
+							},
 						}),
 					);
 
@@ -352,7 +356,10 @@ chatRoutes.post('/', async (c) => {
 					const currentRun = getRun(convId!);
 					if (currentRun?.abortController.signal.aborted) {
 						// User killed the run — save whatever we have
-						await saveFinalMessage(currentRun, currentRun.toolCalls.length > 0 ? currentRun.toolCalls : undefined);
+						await saveFinalMessage(
+							currentRun,
+							currentRun.toolCalls.length > 0 ? currentRun.toolCalls : undefined,
+						);
 						await completeRun(convId!, 'completed');
 						return;
 					}
@@ -394,10 +401,7 @@ chatRoutes.post('/', async (c) => {
 		const unsub = subscribeSSE(convId!, stream);
 
 		// Block until run finishes OR client disconnects
-		await Promise.race([
-			run.completionPromise,
-			abortPromise(httpSignal),
-		]);
+		await Promise.race([run.completionPromise, abortPromise(httpSignal)]);
 
 		clearInterval(heartbeat);
 		unsub();
@@ -453,10 +457,7 @@ chatRoutes.get('/subscribe/:conversationId', requireAuth, async (c) => {
 		const unsub = subscribeSSE(convId, stream);
 
 		// Block until run finishes OR client disconnects
-		await Promise.race([
-			run.completionPromise,
-			abortPromise(httpSignal),
-		]);
+		await Promise.race([run.completionPromise, abortPromise(httpSignal)]);
 
 		clearInterval(heartbeat);
 		unsub();
@@ -527,10 +528,12 @@ function handlePostOrchestrator(
 			const provider = getProvider();
 			const fastModel = getFastModel();
 			const strongModel = getStrongModel();
-			extractAndSaveUserMemory(user.id, domain, transcript, provider, fastModel, strongModel)
-				.catch((err) => console.warn('[UserMemory] extractAndSaveUserMemory failed:', err));
-			syncDomainKnowledgeToS3(user.id, domain, transcript, provider, fastModel)
-				.catch((err) => console.warn('[DomainKnowledge] syncDomainKnowledgeToS3 failed:', err));
+			extractAndSaveUserMemory(user.id, domain, transcript, provider, fastModel, strongModel).catch(
+				(err) => console.warn('[UserMemory] extractAndSaveUserMemory failed:', err),
+			);
+			syncDomainKnowledgeToS3(user.id, domain, transcript, provider, fastModel).catch((err) =>
+				console.warn('[DomainKnowledge] syncDomainKnowledgeToS3 failed:', err),
+			);
 		}
 	}
 
@@ -561,7 +564,9 @@ function handlePostOrchestrator(
 					.limit(1);
 
 				if (convCount >= 3 && existingAgents.length === 0) {
-					console.log(`[Chat] Domain "${domain}" used ${convCount}x with no agent — consider auto-creating one`);
+					console.log(
+						`[Chat] Domain "${domain}" used ${convCount}x with no agent — consider auto-creating one`,
+					);
 					const { uploadDomainFile } = await import('../storage/domain-files.js');
 					const agentHint = `## Agent Suggestion\n\nYou've worked on ${domain} ${convCount}+ times. Consider creating a specialized agent for this domain using create_agent. This will enable:\n- Persistent SKILLS.md with learned workflows\n- MEMORY.md with accumulated knowledge\n- Self-improvement after every run\n- Scheduled automation\n\nSuggest this to the user when appropriate.`;
 					await uploadDomainFile(user.id, domain, 'AGENT_HINT.md', agentHint);
@@ -593,7 +598,9 @@ chatRoutes.post('/compact', async (c) => {
 	if (msgs.length < 2) {
 		return c.json({ error: 'Not enough messages to compact' }, 400);
 	}
-	console.log(`[Compact] Starting compaction for conversation ${conversationId} (${msgs.length} messages)`);
+	console.log(
+		`[Compact] Starting compaction for conversation ${conversationId} (${msgs.length} messages)`,
+	);
 
 	// Verify user owns conversation
 	const [conv] = await db
@@ -615,7 +622,8 @@ chatRoutes.post('/compact', async (c) => {
 
 		const summaryStream = provider.chat({
 			model: fastModel,
-			system: 'Summarize this conversation concisely. Include: what was accomplished, what is in progress, key facts to continue. 2-3 paragraphs max.',
+			system:
+				'Summarize this conversation concisely. Include: what was accomplished, what is in progress, key facts to continue. 2-3 paragraphs max.',
 			messages: [{ role: 'user', content: transcript.slice(-6000) }],
 			maxTokens: 500,
 		});

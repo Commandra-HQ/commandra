@@ -23,8 +23,7 @@ export default function AgentsPage() {
 	const [showCreate, setShowCreate] = useState(false);
 	const [expandedId, setExpandedId] = useState<string | null>(null);
 	const [fileContents, setFileContents] = useState<Record<string, string>>({});
-	const [editingFile, setEditingFile] = useState<{ agentId: string; filename: string } | null>(null);
-	const [editContent, setEditContent] = useState('');
+	const [savingFile, setSavingFile] = useState<string | null>(null);
 	const [newAgent, setNewAgent] = useState<NewAgentData>(EMPTY_AGENT);
 	const limit = 25;
 
@@ -71,34 +70,29 @@ export default function AgentsPage() {
 		setExpandedId(expandedId === agent.id ? null : agent.id);
 	}
 
-	async function startEditFile(agentId: string, filename: string) {
+	async function loadFile(agentId: string, filename: string) {
 		const key = `${agentId}/${filename}`;
-		let content = fileContents[key];
-		if (content === undefined) {
-			try {
-				const res = await apiFetch(`/api/agents/${agentId}/files/${filename}`);
-				if (res.ok) {
-					content = await res.text();
-					setFileContents((prev) => ({ ...prev, [key]: content! }));
-				}
-			} catch {
-				// Failed to load file
+		if (fileContents[key] !== undefined) return;
+		try {
+			const res = await apiFetch(`/api/agents/${agentId}/files/${filename}`);
+			if (res.ok) {
+				const content = await res.text();
+				setFileContents((prev) => ({ ...prev, [key]: content }));
 			}
+		} catch {
+			setFileContents((prev) => ({ ...prev, [key]: '' }));
 		}
-		setEditingFile({ agentId, filename });
-		setEditContent(content || '');
 	}
 
-	async function saveFile() {
-		if (!editingFile) return;
-		await updateFileMutation.mutateAsync({
-			id: editingFile.agentId,
-			filename: editingFile.filename,
-			content: editContent,
-		});
-		const key = `${editingFile.agentId}/${editingFile.filename}`;
-		setFileContents((prev) => ({ ...prev, [key]: editContent }));
-		setEditingFile(null);
+	async function saveFile(agentId: string, filename: string, content: string) {
+		setSavingFile(filename);
+		try {
+			await updateFileMutation.mutateAsync({ id: agentId, filename, content });
+			const key = `${agentId}/${filename}`;
+			setFileContents((prev) => ({ ...prev, [key]: content }));
+		} finally {
+			setSavingFile(null);
+		}
 	}
 
 	async function handleToggleSchedule(agent: Agent) {
@@ -112,8 +106,7 @@ export default function AgentsPage() {
 	function createNewFile(agentId: string) {
 		const filename = prompt('Filename (e.g. SOUL.md, SKILLS.md, LEARNINGS.md):');
 		if (!filename?.trim()) return;
-		setEditingFile({ agentId, filename: filename.trim() });
-		setEditContent('');
+		saveFile(agentId, filename.trim(), '');
 	}
 
 	if (isLoading && offset === 0) {
@@ -156,17 +149,18 @@ export default function AgentsPage() {
 								agent={agent}
 								isExpanded={expandedId === agent.id}
 								files={expandedId === agent.id ? agentFiles : []}
-								editingFile={editingFile}
-								editContent={editContent}
-								saving={updateFileMutation.isPending}
+								fileContents={Object.fromEntries(
+									Object.entries(fileContents)
+										.filter(([k]) => k.startsWith(`${agent.id}/`))
+										.map(([k, v]) => [k.split('/').slice(1).join('/'), v]),
+								)}
+								savingFile={savingFile}
 								onToggleExpand={() => toggleExpand(agent)}
 								onDelete={() => handleDelete(agent.id)}
 								onToggleSchedule={() => handleToggleSchedule(agent)}
-								onStartEdit={(filename) => startEditFile(agent.id, filename)}
 								onCreateNewFile={() => createNewFile(agent.id)}
-								onEditContentChange={setEditContent}
-								onSaveFile={saveFile}
-								onCancelEdit={() => setEditingFile(null)}
+								onSaveFile={(filename, content) => saveFile(agent.id, filename, content)}
+								onLoadFile={(filename) => loadFile(agent.id, filename)}
 								runs={expandedId === agent.id ? agentRuns : undefined}
 							/>
 						))}

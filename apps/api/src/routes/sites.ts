@@ -186,8 +186,7 @@ interface PageIndexPayload {
 
 /** Upsert a page by siteId + urlPattern. Returns the page ID. */
 export async function upsertPage(siteId: string, pageIndex: PageIndexPayload): Promise<string> {
-	const urlPattern =
-		pageIndex.urlPattern || normalizeUrlPattern(new URL(pageIndex.url).pathname);
+	const urlPattern = pageIndex.urlPattern || normalizeUrlPattern(new URL(pageIndex.url).pathname);
 
 	const [existing] = await db
 		.select({ id: pages.id })

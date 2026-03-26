@@ -3,7 +3,7 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { MarkdownEditor, MarkdownPreview } from '@/components/markdown-editor';
+import { MarkdownEditor } from '@/components/markdown-editor';
 import {
 	Bot,
 	ChevronDown,
@@ -14,6 +14,7 @@ import {
 	Save,
 	Trash2,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export interface Agent {
 	id: string;
@@ -69,34 +70,28 @@ export function AgentCard({
 	agent,
 	isExpanded,
 	files,
-	editingFile,
-	editContent,
-	saving,
+	fileContents,
+	savingFile,
 	onToggleExpand,
 	onDelete,
 	onToggleSchedule,
-	onStartEdit,
 	onCreateNewFile,
-	onEditContentChange,
 	onSaveFile,
-	onCancelEdit,
+	onLoadFile,
 	runs,
 }: {
 	agent: Agent;
 	isExpanded: boolean;
 	files: AgentFile[];
-	editingFile: { agentId: string; filename: string } | null;
-	editContent: string;
-	saving: boolean;
+	fileContents: Record<string, string>;
+	savingFile: string | null;
 	runs?: AgentRun[];
 	onToggleExpand: () => void;
 	onDelete: () => void;
 	onToggleSchedule: () => void;
-	onStartEdit: (filename: string) => void;
 	onCreateNewFile: () => void;
-	onEditContentChange: (content: string) => void;
-	onSaveFile: () => void;
-	onCancelEdit: () => void;
+	onSaveFile: (filename: string, content: string) => void;
+	onLoadFile: (filename: string) => void;
 }) {
 	const missingFiles = KNOWN_FILES.filter((f) => !files.some((af) => af.name === f));
 
@@ -206,7 +201,7 @@ export function AgentCard({
 								{missingFiles.map((f) => (
 									<button
 										key={f}
-										onClick={() => onStartEdit(f)}
+										onClick={() => onSaveFile(f, `# ${f.replace('.md', '')}\n\n`)}
 										className="px-2.5 py-1 text-[11px] border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors font-mono"
 									>
 										+ {f}
@@ -215,96 +210,23 @@ export function AgentCard({
 							</div>
 						)}
 
-						{files.length === 0 && !editingFile && (
+						{files.length === 0 && (
 							<p className="text-xs text-muted-foreground py-2">
 								No files yet. Create SOUL.md to give this agent a personality.
 							</p>
 						)}
 
-						{/* File list */}
+						{/* Inline editable files — always rendered as editors */}
 						{files.map((file) => (
-							<div
+							<InlineFileEditor
 								key={file.name}
-								className="flex items-center justify-between p-2.5 border border-border hover:bg-surface transition-colors"
-							>
-								<div className="flex items-center gap-2">
-									<FileText size={14} className="text-muted-foreground" />
-									<span className="text-sm font-mono">{file.name}</span>
-									{file.size > 0 && (
-										<span className="text-[10px] text-muted-foreground font-mono">
-											{(file.size / 1024).toFixed(1)} KB
-										</span>
-									)}
-								</div>
-								<Button
-									size="sm"
-									variant="ghost"
-									className="h-7 text-xs"
-									onClick={() => onStartEdit(file.name)}
-								>
-									Edit
-								</Button>
-							</div>
+								filename={file.name}
+								content={fileContents[file.name]}
+								saving={savingFile === file.name}
+								onSave={(content) => onSaveFile(file.name, content)}
+								onLoad={() => onLoadFile(file.name)}
+							/>
 						))}
-
-						{/* File editor */}
-						{editingFile?.agentId === agent.id && (
-							<div className="space-y-2">
-								<div className="flex items-center justify-between">
-									<span className="text-sm font-medium font-mono">
-										{editingFile.filename}
-									</span>
-									<div className="flex items-center gap-1">
-										<Button
-											size="sm"
-											className="h-7 text-xs gap-1"
-											onClick={onSaveFile}
-											disabled={saving}
-										>
-											<Save size={12} />
-											{saving ? 'Saving...' : 'Save'}
-										</Button>
-										<Button
-											size="sm"
-											variant="ghost"
-											className="h-7 text-xs"
-											onClick={onCancelEdit}
-										>
-											Cancel
-										</Button>
-									</div>
-								</div>
-								{isMarkdownFile(editingFile.filename) ? (
-									<MarkdownEditor
-										content={editContent}
-										onChange={onEditContentChange}
-										placeholder={getPlaceholder(editingFile.filename)}
-										minHeight="200px"
-									/>
-								) : (
-									<textarea
-										value={editContent}
-										onChange={(e) => onEditContentChange(e.target.value)}
-										className="w-full min-h-[200px] border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
-										placeholder={getPlaceholder(editingFile.filename)}
-									/>
-								)}
-							</div>
-						)}
-
-						{/* Soul preview */}
-						{agent.soul && !editingFile && (
-							<div className="border border-border">
-								<div className="px-3 py-1.5 border-b border-border bg-surface">
-									<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider font-mono">
-										SOUL.md
-									</span>
-								</div>
-								<div className="px-3 py-2">
-									<MarkdownPreview content={agent.soul} />
-								</div>
-							</div>
-						)}
 
 						{/* Recent runs */}
 						{runs && runs.length > 0 && (
@@ -362,5 +284,104 @@ export function AgentCard({
 				)}
 			</CardContent>
 		</Card>
+	);
+}
+
+/** Inline file editor — always editable, with per-file save button. */
+function InlineFileEditor({
+	filename,
+	content,
+	saving,
+	onSave,
+	onLoad,
+}: {
+	filename: string;
+	content: string | undefined;
+	saving: boolean;
+	onSave: (content: string) => void;
+	onLoad: () => void;
+}) {
+	const [localContent, setLocalContent] = useState<string | null>(null);
+	const [dirty, setDirty] = useState(false);
+
+	// Load content on mount if not already loaded
+	useEffect(() => {
+		if (content === undefined) {
+			onLoad();
+		}
+	}, [content, onLoad]);
+
+	// Sync from parent when content first arrives
+	useEffect(() => {
+		if (content !== undefined && localContent === null) {
+			setLocalContent(content);
+		}
+	}, [content, localContent]);
+
+	const handleChange = (md: string) => {
+		setLocalContent(md);
+		setDirty(true);
+	};
+
+	const handleSave = () => {
+		if (localContent !== null) {
+			onSave(localContent);
+			setDirty(false);
+		}
+	};
+
+	if (content === undefined) {
+		return (
+			<div className="border border-border p-3">
+				<div className="flex items-center gap-2">
+					<FileText size={14} className="text-muted-foreground" />
+					<span className="text-sm font-mono">{filename}</span>
+					<span className="text-[10px] text-muted-foreground animate-pulse">Loading...</span>
+				</div>
+			</div>
+		);
+	}
+
+	const displayContent = localContent ?? content;
+
+	return (
+		<div className="border border-border">
+			<div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface">
+				<div className="flex items-center gap-2">
+					<FileText size={12} className="text-muted-foreground" />
+					<span className="text-[11px] font-mono font-medium text-muted-foreground">
+						{filename}
+					</span>
+					{dirty && (
+						<span className="text-[10px] text-yellow-500 font-mono">unsaved</span>
+					)}
+				</div>
+				<Button
+					size="sm"
+					variant={dirty ? 'default' : 'ghost'}
+					className="h-6 text-[11px] gap-1 px-2"
+					onClick={handleSave}
+					disabled={saving || !dirty}
+				>
+					<Save size={11} />
+					{saving ? 'Saving...' : 'Save'}
+				</Button>
+			</div>
+			{isMarkdownFile(filename) ? (
+				<MarkdownEditor
+					content={displayContent}
+					onChange={handleChange}
+					placeholder={getPlaceholder(filename)}
+					minHeight="120px"
+				/>
+			) : (
+				<textarea
+					value={displayContent}
+					onChange={(e) => handleChange(e.target.value)}
+					className="w-full min-h-[120px] border-0 bg-transparent px-3 py-2 text-sm font-mono focus:outline-none resize-y"
+					placeholder={getPlaceholder(filename)}
+				/>
+			)}
+		</div>
 	);
 }
