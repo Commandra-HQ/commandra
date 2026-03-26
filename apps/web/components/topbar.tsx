@@ -8,7 +8,6 @@ import {
   HardDrive,
   History,
   Home,
-  Settings,
   Shield,
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
@@ -59,11 +58,6 @@ const NAV_META: Record<
     label: 'Storage',
     description: 'Screenshots, exports, and context files',
     icon: HardDrive,
-  },
-  '/settings': {
-    label: 'Settings',
-    description: 'LLM provider configuration',
-    icon: Settings,
   },
   '/org': {
     label: 'Organization',

@@ -18,7 +18,6 @@ import {
   LogOut,
   Menu,
   Moon,
-  Settings,
   Shield,
   Sun,
   X,
@@ -41,7 +40,6 @@ const baseNavItems = [
   { href: '/memory', label: 'Memory', icon: Brain },
   { href: '/storage', label: 'Storage', icon: HardDrive },
   { href: '/usage', label: 'Usage', icon: Activity },
-  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 const MIN_WIDTH = 56;
