@@ -1,6 +1,5 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 import {
@@ -16,7 +15,6 @@ import {
   History,
   Home,
   LogOut,
-  Menu,
   Moon,
   Shield,
   Sun,
@@ -27,6 +25,11 @@ import { useTheme } from 'next-themes';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+
+// Hook so the Topbar can open the mobile sidebar via custom DOM event
+export function useSidebarMobile() {
+  return { openMobile: () => window.dispatchEvent(new CustomEvent('sidebar-open-mobile')) };
+}
 
 
 
@@ -128,20 +131,15 @@ export function Sidebar() {
   // On mobile, always render expanded (never icon-only mode)
   const isCollapsed = collapsed && !mobileOpen;
 
+  // Listen for mobile open event from Topbar
+  useEffect(() => {
+    const handler = () => setMobileOpen(true);
+    window.addEventListener('sidebar-open-mobile', handler);
+    return () => window.removeEventListener('sidebar-open-mobile', handler);
+  }, []);
+
   return (
     <>
-      {/* Mobile toggle — aligned with topbar (h-12 = 48px, centered = top 12px, left padding matches topbar pl-14 → left ~16px) */}
-      {!mobileOpen && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="fixed top-2.5 left-3 z-50 md:hidden"
-          onClick={() => setMobileOpen(true)}
-        >
-          <Menu size={18} strokeWidth={1.5} />
-        </Button>
-      )}
-
       {/* Overlay */}
       {mobileOpen && (
         <div

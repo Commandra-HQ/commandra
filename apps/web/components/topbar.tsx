@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
+import { useSidebarMobile } from '@/components/sidebar';
 import {
   Bot,
   Brain,
@@ -8,6 +9,7 @@ import {
   HardDrive,
   History,
   Home,
+  Menu,
   Shield,
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
@@ -69,6 +71,7 @@ const NAV_META: Record<
 export function Topbar() {
   const pathname = usePathname();
   const { user } = useAuth();
+  const { openMobile } = useSidebarMobile();
 
   // Match the current route to nav metadata
   const routeKey =
@@ -79,8 +82,15 @@ export function Topbar() {
   const Icon = meta.icon;
 
   return (
-    <header className="h-12 border-b border-border bg-background flex items-center justify-between pl-14 pr-6 md:px-6 flex-shrink-0">
+    <header className="h-12 border-b border-border bg-background flex items-center justify-between px-4 md:px-6 flex-shrink-0">
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={openMobile}
+          className="md:hidden p-1 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Menu size={18} strokeWidth={1.5} />
+        </button>
         <Icon size={16} strokeWidth={1.5} className="text-muted-foreground" />
         <div className="flex items-baseline gap-2">
           <h1 className="text-xs font-mono font-medium text-foreground">
