@@ -1126,7 +1126,7 @@ async function handleScheduleAgent(
       if (isNaN(runAt.getTime())) {
         return errorResult(block.id, new Error(`Invalid runAt datetime: "${args.runAt}". Use ISO 8601 format.`));
       }
-      if (runAt.getTime() < Date.now()) {
+      if (runAt.getTime() < Date.now() - 5000) {
         return errorResult(block.id, new Error('runAt must be in the future.'));
       }
 
