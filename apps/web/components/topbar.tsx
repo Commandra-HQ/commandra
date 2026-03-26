@@ -79,7 +79,7 @@ export function Topbar() {
   const Icon = meta.icon;
 
   return (
-    <header className="h-12 border-b border-border bg-background flex items-center justify-between px-6 flex-shrink-0">
+    <header className="h-12 border-b border-border bg-background flex items-center justify-between pl-14 pr-6 md:px-6 flex-shrink-0">
       <div className="flex items-center gap-3">
         <Icon size={16} strokeWidth={1.5} className="text-muted-foreground" />
         <div className="flex items-baseline gap-2">
