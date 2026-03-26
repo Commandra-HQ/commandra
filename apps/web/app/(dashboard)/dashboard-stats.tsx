@@ -87,12 +87,12 @@ function HorizontalBar({
 	const total = items.reduce((s, i) => s + i.value, 0) || 1;
 
 	return (
-		<div className="space-y-2">
+		<div className="space-y-2 min-w-0">
 			{items.map((item) => (
-				<div key={item.label} className="space-y-1">
-					<div className="flex justify-between text-xs font-mono">
-						<span className="text-muted-foreground">{item.label}</span>
-						<span className="text-foreground">{item.value}</span>
+				<div key={item.label} className="space-y-1 min-w-0">
+					<div className="flex justify-between text-xs font-mono min-w-0">
+						<span className="text-muted-foreground truncate">{item.label}</span>
+						<span className="text-foreground flex-shrink-0 ml-2">{item.value}</span>
 					</div>
 					<div className="h-1.5 bg-muted w-full">
 						<div
@@ -166,7 +166,7 @@ export function DashboardStats() {
 	if (isLoading) {
 		return (
 			<div className="space-y-4">
-				<div className="grid gap-1 sm:grid-cols-4">
+				<div className="grid gap-1 grid-cols-2 sm:grid-cols-4">
 					{[1, 2, 3, 4].map((i) => (
 						<Card key={i}>
 							<CardContent className="p-5">
@@ -180,9 +180,9 @@ export function DashboardStats() {
 	}
 
 	return (
-		<div className="space-y-4">
+		<div className="space-y-4 min-w-0">
 			{/* Counter cards */}
-			<div className="grid gap-1 sm:grid-cols-4">
+			<div className="grid gap-1 grid-cols-2 sm:grid-cols-4">
 				{counters.map((item) => (
 					<Card key={item.label}>
 						<CardContent className="p-5">
@@ -241,19 +241,19 @@ export function DashboardStats() {
 								{stats?.recentConversations.map((conv) => (
 									<div
 										key={conv.id}
-										className="flex items-center justify-between py-2 border-b border-border last:border-0"
+										className="flex items-center justify-between py-2 border-b border-border last:border-0 min-w-0"
 									>
-										<div className="flex items-center gap-3 min-w-0">
+										<div className="flex items-center gap-3 min-w-0 flex-1">
 											{conv.outcome && (
 												<div
-													className={`status-pixel ${outcomeIndicator[conv.outcome] || 'bg-foreground/20'}`}
+													className={`status-pixel flex-shrink-0 ${outcomeIndicator[conv.outcome] || 'bg-foreground/20'}`}
 												/>
 											)}
 											<span className="text-sm font-mono truncate">
 												{conv.title || 'Untitled'}
 											</span>
 										</div>
-										<span className="text-xs font-mono text-muted-foreground whitespace-nowrap ml-4">
+										<span className="text-xs font-mono text-muted-foreground whitespace-nowrap ml-4 flex-shrink-0">
 											{timeAgo(conv.createdAt)}
 										</span>
 									</div>

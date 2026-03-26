@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Pagination } from '@/components/ui/pagination';
 import { useConversationQuery, useConversationsQuery } from '@/lib/queries/use-conversations';
 import {
+	ArrowLeft,
 	ArrowRight,
 	Camera,
 	Check,
@@ -119,8 +120,8 @@ function CopyButton({ text }: { text: string }) {
 
 function UserBubble({ msg }: { msg: Message }) {
 	return (
-		<div className="group/msg flex justify-end">
-			<div className="relative max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-primary text-primary-foreground">
+		<div className="group/msg flex justify-end min-w-0">
+			<div className="relative max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words bg-primary text-primary-foreground">
 				<div className="absolute -left-8 top-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
 					<CopyButton text={msg.content} />
 				</div>
@@ -146,10 +147,10 @@ function ToolCallCard({ tool }: { tool: ToolCall }) {
 	);
 
 	return (
-		<div className={`border text-xs ${statusColor}`}>
+		<div className={`border text-xs min-w-0 overflow-hidden ${statusColor}`}>
 			<button
 				onClick={() => setExpanded(!expanded)}
-				className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
+				className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left min-w-0"
 			>
 				<Icon size={13} className="shrink-0 text-muted-foreground" />
 				<span className="flex-1 truncate text-foreground font-mono">{label}</span>
@@ -189,20 +190,20 @@ function AssistantBubble({ msg }: { msg: Message }) {
 	if (!hasContent && !hasTools) return null;
 
 	return (
-		<div className="group/msg flex justify-start w-full">
-			<div className="relative w-[90%] space-y-2">
+		<div className="group/msg flex justify-start w-full min-w-0">
+			<div className="relative w-full lg:w-[90%] space-y-2 min-w-0">
 				{hasContent && (
 					<>
-						<div className="absolute -right-7 top-0 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+						<div className="absolute -right-7 top-0 opacity-0 group-hover/msg:opacity-100 transition-opacity hidden lg:block">
 							<CopyButton text={msg.content} />
 						</div>
-						<div className="rounded-lg px-3 py-2 text-sm bg-secondary text-foreground prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-1 prose-code:text-xs">
+						<div className="rounded-lg px-3 py-2 text-sm bg-secondary text-foreground prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-1 prose-code:text-xs overflow-hidden break-words">
 							<ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
 						</div>
 					</>
 				)}
 				{hasTools && (
-					<div className="space-y-1">
+					<div className="space-y-1 min-w-0">
 						{msg.toolData!.tools.map((tool, i) => (
 							<ToolCallCard key={i} tool={tool} />
 						))}
@@ -282,8 +283,8 @@ export default function HistoryPage() {
 		<div className="flex flex-col flex-1 min-h-0">
 			{/* Main content area — grid with constrained height */}
 			<div className="grid gap-1 lg:grid-cols-[300px_1fr] flex-1 min-h-0">
-				{/* Conversation list — scrollable */}
-				<div className="border border-border overflow-y-auto">
+				{/* Conversation list — hidden on mobile when chat is open */}
+				<div className={`border border-border overflow-y-auto ${selectedId ? 'hidden lg:block' : ''}`}>
 					{conversations.map((conv) => (
 						<button
 							key={conv.id}
@@ -315,19 +316,25 @@ export default function HistoryPage() {
 				</div>
 
 				{/* Chat thread — flex column: sticky header + scrollable messages */}
-				<div className="border border-border flex flex-col min-h-0">
+				<div className={`border border-border flex flex-col min-h-0 ${!selectedId ? 'hidden lg:flex' : ''}`}>
 					{selectedId && (
 						<div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-surface flex-shrink-0">
+							<button
+								onClick={() => setSelectedId(null)}
+								className="lg:hidden p-1 text-muted-foreground hover:text-foreground transition-colors"
+							>
+								<ArrowLeft size={16} />
+							</button>
 							<span className="text-sm font-mono font-medium truncate">
 								{conversations.find((c) => c.id === selectedId)?.title || 'Untitled'}
 							</span>
-							<span className="text-[10px] font-mono text-muted-foreground ml-auto">
+							<span className="text-[10px] font-mono text-muted-foreground ml-auto whitespace-nowrap">
 								{conversations.find((c) => c.id === selectedId)?.messageCount} messages
 							</span>
 						</div>
 					)}
 
-					<div className="flex-1 overflow-y-auto p-4 space-y-3">
+					<div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3">
 						{!selectedId ? (
 							<div className="flex items-center justify-center h-full">
 								<p className="text-sm text-muted-foreground font-mono">
