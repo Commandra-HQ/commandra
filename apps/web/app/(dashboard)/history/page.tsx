@@ -280,11 +280,11 @@ export default function HistoryPage() {
 	}
 
 	return (
-		<div className="flex flex-col flex-1 min-h-0">
+		<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
 			{/* Main content area — grid with constrained height */}
-			<div className="grid gap-1 lg:grid-cols-[300px_1fr] flex-1 min-h-0">
+			<div className="grid gap-1 lg:grid-cols-[300px_1fr] flex-1 min-h-0 min-w-0 overflow-hidden">
 				{/* Conversation list — hidden on mobile when chat is open */}
-				<div className={`border border-border overflow-y-auto ${selectedId ? 'hidden lg:block' : ''}`}>
+				<div className={`border border-border overflow-y-auto min-w-0 ${selectedId ? 'hidden lg:block' : ''}`}>
 					{conversations.map((conv) => (
 						<button
 							key={conv.id}
@@ -316,7 +316,7 @@ export default function HistoryPage() {
 				</div>
 
 				{/* Chat thread — flex column: sticky header + scrollable messages */}
-				<div className={`border border-border flex flex-col min-h-0 ${!selectedId ? 'hidden lg:flex' : ''}`}>
+				<div className={`border border-border flex flex-col min-h-0 min-w-0 overflow-hidden ${!selectedId ? 'hidden lg:flex' : ''}`}>
 					{selectedId && (
 						<div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-surface flex-shrink-0">
 							<button
