@@ -2,7 +2,8 @@
 
 import { Badge } from '@/components/ui/badge';
 import { apiFetch } from '@/lib/api';
-import { ChevronDown, ChevronRight, FileText, Globe } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Globe, Map } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 interface SitePage {
@@ -89,6 +90,15 @@ function SiteCard({ site }: { site: Site }) {
 								? `indexed ${timeAgo(site.lastCrawledAt)}`
 								: 'not crawled'}
 						</span>
+						<span className="text-border">|</span>
+						<Link
+							href={`/sites/${encodeURIComponent(site.domain)}/graph`}
+							onClick={(e) => e.stopPropagation()}
+							className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+						>
+							<Map size={11} />
+							<span>graph</span>
+						</Link>
 					</div>
 				</div>
 			</button>
