@@ -12,7 +12,7 @@ import {
 	useRemoveMemberMutation,
 	useUpdateMemberRoleMutation,
 } from '@/lib/queries/use-org';
-import { Trash2, UserPlus } from 'lucide-react';
+import { Building2, ExternalLink, Trash2, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 
 export default function OrgPage() {
@@ -29,6 +29,7 @@ export default function OrgPage() {
 
 	const members = data?.members ?? [];
 	const isAdmin = user?.role === 'admin';
+	const isClerkManaged = user?.isClerkManaged;
 
 	async function inviteMember(e: React.FormEvent) {
 		e.preventDefault();
@@ -85,6 +86,19 @@ export default function OrgPage() {
 
 	return (
 		<div className="space-y-6">
+			{/* Org header */}
+			<div className="flex items-center gap-3">
+				<div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted">
+					<Building2 size={18} strokeWidth={1.5} className="text-muted-foreground" />
+				</div>
+				<div>
+					<h2 className="text-lg font-medium">{user.orgName || 'Organization'}</h2>
+					<p className="text-xs text-muted-foreground">
+						{members.length} member{members.length !== 1 ? 's' : ''}
+						{isClerkManaged && ' · Synced from your auth provider'}
+					</p>
+				</div>
+			</div>
 
 			{error && (
 				<div className="flex items-center gap-2 border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -99,7 +113,8 @@ export default function OrgPage() {
 				</div>
 			)}
 
-			{isAdmin && (
+			{/* Invite form: only for self-hosted (non-Clerk) admins */}
+			{isAdmin && !isClerkManaged && (
 				<Card>
 					<CardHeader>
 						<CardTitle className="text-lg">Invite Member</CardTitle>
@@ -136,7 +151,6 @@ export default function OrgPage() {
 									onChange={(e) => setInviteRole(e.target.value)}
 								>
 									<option value="member">Member</option>
-									<option value="viewer">Viewer</option>
 									<option value="admin">Admin</option>
 								</Select>
 							</div>
@@ -149,6 +163,20 @@ export default function OrgPage() {
 				</Card>
 			)}
 
+			{/* Clerk-managed notice for admins */}
+			{isAdmin && isClerkManaged && (
+				<Card>
+					<CardContent className="py-4">
+						<p className="text-sm text-muted-foreground">
+							Members are managed through your organization&apos;s auth provider.
+							Invite or remove members from your organization settings, and changes
+							will sync automatically.
+						</p>
+					</CardContent>
+				</Card>
+			)}
+
+			{/* Members list */}
 			<Card>
 				<CardHeader>
 					<CardTitle className="text-lg">Members</CardTitle>
@@ -166,7 +194,8 @@ export default function OrgPage() {
 										{member.role}
 									</Badge>
 								</div>
-								{isAdmin && member.userId !== user.id && (
+								{/* Admin controls: only for self-hosted orgs */}
+								{isAdmin && !isClerkManaged && member.userId !== user.id && (
 									<div className="flex items-center gap-2">
 										<Select
 											value={member.role}
@@ -175,7 +204,6 @@ export default function OrgPage() {
 										>
 											<option value="admin">Admin</option>
 											<option value="member">Member</option>
-											<option value="viewer">Viewer</option>
 										</Select>
 										<Button
 											variant="ghost"

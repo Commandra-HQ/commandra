@@ -10,6 +10,7 @@ interface AuthUser {
 	orgId?: string;
 	orgName?: string;
 	role?: string;
+	isClerkManaged?: boolean;
 }
 
 interface AuthContextValue {
@@ -51,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 					orgId: data.orgId,
 					orgName: data.orgName,
 					role: data.role,
+					isClerkManaged: data.isClerkManaged,
 				});
 				setToken(jwt);
 			} else {

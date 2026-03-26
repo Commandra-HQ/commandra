@@ -28,14 +28,15 @@ authRoutes.get('/me', async (c) => {
 			result.orgId = payload.orgId;
 			result.role = payload.role;
 
-			// Fetch org name
+			// Fetch org name and check if Clerk-managed
 			const [org] = await db
-				.select({ name: organizations.name })
+				.select({ name: organizations.name, externalId: organizations.externalId })
 				.from(organizations)
 				.where(eq(organizations.id, payload.orgId as string))
 				.limit(1);
 			if (org) {
 				result.orgName = org.name;
+				result.isClerkManaged = !!org.externalId;
 			}
 		}
 

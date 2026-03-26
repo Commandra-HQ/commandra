@@ -5,6 +5,7 @@ import { useSidebarMobile } from '@/components/sidebar';
 import {
   Bot,
   Brain,
+  Building2,
   Globe,
   HardDrive,
   History,
@@ -64,7 +65,7 @@ const NAV_META: Record<
   '/org': {
     label: 'Organization',
     description: 'Team members and roles',
-    icon: Bot,
+    icon: Building2,
   },
 };
 

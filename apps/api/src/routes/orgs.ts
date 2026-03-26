@@ -123,8 +123,8 @@ orgRoutes.put('/:id/members/:userId', async (c) => {
 	const targetUserId = c.req.param('userId');
 	const { role } = await c.req.json<{ role: string }>();
 
-	if (!role || !['admin', 'member', 'viewer'].includes(role)) {
-		return c.json({ error: 'Valid role required (admin, member, viewer)' }, 400);
+	if (!role || !['admin', 'member'].includes(role)) {
+		return c.json({ error: 'Valid role required (admin, member)' }, 400);
 	}
 
 	// Check admin

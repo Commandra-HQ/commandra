@@ -1,4 +1,14 @@
-import { boolean, integer, jsonb, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+	boolean,
+	integer,
+	jsonb,
+	numeric,
+	pgTable,
+	text,
+	timestamp,
+	uniqueIndex,
+	uuid,
+} from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
 	id: uuid('id').primaryKey().defaultRandom(),
@@ -16,17 +26,21 @@ export const organizations = pgTable('organizations', {
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
-export const orgMembers = pgTable('org_members', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	orgId: uuid('org_id')
-		.references(() => organizations.id)
-		.notNull(),
-	userId: uuid('user_id')
-		.references(() => users.id)
-		.notNull(),
-	role: text('role').notNull().default('member'), // 'admin' | 'member' | 'viewer'
-	createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+export const orgMembers = pgTable(
+	'org_members',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		orgId: uuid('org_id')
+			.references(() => organizations.id)
+			.notNull(),
+		userId: uuid('user_id')
+			.references(() => users.id)
+			.notNull(),
+		role: text('role').notNull().default('member'), // 'admin' | 'member'
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(table) => [uniqueIndex('org_members_org_user_idx').on(table.orgId, table.userId)],
+);
 
 export const sites = pgTable('sites', {
 	id: uuid('id').primaryKey().defaultRandom(),
