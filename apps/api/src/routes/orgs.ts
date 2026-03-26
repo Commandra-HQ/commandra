@@ -130,7 +130,25 @@ orgRoutes.get('/:id/members', async (c) => {
 		.innerJoin(users, eq(orgMembers.userId, users.id))
 		.where(eq(orgMembers.orgId, orgId));
 
-	return c.json({ members, total: members.length });
+	// For Clerk-managed orgs, also fetch pending invitations
+	const org = await getOrg(orgId);
+	let pendingInvites: { id: string; email: string; role: string; status: string; createdAt: number }[] = [];
+	if (org?.externalId) {
+		try {
+			const res = await fetch(
+				`${LANDING_URL}/api/org/members?orgExternalId=${encodeURIComponent(org.externalId)}`,
+				{ headers: { 'X-Sync-Secret': SYNC_SECRET || '' } },
+			);
+			if (res.ok) {
+				const data = await res.json();
+				pendingInvites = data.invitations || [];
+			}
+		} catch {
+			// Non-fatal — just skip pending invites
+		}
+	}
+
+	return c.json({ members, pendingInvites, total: members.length });
 });
 
 // Invite member by email (admin only)
