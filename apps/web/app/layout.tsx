@@ -17,7 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 					rel="stylesheet"
 				/>
 			</head>
-			<body className="min-h-screen bg-background font-sans antialiased">
+			<body className="min-h-screen bg-background font-sans antialiased overflow-x-hidden">
 				<Providers>
 					<ThemeProvider>
 						<AuthProvider>{children}</AuthProvider>
