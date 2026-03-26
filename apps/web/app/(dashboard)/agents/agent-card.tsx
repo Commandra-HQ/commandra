@@ -1,19 +1,10 @@
 'use client';
 
+import { MarkdownEditor } from '@/components/markdown-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { MarkdownEditor } from '@/components/markdown-editor';
-import {
-	Bot,
-	ChevronDown,
-	ChevronRight,
-	Clock,
-	FileText,
-	Plus,
-	Save,
-	Trash2,
-} from 'lucide-react';
+import { Bot, ChevronDown, ChevronRight, Clock, FileText, Plus, Save, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 export interface Agent {
@@ -50,7 +41,7 @@ const KNOWN_FILES = ['SOUL.md', 'SKILLS.md', 'LEARNINGS.md', 'ERRORS.md'];
 function getPlaceholder(filename: string): string {
 	switch (filename) {
 		case 'SOUL.md':
-			return 'Define this agent\'s personality and identity...';
+			return "Define this agent's personality and identity...";
 		case 'SKILLS.md':
 			return 'Learned capabilities will appear here...';
 		case 'LEARNINGS.md':
@@ -138,13 +129,11 @@ export function AgentCard({
 				</div>
 
 				{agent.description && (
-					<p className="text-xs text-muted-foreground mt-1 ml-8">
-						{agent.description}
-					</p>
+					<p className="text-xs text-muted-foreground mt-1 ml-8">{agent.description}</p>
 				)}
 
 				{/* Tags */}
-				{(agent.domains?.length || agent.tools?.length) ? (
+				{agent.domains?.length || agent.tools?.length ? (
 					<div className="flex gap-1.5 flex-wrap mt-2 ml-8">
 						{agent.domains?.map((d) => (
 							<Badge key={d} variant="default" className="text-[10px]">
@@ -167,7 +156,12 @@ export function AgentCard({
 							<div className="flex items-center justify-between p-2.5 border border-border bg-surface">
 								<div className="flex items-center gap-2 text-xs">
 									<Clock size={14} className="text-muted-foreground" />
-									<span>Schedule: <code className="bg-elevated px-1.5 py-0.5 font-mono text-[11px]">{agent.trigger.cron}</code></span>
+									<span>
+										Schedule:{' '}
+										<code className="bg-elevated px-1.5 py-0.5 font-mono text-[11px]">
+											{agent.trigger.cron}
+										</code>
+									</span>
 								</div>
 								<Button
 									size="sm"
@@ -249,16 +243,23 @@ export function AgentCard({
 											}`}
 										>
 											<div className="flex items-center gap-3">
-												<span className={`inline-block w-2 h-2 ${
-													run.status === 'completed' ? 'bg-green-500' :
-													run.status === 'failed' ? 'bg-red-500' :
-													run.status === 'queued' ? 'bg-yellow-500' :
-													'bg-muted-foreground'
-												}`} />
+												<span
+													className={`inline-block w-2 h-2 ${
+														run.status === 'completed'
+															? 'bg-green-500'
+															: run.status === 'failed'
+																? 'bg-red-500'
+																: run.status === 'queued'
+																	? 'bg-yellow-500'
+																	: 'bg-muted-foreground'
+													}`}
+												/>
 												<span className="text-muted-foreground font-mono">
 													{new Date(run.createdAt).toLocaleString(undefined, {
-														month: 'short', day: 'numeric',
-														hour: '2-digit', minute: '2-digit',
+														month: 'short',
+														day: 'numeric',
+														hour: '2-digit',
+														minute: '2-digit',
 													})}
 												</span>
 												{run.durationMs != null && (
@@ -271,7 +272,10 @@ export function AgentCard({
 												<span className="text-muted-foreground">{run.toolCalls} tools</span>
 											</div>
 											{run.error && (
-												<span className="text-red-400 truncate max-w-[200px] font-mono" title={run.error}>
+												<span
+													className="text-red-400 truncate max-w-[200px] font-mono"
+													title={run.error}
+												>
 													{run.error.slice(0, 50)}
 												</span>
 											)}
@@ -352,9 +356,7 @@ function InlineFileEditor({
 					<span className="text-[11px] font-mono font-medium text-muted-foreground">
 						{filename}
 					</span>
-					{dirty && (
-						<span className="text-[10px] text-yellow-500 font-mono">unsaved</span>
-					)}
+					{dirty && <span className="text-[10px] text-yellow-500 font-mono">unsaved</span>}
 				</div>
 				<Button
 					size="sm"

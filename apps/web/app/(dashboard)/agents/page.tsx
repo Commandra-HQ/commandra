@@ -15,8 +15,8 @@ import {
 } from '@/lib/queries/use-agents';
 import { Bot, Plus, X } from 'lucide-react';
 import { useState } from 'react';
-import { type Agent, type AgentFile, AgentCard } from './agent-card';
-import { type NewAgentData, EMPTY_AGENT, AgentCreateForm } from './agent-form';
+import { type Agent, AgentCard } from './agent-card';
+import { AgentCreateForm, EMPTY_AGENT, type NewAgentData } from './agent-form';
 
 export default function AgentsPage() {
 	const [offset, setOffset] = useState(0);
@@ -50,11 +50,16 @@ export default function AgentsPage() {
 		if (newAgent.model) body.model = newAgent.model;
 		if (newAgent.maxIterations) body.maxIterations = Number(newAgent.maxIterations);
 		if (newAgent.domains.trim())
-			body.domains = newAgent.domains.split(',').map((d) => d.trim()).filter(Boolean);
+			body.domains = newAgent.domains
+				.split(',')
+				.map((d) => d.trim())
+				.filter(Boolean);
 		if (newAgent.tools.trim())
-			body.tools = newAgent.tools.split(',').map((t) => t.trim()).filter(Boolean);
-		if (newAgent.cron.trim())
-			body.trigger = { cron: newAgent.cron.trim(), enabled: true };
+			body.tools = newAgent.tools
+				.split(',')
+				.map((t) => t.trim())
+				.filter(Boolean);
+		if (newAgent.cron.trim()) body.trigger = { cron: newAgent.cron.trim(), enabled: true };
 
 		await createMutation.mutateAsync(body as Parameters<typeof createMutation.mutateAsync>[0]);
 		setShowCreate(false);
