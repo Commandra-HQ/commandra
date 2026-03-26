@@ -26,7 +26,12 @@ import {
 } from '../llm/index.js';
 import { compressHistory } from '../memory/conversation.js';
 import { saveCompaction } from '../storage/compaction-files.js';
-import { isKilled } from '../ws/handler.js';
+import { getConnectionByUser, isKilled } from '../ws/handler.js';
+import {
+  getRun,
+  pauseForBrowser,
+  updateConversationStatus,
+} from './run-registry.js';
 import { evaluateOnComplete } from './hooks.js';
 import { buildSystemPrompt } from './prompts.js';
 import { buildToolList } from './tool-definitions.js';
@@ -68,6 +73,7 @@ export interface OrchestratorParams {
   domainKnowledge?: string;
   tabId?: number;
   existingPlan?: import('../storage/plan-files.js').StoredPlan | null;
+  sitemapTree?: string;
 }
 
 export interface ToolCallRecord {
@@ -126,6 +132,7 @@ export async function runOrchestrator(
     agentConfig,
     domainKnowledge,
     params.existingPlan,
+    params.sitemapTree,
   );
 
   const currentDepth = params.depth ?? 0;
@@ -289,6 +296,25 @@ export async function runOrchestrator(
 
     const response = { content, stopReason };
 
+    // Check if there are tool_use blocks that need the extension
+    const hasToolUseBlocks = content.some((b) => b.type === 'tool_use');
+
+    // If extension disconnected and we need browser tools, pause and wait for reconnection
+    if (hasToolUseBlocks && !getConnectionByUser(userId)) {
+      const run = conversationId ? getRun(conversationId) : undefined;
+      if (run) {
+        await onEvent({ type: 'paused', reason: 'Browser disconnected — waiting for reconnection...' });
+        await pauseForBrowser(run.conversationId);
+        // After resume, check if we were killed during the pause
+        if (signal?.aborted) break;
+        await onEvent({ type: 'resumed' });
+        await updateConversationStatus(run.conversationId, 'running');
+      }
+    }
+
+    // Get fresh connectionId (may have changed after pause/resume)
+    const activeConnectionId = getConnectionByUser(userId) || connectionId;
+
     // Process tool calls — parallel for safe tools, sequential for review/blocked
     const { toolResults, hasToolUse } = await processToolCalls(
       response,
@@ -296,7 +322,7 @@ export async function runOrchestrator(
       agentConfig,
       context,
       userId,
-      connectionId,
+      activeConnectionId,
       onEvent,
       provider,
       domainMemory,

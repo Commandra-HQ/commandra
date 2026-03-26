@@ -1,9 +1,11 @@
+import { normalizeUrlPattern } from '@afe/shared';
 import { and, count, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
 import { pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
+import { loadSitemap, updateSitemap } from '../storage/sitemap.js';
 import { parsePagination } from '../utils/pagination.js';
 
 export const siteRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -122,7 +124,55 @@ siteRoutes.post('/:domain/pages', async (c) => {
 	await upsertPage(site.id, pageIndex);
 	await updateSiteTotals(site.id);
 
+	// Update navigation graph (fire-and-forget)
+	updateSitemap(user.id, domain, {
+		url: pageIndex.url,
+		urlPattern: pageIndex.urlPattern,
+		title: pageIndex.title,
+		pageType: pageIndex.pageType,
+		elements: pageIndex.elements,
+		navigationLinks: pageIndex.navigationLinks as { label: string; href: string }[] | undefined,
+	}).catch((err) => console.error('[sitemap] Failed to update:', err));
+
 	return c.json({ ok: true });
+});
+
+// Get site navigation graph
+siteRoutes.get('/:domain/graph', async (c) => {
+	const user = c.get('user');
+	const domain = c.req.param('domain');
+
+	// Verify access
+	const [site] = await db.select().from(sites).where(eq(sites.domain, domain)).limit(1);
+	if (!site) return c.json({ error: 'Not found' }, 404);
+
+	const isOwner = site.userId === user.id;
+	const isOrgMember = user.orgId && site.orgId === user.orgId;
+	if (!isOwner && !isOrgMember) return c.json({ error: 'Not found' }, 404);
+
+	const sitemap = await loadSitemap(user.id, domain);
+
+	// Transform to a dashboard-friendly format
+	const nodes = Object.entries(sitemap.nodes).map(([pattern, node]) => ({
+		id: pattern,
+		...node,
+	}));
+
+	const edges = sitemap.edges.map((edge) => ({
+		source: edge.from,
+		target: edge.to,
+		label: edge.label,
+		type: edge.type,
+		traversals: edge.traversals,
+	}));
+
+	return c.json({
+		domain: sitemap.domain,
+		stats: sitemap.stats,
+		lastUpdated: sitemap.lastUpdated,
+		nodes,
+		edges,
+	});
 });
 
 interface PageIndexPayload {
@@ -137,8 +187,7 @@ interface PageIndexPayload {
 /** Upsert a page by siteId + urlPattern. Returns the page ID. */
 export async function upsertPage(siteId: string, pageIndex: PageIndexPayload): Promise<string> {
 	const urlPattern =
-		pageIndex.urlPattern ||
-		new URL(pageIndex.url).pathname.replace(/\/\d+/g, '/:id').replace(/\/[a-f0-9-]{36}/g, '/:id');
+		pageIndex.urlPattern || normalizeUrlPattern(new URL(pageIndex.url).pathname);
 
 	const [existing] = await db
 		.select({ id: pages.id })

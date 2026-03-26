@@ -5,6 +5,12 @@ import type { WebSocket } from 'ws';
 import { db } from '../db/index.js';
 import { sites } from '../db/schema.js';
 import { onUserReconnected } from '../agent/scheduler.js';
+import {
+	getRunByUser,
+	killRun,
+	resumeRun,
+	updateConnectionId,
+} from '../agent/run-registry.js';
 import { updateSiteTotals, upsertPage } from '../routes/sites.js';
 
 interface Connection {
@@ -49,6 +55,13 @@ export function handleWsConnection(ws: WebSocket) {
 						conn.authenticated = true;
 						ws.send(JSON.stringify({ type: 'auth_result', success: true, timestamp: Date.now() }));
 						console.log(`WS authenticated: ${connectionId} (user: ${conn.userId})`);
+						// Resume any paused orchestrator runs for this user
+						const pausedRun = getRunByUser(conn.userId);
+						if (pausedRun && pausedRun.status === 'paused') {
+							console.log(`[WS] Resuming paused run ${pausedRun.conversationId} for user ${conn.userId}`);
+							updateConnectionId(pausedRun.conversationId, connectionId);
+							resumeRun(pausedRun.conversationId);
+						}
 						// Process any queued scheduled runs for this user
 						onUserReconnected(conn.userId, connectionId).catch((err) =>
 							console.warn('[WS] Failed to process queued runs on reconnect:', err),
@@ -102,7 +115,17 @@ export function handleWsConnection(ws: WebSocket) {
 					cancelAllPending(connectionId);
 					// Set killed flag
 					const conn = connections.get(connectionId);
-					if (conn) conn.killed = true;
+					if (conn) {
+						conn.killed = true;
+						// Also kill any active run for this user via the durable registry
+						if (conn.userId) {
+							const activeRun = getRunByUser(conn.userId);
+							if (activeRun) {
+								console.log(`[WS] Killing run ${activeRun.conversationId} via registry`);
+								killRun(activeRun.conversationId);
+							}
+						}
+					}
 					broadcastStatus(connectionId, {
 						requestId: 'kill',
 						action: 'kill',

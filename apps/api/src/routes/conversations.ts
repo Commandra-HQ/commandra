@@ -38,6 +38,7 @@ conversationRoutes.get('/', async (c) => {
 			id: conversations.id,
 			title: conversations.title,
 			outcome: conversations.outcome,
+			status: conversations.status,
 			agentId: conversations.agentId,
 			agentName: agents.name,
 			planStatus: conversations.planStatus,

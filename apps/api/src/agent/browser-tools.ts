@@ -8,7 +8,8 @@ import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { persistScreenshot, saveScreenshot, uploadScreenshotToS3 } from '../screenshots/manager.js';
 import { executeTool } from '../tools/registry.js';
-import { isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { getConnectionByUser, isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { getRun } from './run-registry.js';
 import { evaluatePreToolUse, evaluatePostToolUse } from './hooks.js';
 import { INTERNAL_TOOL_NAMES } from './internal-tools.js';
 
@@ -348,8 +349,12 @@ export async function executeToolBlock(
 	});
 	if (internalResult) return internalResult;
 
+	// Get fresh connectionId — may have changed after pause/resume
+	const freshConnectionId = (conversationId ? getRun(conversationId)?.connectionId : undefined) || getConnectionByUser(userId) || connectionId;
+	const freshContext = { ...context, connectionId: freshConnectionId };
+
 	// Browser tool — classify, approve, execute
-	const result = await handleBrowserToolCall(block, context, userId, connectionId, onEvent, autonomy, hooks);
+	const result = await handleBrowserToolCall(block, freshContext, userId, freshConnectionId, onEvent, autonomy, hooks);
 
 	// Build tool result content — save screenshots to disk, keep compressed version for LLM
 	let toolContent: string | (TextBlock | ImageBlock)[];

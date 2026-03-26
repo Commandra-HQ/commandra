@@ -60,6 +60,8 @@ export type SSEEvent =
 			} | null;
 	  }
 	| { type: 'usage_total'; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; thinkingTokens: number; estimatedCostUsd: number }
+	| { type: 'paused'; reason: string }
+	| { type: 'resumed' }
 	| { type: 'done'; conversationId: string }
 	| { type: 'error'; message: string }
 	| { type: 'sub_agent_start'; agentId: string; task: string; targetUrl: string }

@@ -17,6 +17,7 @@ import { getFastModel, getProvider } from '../llm/index.js';
 import { collectStream } from '../llm/types.js';
 import { loadDomainKnowledgeFromS3 } from '../memory/domain.js';
 import { loadUserMemory } from '../memory/user.js';
+import { loadSitemap, renderSitemapTree } from '../storage/sitemap.js';
 import { getConnectionByUser, sendActionRequest, sendToExtension } from '../ws/handler.js';
 import { resolveAgent } from './agent-registry.js';
 import { runOrchestrator } from './orchestrator.js';
@@ -362,14 +363,18 @@ async function runScheduledAgent(
 		// Load domain knowledge from S3
 		let domainKnowledge: string | undefined;
 		let userMem: string | undefined;
+		let sitemapTree: string | undefined;
 		const domain = (agent.domains as string[] | null)?.[0];
 		if (domain) {
-			const [um, dk] = await Promise.all([
+			const [um, dk, sitemap] = await Promise.all([
 				loadUserMemory(agent.userId, domain),
 				loadDomainKnowledgeFromS3(agent.userId, domain),
+				loadSitemap(agent.userId, domain),
 			]);
 			userMem = um ?? undefined;
 			domainKnowledge = dk ?? undefined;
+			const tree = renderSitemapTree(sitemap);
+			sitemapTree = tree || undefined;
 		}
 
 		// Create a conversation record so scheduled runs appear in history
@@ -426,6 +431,7 @@ async function runScheduledAgent(
 			onEvent: noopEvent,
 			agentConfig,
 			tabId: scheduledTabId,
+			sitemapTree,
 		});
 
 		const durationMs = Date.now() - startTime;

@@ -208,6 +208,7 @@ export function buildSystemPrompt(
 	agentConfig?: AgentConfig,
 	domainKnowledge?: string,
 	existingPlan?: import('../storage/plan-files.js').StoredPlan | null,
+	sitemapTree?: string,
 ): string {
 	const basePrompt = buildBasePrompt(agentConfig);
 
@@ -241,8 +242,11 @@ Do NOT ask the user to "index the page" — just navigate there yourself and ref
 				.join('\n')
 		: 'No navigation links found.';
 
+	// Use sitemap tree if available, fall back to flat page list
 	let siteSummary = '';
-	if (pi.sitePages?.length) {
+	if (sitemapTree) {
+		siteSummary = `\n\n${sitemapTree}\n\nUse this graph to navigate efficiently — follow known paths instead of guessing. Use read_knowledge to access the full SITEMAP.yaml for details.`;
+	} else if (pi.sitePages?.length) {
 		const pageDetails = pi.sitePages.map((p) => {
 			let detail = `### ${p.title || p.urlPattern} (${p.pageType})\n  URL: ${p.url}\n  ${p.elementCount} elements`;
 			if (p.lastIndexedAt) {

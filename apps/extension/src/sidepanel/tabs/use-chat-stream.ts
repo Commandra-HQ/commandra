@@ -348,6 +348,22 @@ export function useChatStream(options: UseChatStreamOptions) {
         }
         break;
 
+      case 'paused':
+        blocksRef.current.push({
+          type: 'text',
+          content: `\n\n---\n*${event.reason}*\n---\n`,
+        });
+        scheduleFlush();
+        break;
+
+      case 'resumed':
+        blocksRef.current.push({
+          type: 'text',
+          content: '\n*Resumed — browser reconnected.*\n',
+        });
+        scheduleFlush();
+        break;
+
       case 'error':
         blocksRef.current.push({
           type: 'text',
@@ -468,6 +484,108 @@ export function useChatStream(options: UseChatStreamOptions) {
     [externalConvId, markActive, setChatMessages, setIsActive],
   );
 
+  /**
+   * Subscribe to an already-running conversation's SSE stream.
+   * Used when the user opens a conversation that has an active orchestrator on the server.
+   */
+  const subscribeToRun = useCallback(
+    async (convId: string) => {
+      const stored = await chrome.storage.local.get(['authToken']);
+      const token = stored.authToken;
+
+      // Set up assistant message placeholder for incoming events
+      const assistantMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: '',
+        blocks: [],
+      };
+      assistantMsgIdRef.current = assistantMsg.id;
+      blocksRef.current = [];
+      textAccumRef.current = '';
+      thinkingAccumRef.current = '';
+      setChatMessages(prev => [...prev, assistantMsg]);
+      setIsActive(true);
+
+      try {
+        chrome.action.setBadgeText({ text: '●' });
+        chrome.action.setBadgeBackgroundColor({ color: '#3b82f6' });
+      } catch {}
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        const res = await fetch(
+          `${API_URL}/api/chat/subscribe/${convId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
+        );
+
+        // If the server returns JSON (not SSE), the run is not active
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          // No active run — nothing to subscribe to
+          setIsActive(false);
+          abortRef.current = null;
+          // Remove the empty assistant message we added
+          setChatMessages(prev => prev.filter(m => m.id !== assistantMsg.id));
+          return;
+        }
+
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (reader) {
+          let buffer = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const [events, remaining] = parseSSEBuffer(buffer);
+            buffer = remaining;
+            for (const event of events) {
+              processSSEEvent(event);
+            }
+          }
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          console.warn('[subscribeToRun] Error:', err);
+        }
+      } finally {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+        }
+        flushBlocks();
+
+        const finalText = blocksRef.current
+          .filter(b => b.type === 'text')
+          .map(b => (b as { content: string }).content)
+          .join('\n');
+
+        setChatMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsgIdRef.current
+              ? { ...m, content: finalText }
+              : m,
+          ),
+        );
+
+        setIsActive(false);
+        abortRef.current = null;
+        assistantMsgIdRef.current = '';
+
+        try {
+          chrome.action.setBadgeText({ text: '' });
+        } catch {}
+      }
+    },
+    [setChatMessages, setIsActive],
+  );
+
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
     setIsActive(false);
@@ -486,6 +604,7 @@ export function useChatStream(options: UseChatStreamOptions) {
 
   return {
     sendMessage,
+    subscribeToRun,
     handleStop,
     blocksRef,
     scheduleFlush,

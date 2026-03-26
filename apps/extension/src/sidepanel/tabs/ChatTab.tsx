@@ -85,6 +85,7 @@ export function ChatTab() {
   const {
     sendMessage,
     handleStop,
+    subscribeToRun,
     blocksRef,
     scheduleFlush,
     resetConversation,
@@ -725,6 +726,13 @@ export function ChatTab() {
           if (hasActive) {
             setShowPlanPanel(true);
           }
+        }
+
+        // If the conversation is still running or paused on the server, auto-subscribe
+        // to the live SSE stream so the user sees real-time updates
+        const convStatus = data.conversation?.status;
+        if (convStatus === 'running' || convStatus === 'paused') {
+          subscribeToRun(convId);
         }
       }
     } catch (err) {

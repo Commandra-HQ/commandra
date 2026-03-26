@@ -1,4 +1,4 @@
-import type { ElementType, IndexedElement, PageIndex } from '@afe/shared';
+import { type ElementType, type IndexedElement, type PageIndex, normalizeUrlPattern } from '@afe/shared';
 
 const INTERACTIVE_SELECTORS = [
 	'button',
@@ -413,9 +413,7 @@ export function indexPage(): PageIndex {
 
 	return {
 		url: window.location.href,
-		urlPattern: window.location.pathname
-			.replace(/\/\d+/g, '/:id')
-			.replace(/\/[a-f0-9-]{36}/g, '/:id'),
+		urlPattern: normalizeUrlPattern(window.location.pathname),
 		title: document.title,
 		pageType: detectPageType(),
 		elements,
