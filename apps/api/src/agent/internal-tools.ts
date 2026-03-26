@@ -545,9 +545,10 @@ async function handleCreateAgent(
     // Approval gate — ask user before creating an agent (skip for autonomous)
     const autoApprove = ctx.autonomy === 'autonomous';
     if (!autoApprove) {
+      const agentApprovalId = `${block.id}-agent-approval`;
       await ctx.onEvent({
         type: 'approval_inline',
-        requestId: `${block.id}-agent-approval`,
+        requestId: agentApprovalId,
         action: 'create_agent',
         label: `Create agent "${args.name}" (${args.slug})`,
         reason: args.description,
@@ -570,7 +571,7 @@ async function handleCreateAgent(
         soul: args.soul.slice(0, 500),
         domains: args.domains,
         cron: args.cron,
-      });
+      }, 60000, agentApprovalId);
 
       if (!approval.approved) {
         return successResult(block.id, {
@@ -712,10 +713,11 @@ async function handleSubmitPlan(
     const autoApprovePlan =
       ctx.autonomy === 'trusted' || ctx.autonomy === 'autonomous';
 
+    const planApprovalId = `${block.id}-plan-approval`;
     if (!autoApprovePlan) {
       await ctx.onEvent({
         type: 'approval_inline',
-        requestId: `${block.id}-plan-approval`,
+        requestId: planApprovalId,
         action: 'submit_plan',
         label: args.description,
         reason: `Plan with ${args.steps.length} steps`,
@@ -731,7 +733,7 @@ async function handleSubmitPlan(
           planId,
           description: args.description,
           steps: plan.steps.map((s) => s.label),
-        });
+        }, 60000, planApprovalId);
 
     if (approval.approved) {
       if (ctx.conversationId) {

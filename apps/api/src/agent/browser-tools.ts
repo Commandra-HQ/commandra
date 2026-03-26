@@ -131,9 +131,10 @@ export async function handleBrowserToolCall(
 	// Review — skip approval for trusted/autonomous agents
 	if (classification.level === 'review' && autonomy !== 'trusted' && autonomy !== 'autonomous') {
 		try {
+			const inlineRequestId = `${block.id}-approval`;
 			await onEvent({
 				type: 'approval_inline',
-				requestId: `${block.id}-approval`,
+				requestId: inlineRequestId,
 				action: name,
 				label: elementLabel || undefined,
 				reason: classification.reason,
@@ -145,7 +146,7 @@ export async function handleBrowserToolCall(
 				selector: toolArgs.selector as string,
 				label: elementLabel,
 				reason: classification.reason,
-			});
+			}, 60000, inlineRequestId);
 
 			if (!approval.approved) {
 				await logAction({
