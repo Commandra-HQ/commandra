@@ -150,10 +150,12 @@ orgRoutes.post('/:id/members', async (c) => {
 
 	// Clerk-managed: proxy to landing page → Clerk API
 	if (org.externalId) {
+		const inviterExternalUserId = await getUserExternalId(user.id);
 		const result = await clerkProxy('POST', {
 			orgExternalId: org.externalId,
 			email: email.trim(),
 			role: role || 'member',
+			inviterExternalUserId,
 		});
 		return c.json(result.data, result.status as 200);
 	}
