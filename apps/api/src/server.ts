@@ -42,7 +42,7 @@ app.use(
 			return null;
 		},
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-		allowHeaders: ['Content-Type', 'Authorization'],
+		allowHeaders: ['Content-Type', 'Authorization', 'X-Sync-Secret'],
 	}),
 );
 
