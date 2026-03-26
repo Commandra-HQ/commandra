@@ -104,6 +104,47 @@ agentRoutes.get('/runs/:date/:filename', async (c) => {
 // --- Agent CRUD routes ---
 
 // Get agent (hydrated with files)
+// List all scheduled agents with their latest run
+// NOTE: Must be before /:id to prevent "scheduled" matching as a UUID
+agentRoutes.get('/scheduled', async (c) => {
+	const user = c.get('user');
+	const allAgents = await listAgents(user.id);
+	const scheduled = allAgents.filter(
+		(a) => (a.trigger as { cron?: string } | null)?.cron,
+	);
+
+	// Get latest run for each scheduled agent
+	const result = await Promise.all(
+		scheduled.map(async (agent) => {
+			const [latestRun] = await db
+				.select()
+				.from(agentRuns)
+				.where(eq(agentRuns.agentId, agent.id))
+				.orderBy(desc(agentRuns.createdAt))
+				.limit(1);
+			return { ...agent, latestRun: latestRun ?? null };
+		}),
+	);
+
+	// Also get one-time scheduled tasks
+	const tasks = await db
+		.select({
+			id: scheduledTasks.id,
+			agentId: scheduledTasks.agentId,
+			task: scheduledTasks.task,
+			runAt: scheduledTasks.runAt,
+			status: scheduledTasks.status,
+			error: scheduledTasks.error,
+			createdAt: scheduledTasks.createdAt,
+		})
+		.from(scheduledTasks)
+		.where(eq(scheduledTasks.userId, user.id))
+		.orderBy(desc(scheduledTasks.runAt))
+		.limit(20);
+
+	return c.json({ data: result, tasks });
+});
+
 agentRoutes.get('/:id', async (c) => {
 	const user = c.get('user');
 	const agentId = c.req.param('id');
@@ -227,42 +268,3 @@ agentRoutes.post('/:id/run-now', async (c) => {
 	return c.json(result);
 });
 
-// List all scheduled agents with their latest run
-agentRoutes.get('/scheduled', async (c) => {
-	const user = c.get('user');
-	const allAgents = await listAgents(user.id);
-	const scheduled = allAgents.filter(
-		(a) => (a.trigger as { cron?: string } | null)?.cron,
-	);
-
-	// Get latest run for each scheduled agent
-	const result = await Promise.all(
-		scheduled.map(async (agent) => {
-			const [latestRun] = await db
-				.select()
-				.from(agentRuns)
-				.where(eq(agentRuns.agentId, agent.id))
-				.orderBy(desc(agentRuns.createdAt))
-				.limit(1);
-			return { ...agent, latestRun: latestRun ?? null };
-		}),
-	);
-
-	// Also get one-time scheduled tasks
-	const tasks = await db
-		.select({
-			id: scheduledTasks.id,
-			agentId: scheduledTasks.agentId,
-			task: scheduledTasks.task,
-			runAt: scheduledTasks.runAt,
-			status: scheduledTasks.status,
-			error: scheduledTasks.error,
-			createdAt: scheduledTasks.createdAt,
-		})
-		.from(scheduledTasks)
-		.where(eq(scheduledTasks.userId, user.id))
-		.orderBy(desc(scheduledTasks.runAt))
-		.limit(20);
-
-	return c.json({ data: result, tasks });
-});
