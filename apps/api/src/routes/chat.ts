@@ -15,6 +15,7 @@ import {
 	subscribeSSE,
 } from '../agent/run-registry.js';
 import { analyzeAndImprove, calculateCost, recordAgentRun } from '../agent/self-improve.js';
+import { isTabLocked, lockTab, unlockByConversation } from '../agent/tab-locks.js';
 import { db } from '../db/index.js';
 import { agents, conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
@@ -24,7 +25,12 @@ import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { loadPlan } from '../storage/plan-files.js';
 import { loadSitemap, renderSitemapTree } from '../storage/sitemap.js';
-import { getConnectionByUser, registerConversationConnection, resetKill } from '../ws/handler.js';
+import {
+	getConnectionByUser,
+	registerConversationConnection,
+	resetKill,
+	sendActionRequest,
+} from '../ws/handler.js';
 
 /**
  * Detect if a user message clearly requires PARALLEL work across multiple distinct websites.
@@ -81,17 +87,23 @@ async function generateConversationTitle(
 	chatMessages: { role: string; content: string }[],
 	onEvent?: (event: SSEEvent) => Promise<void>,
 ): Promise<void> {
-	console.log(`[TitleGen] Starting title generation for ${convId} (${chatMessages.length} messages)`);
+	console.log(
+		`[TitleGen] Starting title generation for ${convId} (${chatMessages.length} messages)`,
+	);
 	try {
 		const provider = getProvider();
 		const fastModel = getFastModel();
 		const { collectStream } = await import('../llm/types.js');
 
-		const recent = chatMessages.slice(-6).map((m) => `${m.role}: ${m.content.slice(0, 200)}`).join('\n');
+		const recent = chatMessages
+			.slice(-6)
+			.map((m) => `${m.role}: ${m.content.slice(0, 200)}`)
+			.join('\n');
 
 		const stream = provider.chat({
 			model: fastModel,
-			system: 'Generate a short title (3-6 words) for this conversation. Return ONLY the title, no quotes, no punctuation at the end.',
+			system:
+				'Generate a short title (3-6 words) for this conversation. Return ONLY the title, no quotes, no punctuation at the end.',
 			messages: [{ role: 'user', content: recent }],
 			maxTokens: 30,
 		});
@@ -202,7 +214,9 @@ chatRoutes.post('/', async (c) => {
 		setTimeout(() => {
 			const run = getRun(convId!);
 			const onEvent = run ? createDurableOnEvent(run) : undefined;
-			console.log(`[Chat] Title gen timeout fired for ${convId}, run=${run ? 'exists' : 'NOT FOUND'}`);
+			console.log(
+				`[Chat] Title gen timeout fired for ${convId}, run=${run ? 'exists' : 'NOT FOUND'}`,
+			);
 			generateConversationTitle(convId!, chatMessages, onEvent).catch((err) => {
 				console.error(`[Chat] Title gen failed for ${convId}:`, err);
 			});
@@ -317,6 +331,36 @@ chatRoutes.post('/', async (c) => {
 	// Load existing plan for this conversation (if any) so the agent knows where it left off
 	const existingPlan = convId ? await loadPlan(user.id, convId).catch(() => null) : null;
 
+	// Tab locking — ensure this conversation has exclusive access to its tab.
+	// If the requested tab is already locked by another conversation, open a new tab.
+	let effectiveTabId = tabId;
+	if (effectiveTabId && convId && connectionId) {
+		if (isTabLocked(effectiveTabId, convId)) {
+			// Tab is owned by another conversation — open a new tab
+			console.log(`[Chat] Tab ${effectiveTabId} locked by another conv, opening new tab`);
+			try {
+				const currentUrl = pi?.url || 'about:blank';
+				const result = (await sendActionRequest(
+					connectionId,
+					'open_tab',
+					{
+						action: 'open_tab',
+						url: currentUrl,
+					},
+					15000,
+				)) as { success?: boolean; data?: { tabId?: number } };
+				if (result?.success && result.data?.tabId) {
+					effectiveTabId = result.data.tabId;
+					console.log(`[Chat] Opened new tab ${effectiveTabId} for conv ${convId}`);
+				}
+			} catch (err) {
+				console.warn('[Chat] Failed to open new tab, using original:', err);
+			}
+		}
+		// Lock the tab for this conversation
+		lockTab(effectiveTabId, convId);
+	}
+
 	// HTTP signal — only controls the SSE stream, NOT the orchestrator
 	const httpSignal = c.req.raw.signal;
 
@@ -348,7 +392,7 @@ chatRoutes.post('/', async (c) => {
 				userMem,
 				domainKnowledge,
 				existingPlan,
-				tabId,
+				tabId: effectiveTabId,
 				sitemapTree,
 			};
 
@@ -369,7 +413,7 @@ chatRoutes.post('/', async (c) => {
 						onEvent: durableOnEvent,
 						signal: run.abortController.signal,
 						agentConfig,
-						tabId,
+						tabId: effectiveTabId,
 						domainKnowledge,
 						existingPlan,
 						sitemapTree,
@@ -419,7 +463,8 @@ chatRoutes.post('/', async (c) => {
 					// Emit done event via durable handler
 					await durableOnEvent({ type: 'done', conversationId: convId! });
 
-					// Mark run complete
+					// Release tab lock + mark run complete
+					unlockByConversation(convId!);
 					await completeRun(convId!, 'completed');
 				})
 				.catch(async (err) => {
@@ -439,6 +484,7 @@ chatRoutes.post('/', async (c) => {
 						message: 'Something went wrong. Please try again.',
 					});
 					await saveFinalMessage(currentRun!, currentRun?.toolCalls);
+					unlockByConversation(convId!);
 					await completeRun(convId!, 'failed');
 				});
 		}
@@ -494,7 +540,9 @@ chatRoutes.get('/subscribe/:conversationId', requireAuth, async (c) => {
 	if (!conv) return c.json({ error: 'Not found' }, 404);
 
 	const run = getRun(convId);
-	console.log(`[Chat] subscribe/${convId}: run=${run ? `exists (status=${run.status}, events=${run.eventBuffer.length})` : 'NOT FOUND'}, dbStatus=${conv.status}`);
+	console.log(
+		`[Chat] subscribe/${convId}: run=${run ? `exists (status=${run.status}, events=${run.eventBuffer.length})` : 'NOT FOUND'}, dbStatus=${conv.status}`,
+	);
 	if (!run) {
 		return c.json({ status: conv.status || 'idle' });
 	}
