@@ -16,7 +16,7 @@ import {
 	useNodesState,
 } from '@xyflow/react';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import '@xyflow/react/dist/style.css';
 import { Badge } from '@/components/ui/badge';
 import { type GraphEdge, type GraphNode, useSiteGraph } from '@/lib/queries/use-site-graph';
@@ -247,8 +247,16 @@ export default function SiteGraphPage() {
 		return { layoutNodes: nodes, layoutEdges: edges };
 	}, [data]);
 
-	const [nodes, , onNodesChange] = useNodesState(layoutNodes);
-	const [edges, , onEdgesChange] = useEdgesState(layoutEdges);
+	const [nodes, setNodes, onNodesChange] = useNodesState(layoutNodes);
+	const [edges, setEdges, onEdgesChange] = useEdgesState(layoutEdges);
+
+	// Sync layout when data changes (useNodesState only uses initial value)
+	useEffect(() => {
+		if (layoutNodes.length > 0) {
+			setNodes(layoutNodes);
+			setEdges(layoutEdges);
+		}
+	}, [layoutNodes, layoutEdges, setNodes, setEdges]);
 
 	const onNodeClick = useCallback(
 		(_: React.MouseEvent, node: Node) => {
