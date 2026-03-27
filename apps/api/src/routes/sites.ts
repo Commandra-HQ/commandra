@@ -1,9 +1,11 @@
+import { normalizeUrlPattern } from '@afe/shared';
 import { and, count, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
 import { pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
+import { buildSitemapFromDB, loadSitemap, updateSitemap } from '../storage/sitemap.js';
 import { parsePagination } from '../utils/pagination.js';
 
 export const siteRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -105,25 +107,107 @@ siteRoutes.post('/:domain/pages', async (c) => {
 
 	if (!pageIndex?.url) return c.json({ error: 'pageIndex required' }, 400);
 
-	// Get or create site
-	let [site] = await db
-		.select()
-		.from(sites)
-		.where(and(eq(sites.domain, domain), getOrgOrUserScope(user, sites)))
-		.limit(1);
-
-	if (!site) {
-		[site] = await db
-			.insert(sites)
-			.values({ userId: user.id, orgId: user.orgId || null, domain })
-			.returning();
-	}
+	const site = await getOrCreateSite(user.id, domain, user.orgId);
 
 	await upsertPage(site.id, pageIndex);
 	await updateSiteTotals(site.id);
 
+	// Update navigation graph (fire-and-forget)
+	updateSitemap(user.id, domain, {
+		url: pageIndex.url,
+		urlPattern: pageIndex.urlPattern,
+		title: pageIndex.title,
+		pageType: pageIndex.pageType,
+		elements: pageIndex.elements,
+		navigationLinks: pageIndex.navigationLinks as { label: string; href: string }[] | undefined,
+	}).catch((err) => console.error('[sitemap] Failed to update:', err));
+
 	return c.json({ ok: true });
 });
+
+// Build/rebuild sitemap from existing DB pages
+siteRoutes.post('/:domain/graph/build', async (c) => {
+	const user = c.get('user');
+	const domain = c.req.param('domain');
+
+	const result = await buildSitemapFromDB(user.id, domain);
+	return c.json(result);
+});
+
+// Get site navigation graph
+siteRoutes.get('/:domain/graph', async (c) => {
+	const user = c.get('user');
+	const domain = c.req.param('domain');
+
+	// Verify access
+	const [site] = await db.select().from(sites).where(eq(sites.domain, domain)).limit(1);
+	if (!site) return c.json({ error: 'Not found' }, 404);
+
+	const isOwner = site.userId === user.id;
+	const isOrgMember = user.orgId && site.orgId === user.orgId;
+	if (!isOwner && !isOrgMember) return c.json({ error: 'Not found' }, 404);
+
+	const sitemap = await loadSitemap(user.id, domain);
+
+	// Transform to a dashboard-friendly format
+	const nodes = Object.entries(sitemap.nodes).map(([pattern, node]) => ({
+		id: pattern,
+		...node,
+	}));
+
+	const edges = sitemap.edges.map((edge) => ({
+		source: edge.from,
+		target: edge.to,
+		label: edge.label,
+		type: edge.type,
+		traversals: edge.traversals,
+	}));
+
+	return c.json({
+		domain: sitemap.domain,
+		stats: sitemap.stats,
+		lastUpdated: sitemap.lastUpdated,
+		nodes,
+		edges,
+	});
+});
+
+/**
+ * Get or create a site record — safe against concurrent inserts.
+ * All code paths that need a site should use this instead of manual get-or-create.
+ */
+export async function getOrCreateSite(
+	userId: string,
+	domain: string,
+	orgId?: string | null,
+): Promise<{ id: string }> {
+	// Try to find existing
+	let [site] = await db
+		.select({ id: sites.id })
+		.from(sites)
+		.where(and(eq(sites.domain, domain), eq(sites.userId, userId)))
+		.limit(1);
+
+	if (site) return site;
+
+	// Insert — if a concurrent insert happened, catch and re-query
+	try {
+		[site] = await db
+			.insert(sites)
+			.values({ userId, orgId: orgId || null, domain })
+			.returning({ id: sites.id });
+		return site;
+	} catch {
+		// Race condition — another insert won, query again
+		[site] = await db
+			.select({ id: sites.id })
+			.from(sites)
+			.where(and(eq(sites.domain, domain), eq(sites.userId, userId)))
+			.limit(1);
+		if (site) return site;
+		throw new Error(`Failed to get or create site for ${domain}`);
+	}
+}
 
 interface PageIndexPayload {
 	url: string;
@@ -136,9 +220,7 @@ interface PageIndexPayload {
 
 /** Upsert a page by siteId + urlPattern. Returns the page ID. */
 export async function upsertPage(siteId: string, pageIndex: PageIndexPayload): Promise<string> {
-	const urlPattern =
-		pageIndex.urlPattern ||
-		new URL(pageIndex.url).pathname.replace(/\/\d+/g, '/:id').replace(/\/[a-f0-9-]{36}/g, '/:id');
+	const urlPattern = pageIndex.urlPattern || normalizeUrlPattern(new URL(pageIndex.url).pathname);
 
 	const [existing] = await db
 		.select({ id: pages.id })

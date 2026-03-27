@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { jwtVerify } from 'jose';
 import type { WebSocket } from 'ws';
+import { getAllRunsByUser, getRun, killRun, resumeRun, updateConnectionId } from '../agent/run-registry.js';
+import { onUserReconnected } from '../agent/scheduler.js';
 import { db } from '../db/index.js';
 import { sites } from '../db/schema.js';
-import { onUserReconnected } from '../agent/scheduler.js';
-import { updateSiteTotals, upsertPage } from '../routes/sites.js';
+import { getOrCreateSite, updateSiteTotals, upsertPage } from '../routes/sites.js';
+import { updateSitemap } from '../storage/sitemap.js';
 
 interface Connection {
 	ws: WebSocket;
@@ -26,6 +28,28 @@ const pendingRequests = new Map<
 
 // Listeners for action status updates (side panel activity feed)
 const statusListeners = new Map<string, (update: unknown) => void>();
+
+// Conversation ↔ Connection mapping — tracks which WS connection owns which conversation
+const conversationConnections = new Map<string, string>(); // convId → connectionId
+const connectionConversations = new Map<string, Set<string>>(); // connectionId → Set<convId>
+
+export function registerConversationConnection(convId: string, connectionId: string) {
+	conversationConnections.set(convId, connectionId);
+	let convs = connectionConversations.get(connectionId);
+	if (!convs) {
+		convs = new Set();
+		connectionConversations.set(connectionId, convs);
+	}
+	convs.add(convId);
+}
+
+export function getConnectionForConversation(convId: string): string | null {
+	const connId = conversationConnections.get(convId);
+	if (!connId) return null;
+	const conn = connections.get(connId);
+	if (!conn || conn.ws.readyState !== conn.ws.OPEN) return null;
+	return connId;
+}
 
 export function handleWsConnection(ws: WebSocket) {
 	const connectionId = randomUUID();
@@ -49,6 +73,14 @@ export function handleWsConnection(ws: WebSocket) {
 						conn.authenticated = true;
 						ws.send(JSON.stringify({ type: 'auth_result', success: true, timestamp: Date.now() }));
 						console.log(`WS authenticated: ${connectionId} (user: ${conn.userId})`);
+						// Resume ALL paused orchestrator runs for this user
+						const pausedRuns = getAllRunsByUser(conn.userId).filter(r => r.status === 'paused');
+						for (const run of pausedRuns) {
+							console.log(`[WS] Resuming paused run ${run.conversationId} for user ${conn.userId}`);
+							updateConnectionId(run.conversationId, connectionId);
+							registerConversationConnection(run.conversationId, connectionId);
+							resumeRun(run.conversationId);
+						}
 						// Process any queued scheduled runs for this user
 						onUserReconnected(conn.userId, connectionId).catch((err) =>
 							console.warn('[WS] Failed to process queued runs on reconnect:', err),
@@ -91,18 +123,76 @@ export function handleWsConnection(ws: WebSocket) {
 					if (pending) {
 						clearTimeout(pending.timer);
 						pendingRequests.delete(requestId);
+
+						// Update the event buffer: replace approval_inline with approval_resolved
+						// so that replays show the resolved state, not the original approval buttons.
+						// Also emit approval_resolved to live SSE subscribers so the UI updates immediately.
+						const { getAllRunsByUser: getAllRuns } = await import('../agent/run-registry.js');
+						const conn = connections.get(connectionId);
+						if (conn?.userId) {
+							const runs = getAllRuns(conn.userId);
+							for (const run of runs) {
+								// Find and replace the approval_inline event in the event buffer
+								const idx = run.eventBuffer.findIndex(
+									(e) => e.type === 'approval_inline' && e.requestId === requestId,
+								);
+								if (idx >= 0) {
+									const resolvedEvent = {
+										type: 'approval_resolved' as string,
+										requestId,
+										approved: !!message.approved,
+									};
+									(run.eventBuffer[idx] as Record<string, unknown>) = resolvedEvent;
+									// Also update streamBlocks (used for DB persistence)
+									const sbIdx = run.streamBlocks.findIndex(
+										(b) => b.type === 'approval_inline' && b.content?.includes(requestId),
+									);
+									if (sbIdx >= 0) {
+										run.streamBlocks[sbIdx] = {
+											type: 'approval_resolved',
+											content: `${!!message.approved ? 'approved' : 'rejected'}:${requestId}`,
+											ts: Date.now(),
+										};
+									}
+									// Emit to live SSE subscribers so they update without replay
+									for (const sub of run.sseSubscribers) {
+										sub.writeSSE({
+											event: 'approval_resolved',
+											data: JSON.stringify(resolvedEvent),
+										}).catch(() => run.sseSubscribers.delete(sub));
+									}
+									console.log(`[WS] Updated approval ${requestId} to ${message.approved ? 'approved' : 'rejected'} in run ${run.conversationId}`);
+									break;
+								}
+							}
+						}
+
 						pending.resolve({ approved: !!message.approved, reason: message.reason });
 					}
 					break;
 				}
 
 				case 'kill': {
-					console.log(`[WS] Kill received from ${connectionId}`);
-					// Cancel all pending requests for this connection
+					console.log(`[WS] Kill received from ${connectionId}`, message.conversationId ? `for conv ${message.conversationId}` : '(all)');
 					cancelAllPending(connectionId);
-					// Set killed flag
 					const conn = connections.get(connectionId);
-					if (conn) conn.killed = true;
+					if (conn) {
+						conn.killed = true;
+						// Kill specific conversation if provided, otherwise all runs for this user
+						if (message.conversationId) {
+							const run = getRun(message.conversationId);
+							if (run) {
+								console.log(`[WS] Killing run ${run.conversationId} via registry`);
+								killRun(run.conversationId);
+							}
+						} else if (conn.userId) {
+							const runs = getAllRunsByUser(conn.userId);
+							for (const run of runs) {
+								console.log(`[WS] Killing run ${run.conversationId} via registry`);
+								killRun(run.conversationId);
+							}
+						}
+					}
 					broadcastStatus(connectionId, {
 						requestId: 'kill',
 						action: 'kill',
@@ -135,22 +225,23 @@ export function handleWsConnection(ws: WebSocket) {
 					// Async — don't block WS
 					(async () => {
 						try {
-							// Get or create site
-							let [site] = await db
-								.select()
-								.from(sites)
-								.where(and(eq(sites.domain, domain), eq(sites.userId, conn.userId!)))
-								.limit(1);
-
-							if (!site) {
-								[site] = await db
-									.insert(sites)
-									.values({ userId: conn.userId!, domain })
-									.returning();
-							}
+							const site = await getOrCreateSite(conn.userId!, domain);
 
 							await upsertPage(site.id, pageIndex);
 							await updateSiteTotals(site.id);
+
+							// Update navigation graph (fire-and-forget)
+							updateSitemap(conn.userId!, domain, {
+								url: pageIndex.url,
+								urlPattern: pageIndex.urlPattern,
+								title: pageIndex.title,
+								pageType: pageIndex.pageType,
+								elements: pageIndex.elements,
+								navigationLinks: pageIndex.navigationLinks as
+									| { label: string; href: string }[]
+									| undefined,
+							}).catch((err) => console.error('[sitemap] Failed to update:', err));
+
 							console.log(`[WS] Page indexed: ${domain} ${pageIndex.urlPattern || pageIndex.url}`);
 						} catch (err) {
 							console.error('[WS] Failed to store page index:', err);
@@ -180,6 +271,14 @@ export function handleWsConnection(ws: WebSocket) {
 	});
 
 	ws.on('close', () => {
+		// Clean up conversation-connection mappings
+		const convs = connectionConversations.get(connectionId);
+		if (convs) {
+			for (const convId of convs) {
+				conversationConnections.delete(convId);
+			}
+			connectionConversations.delete(connectionId);
+		}
 		connections.delete(connectionId);
 		statusListeners.delete(connectionId);
 		console.log(`WS disconnected: ${connectionId}`);
@@ -288,7 +387,7 @@ function broadcastStatus(connectionId: string, update: unknown) {
 export function sendApprovalRequest(
 	connectionId: string,
 	details: Record<string, unknown> & { action?: string; type?: string; reason?: string },
-	timeoutMs = 60000,
+	timeoutMs = 600000, // 10 minutes — durable orchestrator means users may navigate away
 	explicitRequestId?: string,
 ): Promise<{ approved: boolean; reason?: string }> {
 	const conn = connections.get(connectionId);

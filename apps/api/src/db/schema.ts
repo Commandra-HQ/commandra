@@ -80,6 +80,7 @@ export const conversations = pgTable('conversations', {
 	agentId: uuid('agent_id').references(() => agents.id),
 	title: text('title'),
 	outcome: text('outcome'), // 'success' | 'failure' | 'partial' | null
+	status: text('status').notNull().default('idle'), // 'idle' | 'running' | 'paused' | 'completed' | 'failed'
 	planStatus: jsonb('plan_status').$type<{
 		totalSteps: number;
 		completedSteps: number;

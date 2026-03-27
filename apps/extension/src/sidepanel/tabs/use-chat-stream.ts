@@ -115,6 +115,12 @@ export function useChatStream(options: UseChatStreamOptions) {
   }
 
   function processSSEEvent(event: SSEEvent) {
+    // Guard: if assistantMsgIdRef is empty, we've been reset (new chat) — ignore stale events
+    if (!assistantMsgIdRef.current && event.type !== 'conversation_id') {
+      console.log('[SSE] Ignoring stale event (no assistantMsgId):', event.type);
+      return;
+    }
+
     switch (event.type) {
       case 'conversation_id':
         // Capture conversationId and navigate immediately so the tab appears right away
@@ -232,11 +238,15 @@ export function useChatStream(options: UseChatStreamOptions) {
       case 'plan_state':
         setPlanState(event.plan);
         if (event.plan) {
+          // Only auto-show the plan panel if execution has started (at least one step in progress/completed)
+          // or a step failed. Don't show it when plan is just submitted (all steps pending — awaiting approval).
+          const hasProgress = event.plan.steps.some(
+            (s: { status: string }) => s.status === 'in_progress' || s.status === 'completed',
+          );
           const hasFailed = event.plan.steps.some(
             (s: { status: string }) => s.status === 'failed',
           );
-          const isNew = !planState;
-          if (isNew || hasFailed) {
+          if (hasProgress || hasFailed) {
             setShowPlanPanel(true);
           }
         }
@@ -348,6 +358,22 @@ export function useChatStream(options: UseChatStreamOptions) {
         }
         break;
 
+      case 'paused':
+        blocksRef.current.push({
+          type: 'text',
+          content: `\n\n---\n*${event.reason}*\n---\n`,
+        });
+        scheduleFlush();
+        break;
+
+      case 'resumed':
+        blocksRef.current.push({
+          type: 'text',
+          content: '\n*Resumed — browser reconnected.*\n',
+        });
+        scheduleFlush();
+        break;
+
       case 'error':
         blocksRef.current.push({
           type: 'text',
@@ -360,6 +386,7 @@ export function useChatStream(options: UseChatStreamOptions) {
 
   const sendMessage = useCallback(
     async (text: string, extraBody?: Record<string, unknown>) => {
+      console.log('[SSE] sendMessage called, externalConvId:', externalConvId, 'conversationIdRef:', conversationIdRef.current);
       const stored = await chrome.storage.local.get(['authToken']);
       const token = stored.authToken;
 
@@ -430,46 +457,178 @@ export function useChatStream(options: UseChatStreamOptions) {
         }
       } catch (err) {
         if (!controller.signal.aborted) {
-          // Only show error for non-abort errors (abort = user clicked Stop)
+          console.warn('[SSE] sendMessage error:', err);
           blocksRef.current.push({
             type: 'text',
             content: 'Failed to get a response. Make sure the API is running.',
           });
+        } else {
+          console.log('[SSE] sendMessage aborted (user stopped or navigated away)');
         }
       } finally {
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current);
+        // Guard: only clean up if this sendMessage's assistant message is still the active one.
+        // If the user navigated away (new chat / tab switch), resetConversation() already cleared
+        // assistantMsgIdRef, so we must NOT touch setChatMessages or setIsActive — that would
+        // clobber the freshly loaded conversation state.
+        const myMsgId = assistantMsg.id;
+        const stillActive = assistantMsgIdRef.current === myMsgId;
+        console.log('[SSE] sendMessage finally — myMsgId:', myMsgId, 'stillActive:', stillActive);
+
+        if (stillActive) {
+          if (rafRef.current) {
+            cancelAnimationFrame(rafRef.current);
+          }
+          flushBlocks();
+
+          const finalText = blocksRef.current
+            .filter(b => b.type === 'text')
+            .map(b => (b as { content: string }).content)
+            .join('\n');
+
+          setChatMessages(prev =>
+            prev.map(m =>
+              m.id === myMsgId ? { ...m, content: finalText } : m,
+            ),
+          );
+
+          setIsActive(false);
+          abortRef.current = null;
+          assistantMsgIdRef.current = '';
+
+          // Clear badge
+          try {
+            chrome.action.setBadgeText({ text: '' });
+          } catch {}
+        } else {
+          console.log('[SSE] sendMessage finally — skipped cleanup (navigated away)');
+          abortRef.current = null;
         }
-        flushBlocks();
-
-        const finalText = blocksRef.current
-          .filter(b => b.type === 'text')
-          .map(b => (b as { content: string }).content)
-          .join('\n');
-
-        setChatMessages(prev =>
-          prev.map(m =>
-            m.id === assistantMsgIdRef.current
-              ? { ...m, content: finalText }
-              : m,
-          ),
-        );
-
-        setIsActive(false);
-        abortRef.current = null;
-        assistantMsgIdRef.current = '';
-
-        // Clear badge
-        try {
-          chrome.action.setBadgeText({ text: '' });
-        } catch {}
       }
     },
     [externalConvId, markActive, setChatMessages, setIsActive],
   );
 
+  /**
+   * Subscribe to an already-running conversation's SSE stream.
+   * Used when the user opens a conversation that has an active orchestrator on the server.
+   */
+  const subscribeToRun = useCallback(
+    async (convId: string) => {
+      console.log('[SSE] subscribeToRun called:', convId);
+      const stored = await chrome.storage.local.get(['authToken']);
+      const token = stored.authToken;
+
+      // Set up assistant message placeholder for incoming events
+      const assistantMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: '',
+        blocks: [],
+      };
+      assistantMsgIdRef.current = assistantMsg.id;
+      blocksRef.current = [];
+      textAccumRef.current = '';
+      thinkingAccumRef.current = '';
+      setChatMessages(prev => [...prev, assistantMsg]);
+      setIsActive(true);
+
+      try {
+        chrome.action.setBadgeText({ text: '●' });
+        chrome.action.setBadgeBackgroundColor({ color: '#3b82f6' });
+      } catch {}
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        const res = await fetch(
+          `${API_URL}/api/chat/subscribe/${convId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
+        );
+
+        // If the server returns JSON (not SSE), the run is not active
+        const contentType = res.headers.get('content-type') || '';
+        console.log('[SSE] subscribeToRun response:', res.status, 'content-type:', contentType);
+        if (contentType.includes('application/json')) {
+          const body = await res.json();
+          console.log('[SSE] subscribeToRun: no active run, got JSON:', body);
+          setIsActive(false);
+          abortRef.current = null;
+          assistantMsgIdRef.current = '';
+          // Remove the empty assistant message we added
+          setChatMessages(prev => prev.filter(m => m.id !== assistantMsg.id));
+          return;
+        }
+        console.log('[SSE] subscribeToRun: got SSE stream, processing events...');
+
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (reader) {
+          let buffer = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const [events, remaining] = parseSSEBuffer(buffer);
+            buffer = remaining;
+            for (const event of events) {
+              processSSEEvent(event);
+            }
+          }
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          console.warn('[subscribeToRun] Error:', err);
+        }
+      } finally {
+        const myMsgId = assistantMsg.id;
+        const stillActive = assistantMsgIdRef.current === myMsgId;
+        console.log('[SSE] subscribeToRun finally — myMsgId:', myMsgId, 'stillActive:', stillActive);
+
+        if (stillActive) {
+          if (rafRef.current) {
+            cancelAnimationFrame(rafRef.current);
+          }
+          flushBlocks();
+
+          const finalText = blocksRef.current
+            .filter(b => b.type === 'text')
+            .map(b => (b as { content: string }).content)
+            .join('\n');
+
+          setChatMessages(prev =>
+            prev.map(m =>
+              m.id === myMsgId ? { ...m, content: finalText } : m,
+            ),
+          );
+
+          setIsActive(false);
+          abortRef.current = null;
+          assistantMsgIdRef.current = '';
+
+          try {
+            chrome.action.setBadgeText({ text: '' });
+          } catch {}
+        } else {
+          console.log('[SSE] subscribeToRun finally — skipped cleanup (navigated away)');
+          abortRef.current = null;
+        }
+      }
+    },
+    [setChatMessages, setIsActive],
+  );
+
   const handleStop = useCallback(() => {
+    console.log('[SSE] handleStop called, aborting SSE fetch. assistantMsgId:', assistantMsgIdRef.current);
+    // Clear refs immediately (not async) so the stale event guard works right away
+    // and subscribeToRun can set up a new assistantMsgId without conflict
+    assistantMsgIdRef.current = '';
     abortRef.current?.abort();
+    abortRef.current = null;
     setIsActive(false);
     try {
       chrome.action.setBadgeText({ text: '' });
@@ -477,6 +636,7 @@ export function useChatStream(options: UseChatStreamOptions) {
   }, [setIsActive]);
 
   const resetConversation = useCallback(() => {
+    console.log('[SSE] resetConversation — clearing all refs');
     conversationIdRef.current = '';
     assistantMsgIdRef.current = '';
     blocksRef.current = [];
@@ -486,6 +646,7 @@ export function useChatStream(options: UseChatStreamOptions) {
 
   return {
     sendMessage,
+    subscribeToRun,
     handleStop,
     blocksRef,
     scheduleFlush,

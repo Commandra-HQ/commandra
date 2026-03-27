@@ -4,25 +4,45 @@
 
 import type { AgentHooks, SSEEvent } from '@afe/shared';
 import type { ImageBlock, TextBlock, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
+import { getOrCreateSite, updateSiteTotals, upsertPage } from '../routes/sites.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { persistScreenshot, saveScreenshot, uploadScreenshotToS3 } from '../screenshots/manager.js';
+import { updateSitemap } from '../storage/sitemap.js';
 import { executeTool } from '../tools/registry.js';
-import { isKilled, sendApprovalRequest } from '../ws/handler.js';
-import { evaluatePreToolUse, evaluatePostToolUse } from './hooks.js';
+import { getConnectionByUser, getConnectionForConversation, isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { evaluatePostToolUse, evaluatePreToolUse } from './hooks.js';
 import { INTERNAL_TOOL_NAMES } from './internal-tools.js';
+import { getRun } from './run-registry.js';
 
 /**
  * Partition tool blocks into safe/review/blocked buckets for parallel execution.
  * Internal tools are always safe (no WS routing).
  */
+// State-changing browser tools that must run sequentially — they modify the active tab
+// and running them in parallel causes only the last one to take effect.
+const SEQUENTIAL_TOOLS = new Set([
+	'navigate',
+	'click_element',
+	'type_text',
+	'select_option',
+	'go_back',
+	'scroll',
+]);
+
 export function partitionToolsBySafety(
 	toolBlocks: ToolUseBlock[],
 	domain?: string,
 	autonomy?: 'supervised' | 'trusted' | 'autonomous',
 	domainAutonomy?: Record<string, 'supervised' | 'trusted' | 'autonomous'>,
-): { safe: ToolUseBlock[]; review: ToolUseBlock[]; blocked: ToolUseBlock[] } {
+): {
+	safe: ToolUseBlock[];
+	sequential: ToolUseBlock[];
+	review: ToolUseBlock[];
+	blocked: ToolUseBlock[];
+} {
 	const safe: ToolUseBlock[] = [];
+	const sequential: ToolUseBlock[] = [];
 	const review: ToolUseBlock[] = [];
 	const blocked: ToolUseBlock[] = [];
 
@@ -43,26 +63,23 @@ export function partitionToolsBySafety(
 			elementLabel,
 		});
 
-		if (effectiveAutonomy === 'autonomous') {
-			safe.push(block);
-		} else if (autonomy === 'trusted') {
-			if (classification.level === 'blocked') {
-				blocked.push(block);
-			} else {
-				safe.push(block);
-			}
+		if (classification.level === 'blocked') {
+			blocked.push(block);
+		} else if (
+			classification.level === 'review' &&
+			effectiveAutonomy !== 'autonomous' &&
+			effectiveAutonomy !== 'trusted'
+		) {
+			review.push(block);
+		} else if (SEQUENTIAL_TOOLS.has(block.name)) {
+			// State-changing browser tools must run one at a time
+			sequential.push(block);
 		} else {
-			if (classification.level === 'blocked') {
-				blocked.push(block);
-			} else if (classification.level === 'review') {
-				review.push(block);
-			} else {
-				safe.push(block);
-			}
+			safe.push(block);
 		}
 	}
 
-	return { safe, review, blocked };
+	return { safe, sequential, review, blocked };
 }
 
 interface ToolCallResult {
@@ -96,7 +113,11 @@ export async function handleBrowserToolCall(
 	// Agent hooks: PreToolUse — deterministic rule-based check before safety classification
 	const hookCheck = evaluatePreToolUse(hooks, name, toolArgs as Record<string, unknown>);
 	if (!hookCheck.allowed) {
-		await onEvent({ type: 'blocked', toolName: name, reason: hookCheck.reason || 'Blocked by agent hook' });
+		await onEvent({
+			type: 'blocked',
+			toolName: name,
+			reason: hookCheck.reason || 'Blocked by agent hook',
+		});
 		return {
 			data: { success: false, error: `Hook blocked: ${hookCheck.reason}` },
 			isError: true,
@@ -141,12 +162,17 @@ export async function handleBrowserToolCall(
 				approvalType: 'tool',
 			});
 
-			const approval = await sendApprovalRequest(connectionId, {
-				action: name,
-				selector: toolArgs.selector as string,
-				label: elementLabel,
-				reason: classification.reason,
-			}, 60000, inlineRequestId);
+			const approval = await sendApprovalRequest(
+				connectionId,
+				{
+					action: name,
+					selector: toolArgs.selector as string,
+					label: elementLabel,
+					reason: classification.reason,
+				},
+				60000,
+				inlineRequestId,
+			);
 
 			if (!approval.approved) {
 				await logAction({
@@ -212,6 +238,19 @@ export async function handleBrowserToolCall(
 				const freshData = freshState as unknown as Record<string, unknown>;
 				if (freshData?.success) {
 					pageStateUpdate = freshData.data;
+
+					// Persist page to DB + sitemap (fire-and-forget)
+					const pageData = freshData.data as {
+						url?: string;
+						urlPattern?: string;
+						title?: string;
+						pageType?: string;
+						elements?: unknown[];
+						navigationLinks?: unknown[];
+					};
+					if (pageData?.url) {
+						persistPageState(userId, pageData).catch(() => {});
+					}
 				}
 			} catch {
 				// Non-critical
@@ -348,8 +387,24 @@ export async function executeToolBlock(
 	});
 	if (internalResult) return internalResult;
 
+	// Get fresh connectionId — prefer conversation-scoped, then run, then user-level
+	const freshConnectionId =
+		(conversationId ? getConnectionForConversation(conversationId) : null) ||
+		(conversationId ? getRun(conversationId)?.connectionId : undefined) ||
+		getConnectionByUser(userId) ||
+		connectionId;
+	const freshContext = { ...context, connectionId: freshConnectionId };
+
 	// Browser tool — classify, approve, execute
-	const result = await handleBrowserToolCall(block, context, userId, connectionId, onEvent, autonomy, hooks);
+	const result = await handleBrowserToolCall(
+		block,
+		freshContext,
+		userId,
+		freshConnectionId,
+		onEvent,
+		autonomy,
+		hooks,
+	);
 
 	// Build tool result content — save screenshots to disk, keep compressed version for LLM
 	let toolContent: string | (TextBlock | ImageBlock)[];
@@ -368,7 +423,10 @@ export async function executeToolBlock(
 		let screenshotUrl: string | undefined;
 		let screenshotId: string;
 		try {
-			const s3Result = await uploadScreenshotToS3(image as string, userId, { domain, conversationId });
+			const s3Result = await uploadScreenshotToS3(image as string, userId, {
+				domain,
+				conversationId,
+			});
 			screenshotUrl = s3Result.url;
 			screenshotId = s3Result.id;
 		} catch (err) {
@@ -451,4 +509,43 @@ export async function executeToolBlock(
 		content: toolContent,
 		isError: result.isError,
 	};
+}
+
+/**
+ * Persist page state to DB (pages table) and S3 (SITEMAP.yaml).
+ * Called after every auto page-state refresh so the agent's browsing
+ * actively builds the sitemap — not relying on the extension's passive events.
+ */
+async function persistPageState(
+	userId: string,
+	pageData: {
+		url?: string;
+		urlPattern?: string;
+		title?: string;
+		pageType?: string;
+		elements?: unknown[];
+		navigationLinks?: unknown[];
+	},
+): Promise<void> {
+	if (!pageData.url) return;
+
+	try {
+		const domain = new URL(pageData.url).hostname;
+		const site = await getOrCreateSite(userId, domain);
+
+		await upsertPage(site.id, { ...pageData, url: pageData.url! });
+		await updateSiteTotals(site.id);
+
+		// Update sitemap
+		updateSitemap(userId, domain, {
+			url: pageData.url,
+			urlPattern: pageData.urlPattern,
+			title: pageData.title,
+			pageType: pageData.pageType,
+			elements: pageData.elements,
+			navigationLinks: pageData.navigationLinks as { label: string; href: string }[] | undefined,
+		}).catch(() => {});
+	} catch (err) {
+		console.error('[browser-tools] Failed to persist page state:', err);
+	}
 }

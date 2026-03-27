@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { WebSocketServer } from 'ws';
+import { resetStaleRuns } from './agent/run-registry.js';
 import { startScheduler, stopScheduler } from './agent/scheduler.js';
 import { agentRoutes } from './routes/agents.js';
 import { auditRoutes } from './routes/audit.js';
@@ -65,6 +66,9 @@ app.route('/api/usage', usageRoutes);
 
 // Initialize local storage directories
 initLocalStorage();
+
+// Reset any stale running/paused conversations from a previous server process
+resetStaleRuns();
 
 // Start agent scheduler
 startScheduler();

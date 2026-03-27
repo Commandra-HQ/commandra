@@ -4,6 +4,7 @@
  */
 
 import {
+  Archive,
   Copy,
   EllipsisVertical,
   ExternalLink,
@@ -59,15 +60,57 @@ export function HubLayout() {
   }, [updateDomain]);
 
   // Add a tab when navigating to a conversation that doesn't have one yet
+  // Fetch the conversation title from the API for a better label
   useEffect(() => {
     if (convId && !tabs.find(t => t.id === convId)) {
+      // Add tab immediately with a placeholder label
       setTabs(prev => {
-        // Double-check inside setter to avoid race conditions
         if (prev.find(t => t.id === convId)) return prev;
-        return [...prev, { id: convId, label: currentDomain || 'Chat' }];
+        return [...prev, { id: convId, label: 'Chat' }];
       });
+      // Fetch the real title from the API
+      fetchConvTitle(convId);
     }
-  }, [convId]); // Only trigger on convId change, not on domain updates
+  }, [convId]);
+
+  // Listen for title updates from the SSE stream (emitted by the store)
+  useEffect(() => {
+    function handleTitleUpdate(e: Event) {
+      const { conversationId: cId, title } = (e as CustomEvent).detail || {};
+      if (cId && title) {
+        setTabs(prev =>
+          prev.map(t =>
+            t.id === cId ? { ...t, label: title.slice(0, 40) } : t,
+          ),
+        );
+      }
+    }
+    window.addEventListener('commandra-title-update', handleTitleUpdate);
+    return () => window.removeEventListener('commandra-title-update', handleTitleUpdate);
+  }, []);
+
+  function fetchConvTitle(cId: string) {
+    chrome.storage.local.get('authToken', ({ authToken }) => {
+      if (!authToken) return;
+      const apiUrl = process.env.API_URL || 'http://localhost:3001';
+      fetch(`${apiUrl}/api/conversations/${cId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.conversation?.title) {
+            setTabs(prev =>
+              prev.map(t =>
+                t.id === cId && t.label !== data.conversation.title
+                  ? { ...t, label: data.conversation.title.slice(0, 40) }
+                  : t,
+              ),
+            );
+          }
+        })
+        .catch(() => {});
+    });
+  }
 
   const isNewChat = !convId;
 
@@ -255,7 +298,7 @@ export function HubLayout() {
               onClick={() => dispatchAction('compact')}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-elevated"
             >
-              <Minimize2 size={11} strokeWidth={1.5} /> Compact chat
+              <Archive size={11} strokeWidth={1.5} /> Compact chat
             </button>
             <div className="my-1 h-px bg-border" />
             <button

@@ -27,7 +27,9 @@ import {
   OnboardingView,
   UserMessage,
 } from './message-blocks.js';
-import { useChatStream, type UsageTotal } from './use-chat-stream.js';
+import { useConversationStream } from './use-conversation-stream.js';
+import type { UsageTotal } from '../stores/conversation-store.js';
+import { useConversationStore } from '../stores/conversation-store.js';
 import { ChevronDown, ListChecks } from 'lucide-react';
 
 export function ChatTab() {
@@ -45,65 +47,43 @@ export function ChatTab() {
     null,
   );
 
-  // Chat state
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  // Chat state — per-conversation state lives in the Zustand store
+  const {
+    messages: chatMessages,
+    isActive,
+    contextStatus,
+    usageTotal,
+    planState,
+    showPlanPanel,
+    pendingApprovals,
+    sendMessage,
+    subscribeToRun,
+    handleStop,
+    handleNewConversation,
+    setMessages: setChatMessages,
+    setShowPlanPanel,
+    setPlanState,
+    setContextStatus,
+    setUsageTotal,
+  } = useConversationStream(externalConvId);
+  const store = useConversationStore();
+
+  // Local UI state (not per-conversation)
   const [input, setInput] = useState('');
-  const [isActive, setIsActive] = useState(false);
-  // showContext state removed — pages list now accessible via menu
   const [wsConnected, setWsConnected] = useState(false);
-  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>(
-    [],
-  );
+  const [pendingApprovalsLocal, setPendingApprovals] = useState<ApprovalRequest[]>([]);
   const [pendingPlanApproval, setPendingPlanApproval] =
     useState<PlanApprovalRequest | null>(null);
   const [selectedElements, setSelectedElements] = useState<SelectedElement[]>(
     [],
   );
-  // originTabId removed — agent now always targets the current active tab
-  // and uses list_tabs/switch_tab tools to change targets
-  const isActiveRef = useRef(false);
   const [selectorActive, setSelectorActive] = useState(false);
-  const [contextStatus, setContextStatus] = useState<{
-    used: number;
-    limit: number;
-    percent: number;
-  } | null>(null);
-  const [usageTotal, setUsageTotal] = useState<UsageTotal | null>(null);
-  const [planState, setPlanState] = useState<{
-    description: string;
-    steps: { label: string; status: string }[];
-  } | null>(null);
-  const [showPlanPanel, setShowPlanPanel] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isReindexing, setIsReindexing] = useState(false);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
 
   const CHAT_INPUT_MAX_HEIGHT_PX = 120;
   const CHAT_INPUT_MIN_HEIGHT_PX = 40;
-
-  // SSE streaming hook
-  const {
-    sendMessage,
-    handleStop,
-    blocksRef,
-    scheduleFlush,
-    resetConversation,
-    conversationIdRef,
-  } = useChatStream({
-    setChatMessages,
-    setIsActive,
-    setContextStatus,
-    setUsageTotal,
-    setPlanState,
-    setPendingApprovals,
-    setPendingPlanApproval,
-    setShowPlanPanel,
-    planState,
-    externalConvId,
-    markActive,
-    markDone,
-    navigate,
-  });
 
   // Auto-resize textarea
   useEffect(() => {
@@ -185,41 +165,31 @@ export function ChatTab() {
     };
   }, [updateCurrentTab]);
 
-  // Keep ref in sync with isActive state
-  useEffect(() => {
-    isActiveRef.current = isActive;
-  }, [isActive]);
-
   // Load conversation when conversationId changes (tab switch or initial mount).
-  // Key insight: if the stream just navigated us here (conversation_id or done event),
-  // conversationIdRef.current will match externalConvId — skip the DB reload since
-  // live blocks in memory are more complete than what's persisted.
+  // With the Zustand store, switching tabs is instant if data is already loaded.
+  // If not, we load from DB into the store.
   useEffect(() => {
+    console.log('[ChatTab] externalConvId effect:', { externalConvId, isActive });
     if (!externalConvId) {
-      // Navigated to new chat — only clear if we're not actively streaming
-      if (!isActiveRef.current) {
-        setChatMessages([]);
-        setPendingApprovals([]);
-        setContextStatus(null);
-        setPlanState(null);
-        resetConversation();
-      }
+      console.log('[ChatTab] → new chat (no convId)');
+      store.setActiveConv(null);
       return;
     }
 
-    // If the stream navigated us here, messages are already in state — skip reload
-    if (conversationIdRef.current === externalConvId) {
+    // Set active conversation in the store
+    store.setActiveConv(externalConvId);
+
+    // If the store already has messages for this conversation, use them (instant switch)
+    const existing = store.conversations.get(externalConvId);
+    if (existing && existing.messages.length > 0) {
+      console.log('[ChatTab] → store has data, instant switch');
       setMode('chat');
       return;
     }
 
-    // Different conversation (tab switch or history open) — load from DB
+    // No data in store — load from DB
+    console.log('[ChatTab] → loading conversation from DB:', externalConvId);
     setMode('chat');
-    setChatMessages([]);
-    setPendingApprovals([]);
-    setContextStatus(null);
-    setPlanState(null);
-    resetConversation();
     loadConversation(externalConvId);
   }, [externalConvId]);
 
@@ -278,12 +248,38 @@ export function ChatTab() {
       if (action === 'reindex') handleReindexPage();
       if (action === 'deep-index') handleIndexSite();
       if (action === 'copy-chat') {
-        const text = chatMessages
-          .map(
-            m =>
-              `${m.role === 'user' ? 'You' : 'Agent'}: ${m.content || m.blocks?.map(b => ('content' in b ? b.content : '')).join('') || ''}`,
-          )
-          .join('\n\n');
+        const text = chatMessages.map(m => {
+          const prefix = m.role === 'user' ? '## You' : '## Agent';
+          if (!m.blocks?.length) return `${prefix}\n${m.content}`;
+          const parts: string[] = [prefix];
+          for (const b of m.blocks) {
+            switch (b.type) {
+              case 'thinking':
+                parts.push(`<thinking>\n${b.content}\n</thinking>`);
+                break;
+              case 'text':
+                if (!b.content.startsWith('__approval__:')) parts.push(b.content);
+                break;
+              case 'tool_call':
+                parts.push(`**Tool: ${b.toolName}** [${b.status}]${b.label ? ` — ${b.label}` : ''}`);
+                if (b.args) parts.push(`  Args: ${JSON.stringify(b.args, null, 2)}`);
+                if (b.result) parts.push(`  Result: ${typeof b.result === 'string' ? b.result : JSON.stringify(b.result, null, 2)}`);
+                if (b.error) parts.push(`  Error: ${b.error}`);
+                break;
+              case 'blocked':
+                parts.push(`**Blocked: ${b.toolName}** — ${b.reason}`);
+                break;
+              case 'sub_agent':
+                parts.push(`**Sub-agent: ${b.agentId}** [${b.status}] — ${b.task}`);
+                for (const a of b.actions) {
+                  parts.push(`  ${a.status === 'success' ? '✓' : '✗'} ${a.toolName}: ${a.label}`);
+                }
+                if (b.summary) parts.push(`  Summary: ${b.summary}`);
+                break;
+            }
+          }
+          return parts.join('\n');
+        }).join('\n\n---\n\n');
         navigator.clipboard.writeText(text);
       }
       if (action === 'compact') handleManualCompact();
@@ -302,7 +298,7 @@ export function ChatTab() {
     const detail = {
       contextStatus,
       usageTotal,
-      conversationId: externalConvId || conversationIdRef.current,
+      conversationId: externalConvId || '',
     };
     window.dispatchEvent(
       new CustomEvent('commandra-context-update', { detail }),
@@ -346,6 +342,15 @@ export function ChatTab() {
     if (pendingPlanApproval?.requestId === requestId) {
       setPendingPlanApproval(null);
     }
+    // Update both conv.blocks and conv.messages atomically via processSSEEvent.
+    // This prevents subsequent SSE events from overwriting messages with the stale blocks.
+    if (externalConvId) {
+      store.processSSEEvent(
+        externalConvId,
+        { type: 'approval_resolved', requestId, approved } as unknown as import('@afe/shared').SSEEvent,
+        navigate,
+      );
+    }
   }
 
   function handleToggleSelector() {
@@ -363,23 +368,22 @@ export function ChatTab() {
   }
 
   async function handleManualCompact() {
-    const convId = externalConvId || conversationIdRef.current;
+    const convId = externalConvId;
     if (!convId || isActive) return;
     if (chatMessages.length < 2) return;
 
     // Show compacting indicator as an assistant message
     const compactingMsgId = crypto.randomUUID();
-    setChatMessages(prev => [
-      ...prev,
-      {
+    if (convId) {
+      store.appendMessage(convId, {
         id: compactingMsgId,
         role: 'assistant' as const,
         content: '',
         blocks: [
           { type: 'text' as const, content: '*Compacting conversation...*' },
         ],
-      },
-    ]);
+      });
+    }
 
     try {
       const stored = await chrome.storage.local.get(['authToken']);
@@ -423,51 +427,22 @@ export function ChatTab() {
         });
       } else {
         const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-        // Remove compacting message and show error
-        setChatMessages(prev =>
-          prev.map(m =>
-            m.id === compactingMsgId
-              ? {
-                  ...m,
-                  blocks: [
-                    {
-                      type: 'text' as const,
-                      content: `*Compaction failed: ${err.error}*`,
-                    },
-                  ],
-                }
-              : m,
-          ),
-        );
+        if (convId) {
+          store.updateMessage(convId, compactingMsgId, {
+            blocks: [{ type: 'text' as const, content: `*Compaction failed: ${err.error}*` }],
+          });
+        }
       }
     } catch (err) {
       console.error('Manual compact failed:', err);
-      setChatMessages(prev =>
-        prev.map(m =>
-          m.id === compactingMsgId
-            ? {
-                ...m,
-                blocks: [
-                  {
-                    type: 'text' as const,
-                    content: '*Compaction failed — check your connection.*',
-                  },
-                ],
-              }
-            : m,
-        ),
-      );
+      if (convId) {
+        store.updateMessage(convId, compactingMsgId, {
+          blocks: [{ type: 'text' as const, content: '*Compaction failed — check your connection.*' }],
+        });
+      }
     }
   }
 
-  function handleNewConversation() {
-    setChatMessages([]);
-    setPendingApprovals([]);
-    setContextStatus(null);
-    setPlanState(null);
-    resetConversation();
-    navigate('/');
-  }
 
   async function handleSend() {
     if (!input.trim() || isActive) return;
@@ -480,7 +455,9 @@ export function ChatTab() {
       selectedElements:
         selectedElements.length > 0 ? selectedElements : undefined,
     };
-    setChatMessages(prev => [...prev, userMsg]);
+    if (externalConvId) {
+      store.appendMessage(externalConvId, userMsg);
+    }
     setInput('');
 
     let pageIndex: unknown = null;
@@ -547,28 +524,43 @@ export function ChatTab() {
     const els = selectedElements.length > 0 ? selectedElements : undefined;
     setSelectedElements([]);
 
-    // Always use the current active tab — agent uses switch_tab tool if it needs a different one
-    await sendMessage(text, { pageIndex, selectedElements: els, tabId });
+    // Lock the browser tab to this conversation on first send.
+    // Subsequent sends use the locked tab — prevents two chats fighting for the same tab.
+    let targetTabId = tabId;
+    if (externalConvId) {
+      const conv = store.conversations.get(externalConvId);
+      if (conv?.tabId) {
+        targetTabId = conv.tabId; // Use the locked tab
+      } else if (tabId) {
+        store.updateConv(externalConvId, { tabId }); // Lock current tab to this conversation
+      }
+    }
+    await sendMessage(text, { pageIndex, selectedElements: els, tabId: targetTabId });
   }
 
   async function loadConversation(convId: string) {
+    console.log('[ChatTab] loadConversation called:', convId);
     try {
       const token = await new Promise<string>(resolve =>
         chrome.storage.local.get('authToken', r => resolve(r.authToken || '')),
       );
-      if (!token) return;
+      if (!token) { console.log('[ChatTab] loadConversation: no token'); return; }
       const res = await fetch(`${API_URL}/api/conversations/${convId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
+        console.log('[ChatTab] loadConversation: got data, status:', data.conversation?.status, 'messages:', data.messages?.length);
         navigate(`/chat/${convId}`, { replace: true });
+
+        // Always load from DB — this is the reliable path
         const loaded: ChatMessage[] = (data.messages || []).map(
           (m: {
             id: string;
             role: string;
             content: string;
             toolData?: {
+              partial?: boolean;
               tools: {
                 name: string;
                 args: unknown;
@@ -593,7 +585,19 @@ export function ChatTab() {
                 } else if (sb.type === 'text' && sb.content) {
                   blocks.push({ type: 'text', content: sb.content });
                 } else if (sb.type === 'tool_start' && sb.toolName) {
-                  // Find matching tool_end to get status
+                  // Look ahead in streamBlocks for matching tool_end to get status/result
+                  const allBlocks = m.toolData!.streamBlocks!;
+                  const startIdx = allBlocks.indexOf(sb);
+                  let toolStatus: 'running' | 'success' | 'error' = 'running';
+                  let toolError: string | undefined;
+                  for (let j = startIdx + 1; j < allBlocks.length; j++) {
+                    if (allBlocks[j].type === 'tool_end' && allBlocks[j].toolName === sb.toolName) {
+                      toolStatus = allBlocks[j].content === 'ok' ? 'success' : 'error';
+                      toolError = allBlocks[j].content !== 'ok' ? allBlocks[j].content : undefined;
+                      break;
+                    }
+                  }
+                  // Also check toolData.tools for args/result if available
                   const matchingTool = m.toolData?.tools?.find(
                     t => t.name === sb.toolName,
                   );
@@ -601,11 +605,8 @@ export function ChatTab() {
                     type: 'tool_call',
                     toolName: sb.toolName,
                     label: sb.content || formatToolLabel(sb.toolName),
-                    status: matchingTool
-                      ? matchingTool.success
-                        ? 'success'
-                        : 'error'
-                      : 'success',
+                    status: toolStatus,
+                    error: toolError,
                     args: matchingTool?.args as Record<string, unknown>,
                     result: matchingTool?.result,
                   });
@@ -615,6 +616,13 @@ export function ChatTab() {
                     toolName: sb.toolName,
                     reason: sb.content || '',
                   });
+                } else if (sb.type === 'approval_inline' && sb.content) {
+                  // Reconstruct approval block: "approvalType:requestId:action:label:reason"
+                  blocks.push({ type: 'text', content: `__approval__:${sb.content}` });
+                } else if (sb.type === 'approval_resolved' && sb.content) {
+                  // Resolved approval: "approved:requestId" or "rejected:requestId"
+                  const wasApproved = sb.content.startsWith('approved');
+                  blocks.push({ type: 'text', content: `${wasApproved ? '__approved__' : '__rejected__'}:${sb.content}` });
                 } else if (sb.type === 'sub_agent_start' && sb.toolName) {
                   // Reconstruct sub-agent block — collect subsequent sub_agent_action/end events
                   const agentId = sb.toolName;
@@ -676,9 +684,11 @@ export function ChatTab() {
               }
             }
             // Only add content as a text block if we didn't already extract
-            // text blocks from streamBlocks (which include the same content)
+            // text blocks from streamBlocks (which include the same content).
+            // Skip partial message placeholder text like "(processing...)"
             const hasTextBlock = blocks.some(b => b.type === 'text');
-            if (m.content?.trim() && !hasTextBlock) {
+            const isPartialPlaceholder = m.toolData?.partial && m.content === '(processing...)';
+            if (m.content?.trim() && !hasTextBlock && !isPartialPlaceholder) {
               blocks.push({ type: 'text' as const, content: m.content });
             }
             return {
@@ -726,6 +736,29 @@ export function ChatTab() {
             setShowPlanPanel(true);
           }
         }
+
+        // If the conversation is still running on the server, reconnect to the live stream.
+        // Remove the partial assistant message (from incremental flush) — the subscribe
+        // will replay all events from the event buffer and create a proper live message.
+        const convStatus = data.conversation?.status;
+        if (convStatus === 'running' || convStatus === 'paused') {
+          console.log('[ChatTab] conversation is running — subscribing to live stream');
+          // Drop the last assistant message if it's a partial (from flush)
+          const lastLoaded = loaded[loaded.length - 1];
+          if (lastLoaded?.role === 'assistant') {
+            const isPartial = (data.messages || []).find(
+              (m: { id: string; toolData?: { partial?: boolean } }) =>
+                m.id === lastLoaded.id && m.toolData?.partial,
+            );
+            if (isPartial) {
+              console.log('[ChatTab] removing partial message before subscribe');
+              loaded.pop();
+              setChatMessages([...loaded]);
+            }
+          }
+          subscribeToRun(convId);
+        }
+
       }
     } catch (err) {
       console.error('Failed to load conversation:', err);
@@ -746,17 +779,7 @@ export function ChatTab() {
 
   // --- Render ---
 
-  if (!domain) {
-    return (
-      <div className="p-4">
-        <p className="text-sm text-muted-foreground">
-          Navigate to a web app to get started.
-        </p>
-      </div>
-    );
-  }
-
-  if (mode === 'onboarding') {
+  if (mode === 'onboarding' && domain) {
     return (
       <OnboardingView
         domain={domain}
@@ -891,7 +914,7 @@ export function ChatTab() {
             )}
           </div>
         )}
-        {chatMessages.map(msg => (
+        {chatMessages.map((msg, idx) => (
           <div key={msg.id}>
             {msg.role === 'user' ? (
               <UserMessage msg={msg} />
@@ -899,6 +922,7 @@ export function ChatTab() {
               <AssistantMessage
                 msg={msg}
                 isActive={isActive}
+                isLastMessage={idx === chatMessages.length - 1}
                 onApprove={handleApproval}
               />
             )}

@@ -25,6 +25,7 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 **When the user asks about the page:** Reference elements by label/type. Describe what's possible. Be concise.
 
 **When the user asks you to DO something:**
+- **Check the Site Navigation Graph first** — if you need to go to a page, check if it's already mapped. Use its exact URL with navigate instead of clicking through links.
 - Look at the Interactive Elements list below — find the element by its label, then use its exact selector
 - Use browser tools to execute actions
 - Page state auto-refreshes after click, navigate, type, and select actions — you'll see updated elements in the tool result. **Read the new elements in the tool result carefully** — use THOSE selectors for your next actions.
@@ -37,7 +38,7 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 **Tab Management — you can work across any open tab:**
 - **list_tabs**: See all open browser tabs (tabId, title, URL, active status)
 - **switch_tab**: Change your target to a different tab — all subsequent actions execute there
-- You start on the user's currently active tab. If the user mentions a different site, use list_tabs to find it and switch_tab to go there.
+- You have a dedicated background tab for this conversation (starts blank). Navigate to the right URL first, or use list_tabs + switch_tab to target an already-open tab.
 - You do NOT need to ask the user to switch tabs — just switch yourself.
 - After switching, call refresh_page_state to see the new page's elements.
 - When the user mentions a tab with @, you'll see "[Referenced tabs: [Tab "title" (tabId:N)]]" in the message. Call switch_tab with that tabId FIRST before executing any actions on it.
@@ -66,6 +67,8 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
   Categories: \`domain\` (per-website), \`agent\` (per-agent files), \`run\` (run logs)
 - **read_knowledge**: Read back any knowledge file you previously saved
 - **list_knowledge**: See what knowledge files exist for a domain or agent
+- **build_sitemap**: Build or rebuild the site navigation graph from all indexed pages. Use this after visiting new pages, or if the site graph in your prompt seems incomplete. Returns the node/edge counts and any new pages discovered.
+- **SITEMAP.yaml**: The site navigation graph is summarized in your prompt above. For the full graph, use \`read_knowledge(category: 'domain', key: '<domain>', filename: 'SITEMAP.yaml')\`
 
 **When to save knowledge:**
 - After discovering how a web app works (page structure, navigation, tricky elements) → save to domain KNOWLEDGE.md (mode: append)
@@ -208,6 +211,7 @@ export function buildSystemPrompt(
 	agentConfig?: AgentConfig,
 	domainKnowledge?: string,
 	existingPlan?: import('../storage/plan-files.js').StoredPlan | null,
+	sitemapTree?: string,
 ): string {
 	const basePrompt = buildBasePrompt(agentConfig);
 
@@ -241,8 +245,11 @@ Do NOT ask the user to "index the page" — just navigate there yourself and ref
 				.join('\n')
 		: 'No navigation links found.';
 
+	// Use sitemap tree if available, fall back to flat page list
 	let siteSummary = '';
-	if (pi.sitePages?.length) {
+	if (sitemapTree) {
+		siteSummary = `\n\n${sitemapTree}\n\n**IMPORTANT: Always check this graph BEFORE navigating.** If a page exists here, use its exact URL pattern with the navigate tool — don't guess from link labels. The graph shows every page you've seen, its purpose, and how pages relate. For the full graph with all details, use read_knowledge(category: 'domain', key: '${pi.url ? new URL(pi.url).hostname : 'domain'}', filename: 'SITEMAP.yaml').`;
+	} else if (pi.sitePages?.length) {
 		const pageDetails = pi.sitePages.map((p) => {
 			let detail = `### ${p.title || p.urlPattern} (${p.pageType})\n  URL: ${p.url}\n  ${p.elementCount} elements`;
 			if (p.lastIndexedAt) {
@@ -362,7 +369,7 @@ Do NOT start over or create a new plan from scratch unless the user explicitly a
 
 ${dateStr}
 
-## Current Page
+## User's Current Page (context — navigate here to begin working)
 - **URL:** ${pi.url || 'Unknown'}
 - **Title:** ${pi.title || 'Unknown'}
 - **Page type:** ${pi.pageType || 'Unknown'}
