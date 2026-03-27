@@ -27,7 +27,9 @@ import {
   OnboardingView,
   UserMessage,
 } from './message-blocks.js';
-import { useChatStream, type UsageTotal } from './use-chat-stream.js';
+import { useConversationStream } from './use-conversation-stream.js';
+import type { UsageTotal } from '../stores/conversation-store.js';
+import { useConversationStore } from '../stores/conversation-store.js';
 import { ChevronDown, ListChecks } from 'lucide-react';
 
 export function ChatTab() {
@@ -45,66 +47,43 @@ export function ChatTab() {
     null,
   );
 
-  // Chat state
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  // Chat state — per-conversation state lives in the Zustand store
+  const {
+    messages: chatMessages,
+    isActive,
+    contextStatus,
+    usageTotal,
+    planState,
+    showPlanPanel,
+    pendingApprovals,
+    sendMessage,
+    subscribeToRun,
+    handleStop,
+    handleNewConversation,
+    setMessages: setChatMessages,
+    setShowPlanPanel,
+    setPlanState,
+    setContextStatus,
+    setUsageTotal,
+  } = useConversationStream(externalConvId);
+  const store = useConversationStore();
+
+  // Local UI state (not per-conversation)
   const [input, setInput] = useState('');
-  const [isActive, setIsActive] = useState(false);
-  // showContext state removed — pages list now accessible via menu
   const [wsConnected, setWsConnected] = useState(false);
-  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>(
-    [],
-  );
+  const [pendingApprovalsLocal, setPendingApprovals] = useState<ApprovalRequest[]>([]);
   const [pendingPlanApproval, setPendingPlanApproval] =
     useState<PlanApprovalRequest | null>(null);
   const [selectedElements, setSelectedElements] = useState<SelectedElement[]>(
     [],
   );
-  // originTabId removed — agent now always targets the current active tab
-  // and uses list_tabs/switch_tab tools to change targets
-  const isActiveRef = useRef(false);
   const [selectorActive, setSelectorActive] = useState(false);
-  const [contextStatus, setContextStatus] = useState<{
-    used: number;
-    limit: number;
-    percent: number;
-  } | null>(null);
-  const [usageTotal, setUsageTotal] = useState<UsageTotal | null>(null);
-  const [planState, setPlanState] = useState<{
-    description: string;
-    steps: { label: string; status: string }[];
-  } | null>(null);
-  const [showPlanPanel, setShowPlanPanel] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isReindexing, setIsReindexing] = useState(false);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
 
   const CHAT_INPUT_MAX_HEIGHT_PX = 120;
   const CHAT_INPUT_MIN_HEIGHT_PX = 40;
-
-  // SSE streaming hook
-  const {
-    sendMessage,
-    handleStop,
-    subscribeToRun,
-    blocksRef,
-    scheduleFlush,
-    resetConversation,
-    conversationIdRef,
-  } = useChatStream({
-    setChatMessages,
-    setIsActive,
-    setContextStatus,
-    setUsageTotal,
-    setPlanState,
-    setPendingApprovals,
-    setPendingPlanApproval,
-    setShowPlanPanel,
-    planState,
-    externalConvId,
-    markActive,
-    markDone,
-    navigate,
-  });
 
   // Auto-resize textarea
   useEffect(() => {
@@ -186,45 +165,31 @@ export function ChatTab() {
     };
   }, [updateCurrentTab]);
 
-  // Keep ref in sync with isActive state
-  useEffect(() => {
-    isActiveRef.current = isActive;
-  }, [isActive]);
-
   // Load conversation when conversationId changes (tab switch or initial mount).
-  // Key insight: if the stream just navigated us here (conversation_id or done event),
-  // conversationIdRef.current will match externalConvId — skip the DB reload since
-  // live blocks in memory are more complete than what's persisted.
+  // With the Zustand store, switching tabs is instant if data is already loaded.
+  // If not, we load from DB into the store.
   useEffect(() => {
-    console.log('[ChatTab] externalConvId effect:', { externalConvId, conversationIdRef: conversationIdRef.current, isActive: isActiveRef.current });
+    console.log('[ChatTab] externalConvId effect:', { externalConvId, isActive });
     if (!externalConvId) {
-      console.log('[ChatTab] → clearing state for new chat');
-      setChatMessages([]);
-      setPendingApprovals([]);
-      setContextStatus(null);
-      setUsageTotal(null);
-      setPlanState(null);
-      setShowPlanPanel(false);
-      setIsActive(false);
-      resetConversation();
+      console.log('[ChatTab] → new chat (no convId)');
+      store.setActiveConv(null);
       return;
     }
 
-    // If the stream navigated us here, messages are already in state — skip reload
-    if (conversationIdRef.current === externalConvId) {
-      console.log('[ChatTab] → stream navigated here, skipping reload');
+    // Set active conversation in the store
+    store.setActiveConv(externalConvId);
+
+    // If the store already has messages for this conversation, use them (instant switch)
+    const existing = store.conversations.get(externalConvId);
+    if (existing && existing.messages.length > 0) {
+      console.log('[ChatTab] → store has data, instant switch');
       setMode('chat');
       return;
     }
 
-    // Different conversation (tab switch or history open) — load from DB
+    // No data in store — load from DB
     console.log('[ChatTab] → loading conversation from DB:', externalConvId);
     setMode('chat');
-    setChatMessages([]);
-    setPendingApprovals([]);
-    setContextStatus(null);
-    setPlanState(null);
-    resetConversation();
     loadConversation(externalConvId);
   }, [externalConvId]);
 
@@ -333,7 +298,7 @@ export function ChatTab() {
     const detail = {
       contextStatus,
       usageTotal,
-      conversationId: externalConvId || conversationIdRef.current,
+      conversationId: externalConvId || '',
     };
     window.dispatchEvent(
       new CustomEvent('commandra-context-update', { detail }),
@@ -394,23 +359,22 @@ export function ChatTab() {
   }
 
   async function handleManualCompact() {
-    const convId = externalConvId || conversationIdRef.current;
+    const convId = externalConvId;
     if (!convId || isActive) return;
     if (chatMessages.length < 2) return;
 
     // Show compacting indicator as an assistant message
     const compactingMsgId = crypto.randomUUID();
-    setChatMessages(prev => [
-      ...prev,
-      {
+    if (convId) {
+      store.appendMessage(convId, {
         id: compactingMsgId,
         role: 'assistant' as const,
         content: '',
         blocks: [
           { type: 'text' as const, content: '*Compacting conversation...*' },
         ],
-      },
-    ]);
+      });
+    }
 
     try {
       const stored = await chrome.storage.local.get(['authToken']);
@@ -454,55 +418,22 @@ export function ChatTab() {
         });
       } else {
         const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-        // Remove compacting message and show error
-        setChatMessages(prev =>
-          prev.map(m =>
-            m.id === compactingMsgId
-              ? {
-                  ...m,
-                  blocks: [
-                    {
-                      type: 'text' as const,
-                      content: `*Compaction failed: ${err.error}*`,
-                    },
-                  ],
-                }
-              : m,
-          ),
-        );
+        if (convId) {
+          store.updateMessage(convId, compactingMsgId, {
+            blocks: [{ type: 'text' as const, content: `*Compaction failed: ${err.error}*` }],
+          });
+        }
       }
     } catch (err) {
       console.error('Manual compact failed:', err);
-      setChatMessages(prev =>
-        prev.map(m =>
-          m.id === compactingMsgId
-            ? {
-                ...m,
-                blocks: [
-                  {
-                    type: 'text' as const,
-                    content: '*Compaction failed — check your connection.*',
-                  },
-                ],
-              }
-            : m,
-        ),
-      );
+      if (convId) {
+        store.updateMessage(convId, compactingMsgId, {
+          blocks: [{ type: 'text' as const, content: '*Compaction failed — check your connection.*' }],
+        });
+      }
     }
   }
 
-  function handleNewConversation() {
-    console.log('[ChatTab] handleNewConversation called, isActive:', isActiveRef.current);
-    handleStop();
-    setChatMessages([]);
-    setPendingApprovals([]);
-    setContextStatus(null);
-    setUsageTotal(null);
-    setPlanState(null);
-    setShowPlanPanel(false);
-    resetConversation();
-    navigate('/chat', { replace: true });
-  }
 
   async function handleSend() {
     if (!input.trim() || isActive) return;
@@ -515,7 +446,9 @@ export function ChatTab() {
       selectedElements:
         selectedElements.length > 0 ? selectedElements : undefined,
     };
-    setChatMessages(prev => [...prev, userMsg]);
+    if (externalConvId) {
+      store.appendMessage(externalConvId, userMsg);
+    }
     setInput('');
 
     let pageIndex: unknown = null;

@@ -24,7 +24,7 @@ import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { loadPlan } from '../storage/plan-files.js';
 import { loadSitemap, renderSitemapTree } from '../storage/sitemap.js';
-import { getConnectionByUser, resetKill } from '../ws/handler.js';
+import { getConnectionByUser, registerConversationConnection, resetKill } from '../ws/handler.js';
 
 /**
  * Detect if a user message clearly requires PARALLEL work across multiple distinct websites.
@@ -303,6 +303,7 @@ chatRoutes.post('/', async (c) => {
 		if (!run) {
 			// New run — create and launch orchestrator as a detached promise
 			run = createRun(convId!, user.id, connectionId || '');
+			if (connectionId) registerConversationConnection(convId!, connectionId);
 			const durableOnEvent = createDurableOnEvent(run);
 
 			// Emit conversationId immediately so the frontend can track it

@@ -96,6 +96,16 @@ export function getRunByUser(userId: string): ActiveRun | undefined {
 	return undefined;
 }
 
+export function getAllRunsByUser(userId: string): ActiveRun[] {
+	const runs: ActiveRun[] = [];
+	for (const run of activeRuns.values()) {
+		if (run.userId === userId && (run.status === 'running' || run.status === 'paused')) {
+			runs.push(run);
+		}
+	}
+	return runs;
+}
+
 export function killRun(conversationId: string): void {
 	const run = activeRuns.get(conversationId);
 	if (!run) return;

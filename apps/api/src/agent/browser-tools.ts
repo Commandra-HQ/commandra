@@ -10,7 +10,7 @@ import { classifyAction } from '../safety/classifier.js';
 import { persistScreenshot, saveScreenshot, uploadScreenshotToS3 } from '../screenshots/manager.js';
 import { updateSitemap } from '../storage/sitemap.js';
 import { executeTool } from '../tools/registry.js';
-import { getConnectionByUser, isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { getConnectionByUser, getConnectionForConversation, isKilled, sendApprovalRequest } from '../ws/handler.js';
 import { evaluatePostToolUse, evaluatePreToolUse } from './hooks.js';
 import { INTERNAL_TOOL_NAMES } from './internal-tools.js';
 import { getRun } from './run-registry.js';
@@ -387,8 +387,9 @@ export async function executeToolBlock(
 	});
 	if (internalResult) return internalResult;
 
-	// Get fresh connectionId — may have changed after pause/resume
+	// Get fresh connectionId — prefer conversation-scoped, then run, then user-level
 	const freshConnectionId =
+		(conversationId ? getConnectionForConversation(conversationId) : null) ||
 		(conversationId ? getRun(conversationId)?.connectionId : undefined) ||
 		getConnectionByUser(userId) ||
 		connectionId;

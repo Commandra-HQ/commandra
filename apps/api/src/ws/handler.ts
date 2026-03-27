@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { jwtVerify } from 'jose';
 import type { WebSocket } from 'ws';
-import { getRunByUser, killRun, resumeRun, updateConnectionId } from '../agent/run-registry.js';
+import { getAllRunsByUser, getRun, killRun, resumeRun, updateConnectionId } from '../agent/run-registry.js';
 import { onUserReconnected } from '../agent/scheduler.js';
 import { db } from '../db/index.js';
 import { sites } from '../db/schema.js';
@@ -29,6 +29,28 @@ const pendingRequests = new Map<
 // Listeners for action status updates (side panel activity feed)
 const statusListeners = new Map<string, (update: unknown) => void>();
 
+// Conversation ↔ Connection mapping — tracks which WS connection owns which conversation
+const conversationConnections = new Map<string, string>(); // convId → connectionId
+const connectionConversations = new Map<string, Set<string>>(); // connectionId → Set<convId>
+
+export function registerConversationConnection(convId: string, connectionId: string) {
+	conversationConnections.set(convId, connectionId);
+	let convs = connectionConversations.get(connectionId);
+	if (!convs) {
+		convs = new Set();
+		connectionConversations.set(connectionId, convs);
+	}
+	convs.add(convId);
+}
+
+export function getConnectionForConversation(convId: string): string | null {
+	const connId = conversationConnections.get(convId);
+	if (!connId) return null;
+	const conn = connections.get(connId);
+	if (!conn || conn.ws.readyState !== conn.ws.OPEN) return null;
+	return connId;
+}
+
 export function handleWsConnection(ws: WebSocket) {
 	const connectionId = randomUUID();
 	connections.set(connectionId, { ws, authenticated: false });
@@ -51,14 +73,13 @@ export function handleWsConnection(ws: WebSocket) {
 						conn.authenticated = true;
 						ws.send(JSON.stringify({ type: 'auth_result', success: true, timestamp: Date.now() }));
 						console.log(`WS authenticated: ${connectionId} (user: ${conn.userId})`);
-						// Resume any paused orchestrator runs for this user
-						const pausedRun = getRunByUser(conn.userId);
-						if (pausedRun && pausedRun.status === 'paused') {
-							console.log(
-								`[WS] Resuming paused run ${pausedRun.conversationId} for user ${conn.userId}`,
-							);
-							updateConnectionId(pausedRun.conversationId, connectionId);
-							resumeRun(pausedRun.conversationId);
+						// Resume ALL paused orchestrator runs for this user
+						const pausedRuns = getAllRunsByUser(conn.userId).filter(r => r.status === 'paused');
+						for (const run of pausedRuns) {
+							console.log(`[WS] Resuming paused run ${run.conversationId} for user ${conn.userId}`);
+							updateConnectionId(run.conversationId, connectionId);
+							registerConversationConnection(run.conversationId, connectionId);
+							resumeRun(run.conversationId);
 						}
 						// Process any queued scheduled runs for this user
 						onUserReconnected(conn.userId, connectionId).catch((err) =>
@@ -108,19 +129,23 @@ export function handleWsConnection(ws: WebSocket) {
 				}
 
 				case 'kill': {
-					console.log(`[WS] Kill received from ${connectionId}`);
-					// Cancel all pending requests for this connection
+					console.log(`[WS] Kill received from ${connectionId}`, message.conversationId ? `for conv ${message.conversationId}` : '(all)');
 					cancelAllPending(connectionId);
-					// Set killed flag
 					const conn = connections.get(connectionId);
 					if (conn) {
 						conn.killed = true;
-						// Also kill any active run for this user via the durable registry
-						if (conn.userId) {
-							const activeRun = getRunByUser(conn.userId);
-							if (activeRun) {
-								console.log(`[WS] Killing run ${activeRun.conversationId} via registry`);
-								killRun(activeRun.conversationId);
+						// Kill specific conversation if provided, otherwise all runs for this user
+						if (message.conversationId) {
+							const run = getRun(message.conversationId);
+							if (run) {
+								console.log(`[WS] Killing run ${run.conversationId} via registry`);
+								killRun(run.conversationId);
+							}
+						} else if (conn.userId) {
+							const runs = getAllRunsByUser(conn.userId);
+							for (const run of runs) {
+								console.log(`[WS] Killing run ${run.conversationId} via registry`);
+								killRun(run.conversationId);
 							}
 						}
 					}
@@ -202,6 +227,14 @@ export function handleWsConnection(ws: WebSocket) {
 	});
 
 	ws.on('close', () => {
+		// Clean up conversation-connection mappings
+		const convs = connectionConversations.get(connectionId);
+		if (convs) {
+			for (const convId of convs) {
+				conversationConnections.delete(convId);
+			}
+			connectionConversations.delete(connectionId);
+		}
 		connections.delete(connectionId);
 		statusListeners.delete(connectionId);
 		console.log(`WS disconnected: ${connectionId}`);

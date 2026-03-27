@@ -26,7 +26,7 @@ import type {
 } from '../llm/types.js';
 import { compressHistory } from '../memory/conversation.js';
 import { saveCompaction } from '../storage/compaction-files.js';
-import { getConnectionByUser, isKilled } from '../ws/handler.js';
+import { getConnectionByUser, getConnectionForConversation, isKilled } from '../ws/handler.js';
 import { executeToolBlock, partitionToolsBySafety } from './browser-tools.js';
 import { evaluateOnComplete } from './hooks.js';
 import { buildSystemPrompt } from './prompts.js';
@@ -293,7 +293,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		const hasToolUseBlocks = content.some((b) => b.type === 'tool_use');
 
 		// If extension disconnected and we need browser tools, pause and wait for reconnection
-		if (hasToolUseBlocks && !getConnectionByUser(userId)) {
+		const hasConnection = (conversationId ? getConnectionForConversation(conversationId) : null) || getConnectionByUser(userId);
+		if (hasToolUseBlocks && !hasConnection) {
 			const run = conversationId ? getRun(conversationId) : undefined;
 			if (run) {
 				console.log(`[Orchestrator] Extension disconnected, pausing run ${conversationId}`);
@@ -314,7 +315,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		}
 
 		// Get fresh connectionId (may have changed after pause/resume)
-		const activeConnectionId = getConnectionByUser(userId) || connectionId;
+		// Prefer conversation-scoped connection, fall back to user-level, then original
+		const activeConnectionId = (conversationId ? getConnectionForConversation(conversationId) : null) || getConnectionByUser(userId) || connectionId;
 		console.log(
 			`[Orchestrator] Using connectionId: ${activeConnectionId} (original: ${connectionId})`,
 		);
