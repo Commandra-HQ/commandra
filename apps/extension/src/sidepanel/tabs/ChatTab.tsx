@@ -203,7 +203,9 @@ export function ChatTab() {
       setChatMessages([]);
       setPendingApprovals([]);
       setContextStatus(null);
+      setUsageTotal(null);
       setPlanState(null);
+      setShowPlanPanel(false);
       resetConversation();
       return;
     }
@@ -469,6 +471,7 @@ export function ChatTab() {
     setContextStatus(null);
     setUsageTotal(null);
     setPlanState(null);
+    setShowPlanPanel(false);
     resetConversation();
     navigate('/chat', { replace: true });
   }
@@ -567,7 +570,11 @@ export function ChatTab() {
       if (res.ok) {
         const data = await res.json();
         navigate(`/chat/${convId}`, { replace: true });
-        const loaded: ChatMessage[] = (data.messages || []).map(
+        // Filter out partial messages (from incremental persistence) — they'll be replaced by live stream
+        const filteredMessages = (data.messages || []).filter(
+          (m: { toolData?: { partial?: boolean } }) => !m.toolData?.partial,
+        );
+        const loaded: ChatMessage[] = filteredMessages.map(
           (m: {
             id: string;
             role: string;
@@ -699,7 +706,7 @@ export function ChatTab() {
         setChatMessages(loaded);
 
         // Estimate context usage from loaded messages so the indicator shows immediately
-        const totalChars = (data.messages || []).reduce(
+        const totalChars = filteredMessages.reduce(
           (sum: number, m: { content?: string }) =>
             sum + (m.content?.length || 0),
           0,
@@ -732,9 +739,10 @@ export function ChatTab() {
         }
 
         // If the conversation is still running or paused on the server, auto-subscribe
-        // to the live SSE stream so the user sees real-time updates
+        // to the live SSE stream so the user sees real-time updates.
+        // Only subscribe if we're not already streaming (prevents repeated subscribe loops).
         const convStatus = data.conversation?.status;
-        if (convStatus === 'running' || convStatus === 'paused') {
+        if ((convStatus === 'running' || convStatus === 'paused') && !isActiveRef.current) {
           subscribeToRun(convId);
         }
       }

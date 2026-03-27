@@ -115,6 +115,9 @@ export function useChatStream(options: UseChatStreamOptions) {
   }
 
   function processSSEEvent(event: SSEEvent) {
+    // Guard: if assistantMsgIdRef is empty, we've been reset (new chat) — ignore stale events
+    if (!assistantMsgIdRef.current && event.type !== 'conversation_id') return;
+
     switch (event.type) {
       case 'conversation_id':
         // Capture conversationId and navigate immediately so the tab appears right away
