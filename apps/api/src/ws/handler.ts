@@ -12,6 +12,7 @@ import {
 	updateConnectionId,
 } from '../agent/run-registry.js';
 import { updateSiteTotals, upsertPage } from '../routes/sites.js';
+import { updateSitemap } from '../storage/sitemap.js';
 
 interface Connection {
 	ws: WebSocket;
@@ -174,6 +175,17 @@ export function handleWsConnection(ws: WebSocket) {
 
 							await upsertPage(site.id, pageIndex);
 							await updateSiteTotals(site.id);
+
+							// Update navigation graph (fire-and-forget)
+							updateSitemap(conn.userId!, domain, {
+								url: pageIndex.url,
+								urlPattern: pageIndex.urlPattern,
+								title: pageIndex.title,
+								pageType: pageIndex.pageType,
+								elements: pageIndex.elements,
+								navigationLinks: pageIndex.navigationLinks as { label: string; href: string }[] | undefined,
+							}).catch((err) => console.error('[sitemap] Failed to update:', err));
+
 							console.log(`[WS] Page indexed: ${domain} ${pageIndex.urlPattern || pageIndex.url}`);
 						} catch (err) {
 							console.error('[WS] Failed to store page index:', err);

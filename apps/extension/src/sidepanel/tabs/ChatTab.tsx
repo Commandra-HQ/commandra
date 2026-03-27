@@ -28,7 +28,7 @@ import {
   UserMessage,
 } from './message-blocks.js';
 import { useChatStream, type UsageTotal } from './use-chat-stream.js';
-import { ChevronDown, ListChecks } from 'lucide-react';
+import { ChevronDown, ListChecks, Plus } from 'lucide-react';
 
 export function ChatTab() {
   const { conversationId: externalConvId } = useParams<{
@@ -799,6 +799,20 @@ export function ChatTab() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Chat header with new chat + context */}
+      <div className="px-3 py-1.5 border-b border-border flex items-center gap-2 text-[10px] text-muted-foreground">
+        <button
+          type="button"
+          onClick={handleNewConversation}
+          className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50 flex-shrink-0"
+          title="New Chat"
+        >
+          <Plus size={14} />
+        </button>
+        {domain && (
+          <span className="text-[10px] font-mono truncate flex-shrink min-w-0">{domain}</span>
+        )}
+      </div>
       {/* Context indicator + plan panel */}
       {contextStatus && contextStatus.percent > 0 && (
         <div className="px-3 py-1 border-b border-border flex items-center gap-2 text-[10px] text-muted-foreground">

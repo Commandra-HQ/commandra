@@ -71,6 +71,44 @@ function detectMultiSiteIntent(message: string): boolean {
 	return false;
 }
 
+/**
+ * Generate a short conversation title using the fast model.
+ * Called after the 1st message (initial title) and 3rd message (refined title).
+ * Fire-and-forget — never blocks the chat flow.
+ */
+async function generateConversationTitle(
+	convId: string,
+	chatMessages: { role: string; content: string }[],
+): Promise<void> {
+	const provider = getProvider();
+	const fastModel = getFastModel();
+	const { collectStream } = await import('../llm/types.js');
+
+	const recent = chatMessages.slice(-6).map((m) => `${m.role}: ${m.content.slice(0, 200)}`).join('\n');
+
+	const stream = provider.chat({
+		model: fastModel,
+		system: 'Generate a short title (3-6 words) for this conversation. Return ONLY the title, no quotes, no punctuation at the end.',
+		messages: [{ role: 'user', content: recent }],
+		maxTokens: 30,
+	});
+
+	const response = await collectStream(stream);
+	const title = response.content
+		.filter((b) => b.type === 'text')
+		.map((b) => (b as { text: string }).text)
+		.join('')
+		.trim()
+		.slice(0, 100);
+
+	if (title) {
+		await db
+			.update(conversations)
+			.set({ title, updatedAt: new Date() })
+			.where(eq(conversations.id, convId));
+	}
+}
+
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
 chatRoutes.use('*', requireAuth);
@@ -139,6 +177,12 @@ chatRoutes.post('/', async (c) => {
 			content: m.content,
 		};
 	});
+
+	// Auto-generate conversation title via fast model (fire-and-forget)
+	const userMsgCount = history.filter((m) => m.role === 'user').length;
+	if (userMsgCount === 1 || userMsgCount === 3) {
+		generateConversationTitle(convId!, chatMessages).catch(() => {});
+	}
 
 	// Check if extension is connected
 	const connectionId = getConnectionByUser(user.id);
