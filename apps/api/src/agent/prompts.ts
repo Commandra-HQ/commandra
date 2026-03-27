@@ -25,6 +25,7 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 **When the user asks about the page:** Reference elements by label/type. Describe what's possible. Be concise.
 
 **When the user asks you to DO something:**
+- **Check the Site Navigation Graph first** — if you need to go to a page, check if it's already mapped. Use its exact URL with navigate instead of clicking through links.
 - Look at the Interactive Elements list below — find the element by its label, then use its exact selector
 - Use browser tools to execute actions
 - Page state auto-refreshes after click, navigate, type, and select actions — you'll see updated elements in the tool result. **Read the new elements in the tool result carefully** — use THOSE selectors for your next actions.
