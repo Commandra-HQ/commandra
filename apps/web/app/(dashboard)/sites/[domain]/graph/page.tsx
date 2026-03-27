@@ -125,7 +125,11 @@ function layoutGraph(
 		for (let i = segments.length - 1; i > 0; i--) {
 			const parentPath = `/${segments.slice(0, i).join('/')}`;
 			if (nodeIds.has(parentPath)) {
-				hierarchyEdges.push({ source: parentPath, target: node.id, label: segments[segments.length - 1] });
+				hierarchyEdges.push({
+					source: parentPath,
+					target: node.id,
+					label: segments[segments.length - 1],
+				});
 				g.setEdge(parentPath, node.id);
 				break;
 			}

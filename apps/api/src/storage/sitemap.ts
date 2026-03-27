@@ -297,9 +297,7 @@ export function renderSitemapTree(sitemap: Sitemap, maxLines = 80): string {
 
 	const lines: string[] = [];
 	lines.push(`## Site Navigation Graph (${sitemap.domain})`);
-	lines.push(
-		`${sitemap.stats.totalNodes} pages mapped, ${sitemap.stats.totalVisits} total visits`,
-	);
+	lines.push(`${sitemap.stats.totalNodes} pages mapped, ${sitemap.stats.totalVisits} total visits`);
 	lines.push('');
 
 	// Build a path-based tree from URL patterns
@@ -333,7 +331,9 @@ export function renderSitemapTree(sitemap: Sitemap, maxLines = 80): string {
 		const node = sitemap.nodes[pattern];
 		const prefix = indent > 0 ? `${'  '.repeat(indent)}└ ` : '';
 		const desc = node.description ? ` — ${node.description}` : '';
-		lines.push(`${prefix}${pattern}${desc} (${node.type}, ${node.elements} el, ${node.visits} visits)`);
+		lines.push(
+			`${prefix}${pattern}${desc} (${node.type}, ${node.elements} el, ${node.visits} visits)`,
+		);
 
 		const kids = children.get(pattern) || [];
 		for (const child of kids) {
@@ -346,7 +346,9 @@ export function renderSitemapTree(sitemap: Sitemap, maxLines = 80): string {
 	}
 
 	if (lines.length >= maxLines) {
-		lines.push(`\n... truncated. Use read_knowledge(category: 'domain', key: '${sitemap.domain}', filename: 'SITEMAP.yaml') for full graph.`);
+		lines.push(
+			`\n... truncated. Use read_knowledge(category: 'domain', key: '${sitemap.domain}', filename: 'SITEMAP.yaml') for full graph.`,
+		);
 	}
 
 	return lines.join('\n');
