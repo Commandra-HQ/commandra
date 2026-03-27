@@ -197,14 +197,14 @@ export function ChatTab() {
   // live blocks in memory are more complete than what's persisted.
   useEffect(() => {
     if (!externalConvId) {
-      // Navigated to new chat — only clear if we're not actively streaming
-      if (!isActiveRef.current) {
-        setChatMessages([]);
-        setPendingApprovals([]);
-        setContextStatus(null);
-        setPlanState(null);
-        resetConversation();
-      }
+      // Navigated to new chat — always clear state.
+      // If a run was streaming, handleNewConversation already detached the SSE viewer.
+      // The server-side orchestrator continues independently (durable orchestrator).
+      setChatMessages([]);
+      setPendingApprovals([]);
+      setContextStatus(null);
+      setPlanState(null);
+      resetConversation();
       return;
     }
 
@@ -462,12 +462,15 @@ export function ChatTab() {
   }
 
   function handleNewConversation() {
+    // Detach from current SSE stream (doesn't kill the server-side run — it continues via durable orchestrator)
+    handleStop();
     setChatMessages([]);
     setPendingApprovals([]);
     setContextStatus(null);
+    setUsageTotal(null);
     setPlanState(null);
     resetConversation();
-    navigate('/');
+    navigate('/chat', { replace: true });
   }
 
   async function handleSend() {

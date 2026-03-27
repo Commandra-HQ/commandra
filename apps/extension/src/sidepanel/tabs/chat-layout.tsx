@@ -44,6 +44,7 @@ export function ContextBar({
   onReindex,
   onIndexSite,
   onNavigateBack,
+  onNewChat,
   originDomain,
   isTaskActive,
 }: {
@@ -62,6 +63,7 @@ export function ContextBar({
   onReindex: () => void;
   onIndexSite: () => void;
   onNavigateBack: () => void;
+  onNewChat?: () => void;
   originDomain?: string;
   isTaskActive?: boolean;
 }) {
@@ -85,6 +87,16 @@ export function ContextBar({
         >
           <ArrowLeft size={14} />
         </button>
+        {onNewChat && (
+          <button
+            type="button"
+            onClick={onNewChat}
+            className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50 flex-shrink-0"
+            title="New Chat"
+          >
+            <Plus size={14} />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setShowContext(!showContext)}
