@@ -81,36 +81,44 @@ async function generateConversationTitle(
 	chatMessages: { role: string; content: string }[],
 	onEvent?: (event: SSEEvent) => Promise<void>,
 ): Promise<void> {
-	const provider = getProvider();
-	const fastModel = getFastModel();
-	const { collectStream } = await import('../llm/types.js');
+	console.log(`[TitleGen] Starting title generation for ${convId} (${chatMessages.length} messages)`);
+	try {
+		const provider = getProvider();
+		const fastModel = getFastModel();
+		const { collectStream } = await import('../llm/types.js');
 
-	const recent = chatMessages.slice(-6).map((m) => `${m.role}: ${m.content.slice(0, 200)}`).join('\n');
+		const recent = chatMessages.slice(-6).map((m) => `${m.role}: ${m.content.slice(0, 200)}`).join('\n');
 
-	const stream = provider.chat({
-		model: fastModel,
-		system: 'Generate a short title (3-6 words) for this conversation. Return ONLY the title, no quotes, no punctuation at the end.',
-		messages: [{ role: 'user', content: recent }],
-		maxTokens: 30,
-	});
+		const stream = provider.chat({
+			model: fastModel,
+			system: 'Generate a short title (3-6 words) for this conversation. Return ONLY the title, no quotes, no punctuation at the end.',
+			messages: [{ role: 'user', content: recent }],
+			maxTokens: 30,
+		});
 
-	const response = await collectStream(stream);
-	const title = response.content
-		.filter((b) => b.type === 'text')
-		.map((b) => (b as { text: string }).text)
-		.join('')
-		.trim()
-		.slice(0, 100);
+		const response = await collectStream(stream);
+		const title = response.content
+			.filter((b) => b.type === 'text')
+			.map((b) => (b as { text: string }).text)
+			.join('')
+			.trim()
+			.slice(0, 100);
 
-	if (title) {
-		await db
-			.update(conversations)
-			.set({ title, updatedAt: new Date() })
-			.where(eq(conversations.id, convId));
-		// Emit title to the client via SSE (if run is active)
-		if (onEvent) {
-			await onEvent({ type: 'title_updated', title });
-		}
+		console.log(`[TitleGen] Generated title for ${convId}: "${title}"`);
+
+		if (title) {
+			await db
+				.update(conversations)
+				.set({ title, updatedAt: new Date() })
+				.where(eq(conversations.id, convId));
+			console.log(`[TitleGen] Saved title to DB for ${convId}`);
+			// Emit title to the client via SSE (if run is active)
+			if (onEvent) {
+				await onEvent({ type: 'title_updated', title });
+				console.log(`[TitleGen] Emitted title_updated SSE event for ${convId}`);
+			} else {
+				console.log(`[TitleGen] No onEvent available — title saved to DB only`);
+			}
 	}
 }
 
