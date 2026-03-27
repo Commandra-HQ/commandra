@@ -247,7 +247,13 @@ export async function handleActionRequest(
 			);
 			result = await withVectorFallback(tab.id, action, result, elementLabel, 'select');
 		} else if (action === 'get_page_state') {
-			result = await executeInTab(tab.id, getPageStateInPage, []);
+			// Can't inject scripts into about:blank, chrome://, etc.
+			const tabUrl = tab.url || '';
+			if (!tabUrl || tabUrl === 'about:blank' || tabUrl.startsWith('chrome://') || tabUrl.startsWith('about:')) {
+				result = { success: true, data: { url: tabUrl || 'about:blank', title: 'New Tab', elements: [], navigationLinks: [], pageType: 'blank', isEmpty: true } };
+			} else {
+				result = await executeInTab(tab.id, getPageStateInPage, []);
+			}
 		} else if (action === 'screenshot') {
 			// captureVisibleTab() captures whatever tab is currently visible.
 			// If the agent is pinned to a specific tab (targetTabId) and the user
