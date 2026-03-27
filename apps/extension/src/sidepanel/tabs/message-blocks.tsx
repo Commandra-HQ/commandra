@@ -150,7 +150,7 @@ export function AssistantMessage({
 	if (blocks.length === 0) return null;
 
 	const copyableText = blocks
-		.filter((b): b is Extract<MessageBlock, { type: 'text' }> => b.type === 'text' && !b.content.startsWith('__approval__:'))
+		.filter((b): b is Extract<MessageBlock, { type: 'text' }> => b.type === 'text' && !b.content.startsWith('__approval') && !b.content.startsWith('__approved') && !b.content.startsWith('__rejected'))
 		.map(b => b.content)
 		.join('\n\n');
 
@@ -169,6 +169,23 @@ export function AssistantMessage({
 								<ThinkingBlock key={i} content={block.content} isLast={i === blocks.length - 1} />
 							);
 						case 'text': {
+							// Handle resolved approvals (persisted after user approved/rejected)
+							if (block.content.startsWith('__approved__:') || block.content.startsWith('__rejected__:')) {
+								const wasApproved = block.content.startsWith('__approved__:');
+								const parts = block.content.split(':');
+								const approvalType = parts[1];
+								const action = approvalType === 'plan' ? 'Plan' : (TOOL_LABELS[parts[3] || ''] || parts[3] || 'Action');
+								const label = parts[4] || parts[3] || '';
+								const colorClass = wasApproved ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5';
+								const textClass = wasApproved ? 'text-green-500' : 'text-red-500';
+								const statusLabel = wasApproved ? 'Approved' : 'Rejected';
+								return (
+									<div key={i} className={`px-3 py-2 text-xs border ${colorClass}`}>
+										<span className={`${textClass} font-medium`}>{statusLabel}</span>
+										<span className="text-muted-foreground"> — {approvalType === 'plan' ? label : `${action}${label ? ` "${label}"` : ''}`}</span>
+									</div>
+								);
+							}
 							if (block.content.startsWith('__approval__:')) {
 								// Approvals are only actionable on the last message of an active conversation.
 								// If this is an older message or the conversation finished, show as expired.
