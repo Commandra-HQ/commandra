@@ -510,6 +510,7 @@ export function useChatStream(options: UseChatStreamOptions) {
    */
   const subscribeToRun = useCallback(
     async (convId: string) => {
+      console.log('[SSE] subscribeToRun called:', convId);
       const stored = await chrome.storage.local.get(['authToken']);
       const token = stored.authToken;
 
@@ -546,14 +547,18 @@ export function useChatStream(options: UseChatStreamOptions) {
 
         // If the server returns JSON (not SSE), the run is not active
         const contentType = res.headers.get('content-type') || '';
+        console.log('[SSE] subscribeToRun response:', res.status, 'content-type:', contentType);
         if (contentType.includes('application/json')) {
-          // No active run — nothing to subscribe to
+          const body = await res.json();
+          console.log('[SSE] subscribeToRun: no active run, got JSON:', body);
           setIsActive(false);
           abortRef.current = null;
+          assistantMsgIdRef.current = '';
           // Remove the empty assistant message we added
           setChatMessages(prev => prev.filter(m => m.id !== assistantMsg.id));
           return;
         }
+        console.log('[SSE] subscribeToRun: got SSE stream, processing events...');
 
         const reader = res.body?.getReader();
         const decoder = new TextDecoder();

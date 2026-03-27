@@ -780,6 +780,28 @@ export function ChatTab() {
           }
         }
 
+        // If the conversation is still running on the server, reconnect to the live stream.
+        // Remove the partial assistant message (from incremental flush) — the subscribe
+        // will replay all events from the event buffer and create a proper live message.
+        const convStatus = data.conversation?.status;
+        if ((convStatus === 'running' || convStatus === 'paused') && !isActiveRef.current) {
+          console.log('[ChatTab] conversation is running — subscribing to live stream');
+          // Drop the last assistant message if it's a partial (from flush)
+          const lastLoaded = loaded[loaded.length - 1];
+          if (lastLoaded?.role === 'assistant') {
+            const isPartial = (data.messages || []).find(
+              (m: { id: string; toolData?: { partial?: boolean } }) =>
+                m.id === lastLoaded.id && m.toolData?.partial,
+            );
+            if (isPartial) {
+              console.log('[ChatTab] removing partial message before subscribe');
+              loaded.pop();
+              setChatMessages([...loaded]);
+            }
+          }
+          subscribeToRun(convId);
+        }
+
       }
     } catch (err) {
       console.error('Failed to load conversation:', err);
