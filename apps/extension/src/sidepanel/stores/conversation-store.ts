@@ -527,6 +527,15 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
 				});
 				break;
 
+			case 'title_updated':
+				// Title updated — dispatch a custom event so HubLayout can pick it up
+				window.dispatchEvent(
+					new CustomEvent('commandra-title-update', {
+						detail: { conversationId: convId, title: event.title },
+					}),
+				);
+				break;
+
 			case 'done':
 				store.stopStream(convId);
 				break;

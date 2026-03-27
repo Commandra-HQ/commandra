@@ -73,12 +73,21 @@ export function HubLayout() {
     }
   }, [convId]);
 
-  // Periodically refresh the active tab's title (picks up LLM-generated titles)
+  // Listen for title updates from the SSE stream (emitted by the store)
   useEffect(() => {
-    if (!convId) return;
-    const interval = setInterval(() => fetchConvTitle(convId), 10000);
-    return () => clearInterval(interval);
-  }, [convId]);
+    function handleTitleUpdate(e: Event) {
+      const { conversationId: cId, title } = (e as CustomEvent).detail || {};
+      if (cId && title) {
+        setTabs(prev =>
+          prev.map(t =>
+            t.id === cId ? { ...t, label: title.slice(0, 40) } : t,
+          ),
+        );
+      }
+    }
+    window.addEventListener('commandra-title-update', handleTitleUpdate);
+    return () => window.removeEventListener('commandra-title-update', handleTitleUpdate);
+  }, []);
 
   function fetchConvTitle(cId: string) {
     chrome.storage.local.get('authToken', ({ authToken }) => {

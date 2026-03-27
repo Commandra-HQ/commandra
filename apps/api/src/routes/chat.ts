@@ -79,6 +79,7 @@ function detectMultiSiteIntent(message: string): boolean {
 async function generateConversationTitle(
 	convId: string,
 	chatMessages: { role: string; content: string }[],
+	onEvent?: (event: SSEEvent) => Promise<void>,
 ): Promise<void> {
 	const provider = getProvider();
 	const fastModel = getFastModel();
@@ -106,6 +107,10 @@ async function generateConversationTitle(
 			.update(conversations)
 			.set({ title, updatedAt: new Date() })
 			.where(eq(conversations.id, convId));
+		// Emit title to the client via SSE (if run is active)
+		if (onEvent) {
+			await onEvent({ type: 'title_updated', title });
+		}
 	}
 }
 
@@ -178,10 +183,15 @@ chatRoutes.post('/', async (c) => {
 		};
 	});
 
-	// Auto-generate conversation title via fast model (fire-and-forget)
+	// Auto-generate conversation title via fast model (fire-and-forget).
+	// Delayed slightly so the run exists and we can emit via its SSE stream.
 	const userMsgCount = history.filter((m) => m.role === 'user').length;
 	if (userMsgCount === 1 || userMsgCount === 3) {
-		generateConversationTitle(convId!, chatMessages).catch(() => {});
+		setTimeout(() => {
+			const run = getRun(convId!);
+			const onEvent = run ? createDurableOnEvent(run) : undefined;
+			generateConversationTitle(convId!, chatMessages, onEvent).catch(() => {});
+		}, 2000);
 	}
 
 	// Check if extension is connected
