@@ -85,16 +85,15 @@ function SiteCard({ site }: { site: Site }) {
 						<span>
 							{site.lastCrawledAt ? `indexed ${timeAgo(site.lastCrawledAt)}` : 'not crawled'}
 						</span>
-						<span className="text-border">|</span>
-						<Link
-							href={`/sites/${encodeURIComponent(site.domain)}/graph`}
-							onClick={(e) => e.stopPropagation()}
-							className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-						>
-							<Map size={11} />
-							<span>graph</span>
-						</Link>
 					</div>
+					<Link
+						href={`/sites/${encodeURIComponent(site.domain)}/graph`}
+						onClick={(e) => e.stopPropagation()}
+						className="inline-flex items-center gap-1.5 mt-2.5 px-2.5 py-1 text-[11px] font-mono border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-surface transition-colors"
+					>
+						<Map size={12} />
+						View Navigation Graph
+					</Link>
 				</div>
 			</button>
 

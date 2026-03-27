@@ -6,7 +6,7 @@ import { getRunByUser, killRun, resumeRun, updateConnectionId } from '../agent/r
 import { onUserReconnected } from '../agent/scheduler.js';
 import { db } from '../db/index.js';
 import { sites } from '../db/schema.js';
-import { updateSiteTotals, upsertPage } from '../routes/sites.js';
+import { getOrCreateSite, updateSiteTotals, upsertPage } from '../routes/sites.js';
 import { updateSitemap } from '../storage/sitemap.js';
 
 interface Connection {
@@ -156,19 +156,7 @@ export function handleWsConnection(ws: WebSocket) {
 					// Async — don't block WS
 					(async () => {
 						try {
-							// Get or create site
-							let [site] = await db
-								.select()
-								.from(sites)
-								.where(and(eq(sites.domain, domain), eq(sites.userId, conn.userId!)))
-								.limit(1);
-
-							if (!site) {
-								[site] = await db
-									.insert(sites)
-									.values({ userId: conn.userId!, domain })
-									.returning();
-							}
+							const site = await getOrCreateSite(conn.userId!, domain);
 
 							await upsertPage(site.id, pageIndex);
 							await updateSiteTotals(site.id);

@@ -462,33 +462,43 @@ export function useChatStream(options: UseChatStreamOptions) {
           console.log('[SSE] sendMessage aborted (user stopped or navigated away)');
         }
       } finally {
-        console.log('[SSE] sendMessage finally — cleaning up, assistantMsgId:', assistantMsgIdRef.current);
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current);
+        // Guard: only clean up if this sendMessage's assistant message is still the active one.
+        // If the user navigated away (new chat / tab switch), resetConversation() already cleared
+        // assistantMsgIdRef, so we must NOT touch setChatMessages or setIsActive — that would
+        // clobber the freshly loaded conversation state.
+        const myMsgId = assistantMsg.id;
+        const stillActive = assistantMsgIdRef.current === myMsgId;
+        console.log('[SSE] sendMessage finally — myMsgId:', myMsgId, 'stillActive:', stillActive);
+
+        if (stillActive) {
+          if (rafRef.current) {
+            cancelAnimationFrame(rafRef.current);
+          }
+          flushBlocks();
+
+          const finalText = blocksRef.current
+            .filter(b => b.type === 'text')
+            .map(b => (b as { content: string }).content)
+            .join('\n');
+
+          setChatMessages(prev =>
+            prev.map(m =>
+              m.id === myMsgId ? { ...m, content: finalText } : m,
+            ),
+          );
+
+          setIsActive(false);
+          abortRef.current = null;
+          assistantMsgIdRef.current = '';
+
+          // Clear badge
+          try {
+            chrome.action.setBadgeText({ text: '' });
+          } catch {}
+        } else {
+          console.log('[SSE] sendMessage finally — skipped cleanup (navigated away)');
+          abortRef.current = null;
         }
-        flushBlocks();
-
-        const finalText = blocksRef.current
-          .filter(b => b.type === 'text')
-          .map(b => (b as { content: string }).content)
-          .join('\n');
-
-        setChatMessages(prev =>
-          prev.map(m =>
-            m.id === assistantMsgIdRef.current
-              ? { ...m, content: finalText }
-              : m,
-          ),
-        );
-
-        setIsActive(false);
-        abortRef.current = null;
-        assistantMsgIdRef.current = '';
-
-        // Clear badge
-        try {
-          chrome.action.setBadgeText({ text: '' });
-        } catch {}
       }
     },
     [externalConvId, markActive, setChatMessages, setIsActive],
@@ -566,31 +576,38 @@ export function useChatStream(options: UseChatStreamOptions) {
           console.warn('[subscribeToRun] Error:', err);
         }
       } finally {
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current);
+        const myMsgId = assistantMsg.id;
+        const stillActive = assistantMsgIdRef.current === myMsgId;
+        console.log('[SSE] subscribeToRun finally — myMsgId:', myMsgId, 'stillActive:', stillActive);
+
+        if (stillActive) {
+          if (rafRef.current) {
+            cancelAnimationFrame(rafRef.current);
+          }
+          flushBlocks();
+
+          const finalText = blocksRef.current
+            .filter(b => b.type === 'text')
+            .map(b => (b as { content: string }).content)
+            .join('\n');
+
+          setChatMessages(prev =>
+            prev.map(m =>
+              m.id === myMsgId ? { ...m, content: finalText } : m,
+            ),
+          );
+
+          setIsActive(false);
+          abortRef.current = null;
+          assistantMsgIdRef.current = '';
+
+          try {
+            chrome.action.setBadgeText({ text: '' });
+          } catch {}
+        } else {
+          console.log('[SSE] subscribeToRun finally — skipped cleanup (navigated away)');
+          abortRef.current = null;
         }
-        flushBlocks();
-
-        const finalText = blocksRef.current
-          .filter(b => b.type === 'text')
-          .map(b => (b as { content: string }).content)
-          .join('\n');
-
-        setChatMessages(prev =>
-          prev.map(m =>
-            m.id === assistantMsgIdRef.current
-              ? { ...m, content: finalText }
-              : m,
-          ),
-        );
-
-        setIsActive(false);
-        abortRef.current = null;
-        assistantMsgIdRef.current = '';
-
-        try {
-          chrome.action.setBadgeText({ text: '' });
-        } catch {}
       }
     },
     [setChatMessages, setIsActive],

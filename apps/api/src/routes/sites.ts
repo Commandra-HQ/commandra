@@ -107,19 +107,7 @@ siteRoutes.post('/:domain/pages', async (c) => {
 
 	if (!pageIndex?.url) return c.json({ error: 'pageIndex required' }, 400);
 
-	// Get or create site
-	let [site] = await db
-		.select()
-		.from(sites)
-		.where(and(eq(sites.domain, domain), getOrgOrUserScope(user, sites)))
-		.limit(1);
-
-	if (!site) {
-		[site] = await db
-			.insert(sites)
-			.values({ userId: user.id, orgId: user.orgId || null, domain })
-			.returning();
-	}
+	const site = await getOrCreateSite(user.id, domain, user.orgId);
 
 	await upsertPage(site.id, pageIndex);
 	await updateSiteTotals(site.id);
@@ -183,6 +171,43 @@ siteRoutes.get('/:domain/graph', async (c) => {
 		edges,
 	});
 });
+
+/**
+ * Get or create a site record — safe against concurrent inserts.
+ * All code paths that need a site should use this instead of manual get-or-create.
+ */
+export async function getOrCreateSite(
+	userId: string,
+	domain: string,
+	orgId?: string | null,
+): Promise<{ id: string }> {
+	// Try to find existing
+	let [site] = await db
+		.select({ id: sites.id })
+		.from(sites)
+		.where(and(eq(sites.domain, domain), eq(sites.userId, userId)))
+		.limit(1);
+
+	if (site) return site;
+
+	// Insert — if a concurrent insert happened, catch and re-query
+	try {
+		[site] = await db
+			.insert(sites)
+			.values({ userId, orgId: orgId || null, domain })
+			.returning({ id: sites.id });
+		return site;
+	} catch {
+		// Race condition — another insert won, query again
+		[site] = await db
+			.select({ id: sites.id })
+			.from(sites)
+			.where(and(eq(sites.domain, domain), eq(sites.userId, userId)))
+			.limit(1);
+		if (site) return site;
+		throw new Error(`Failed to get or create site for ${domain}`);
+	}
+}
 
 interface PageIndexPayload {
 	url: string;

@@ -4,7 +4,7 @@
 
 import type { AgentHooks, SSEEvent } from '@afe/shared';
 import type { ImageBlock, TextBlock, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
-import { updateSiteTotals, upsertPage } from '../routes/sites.js';
+import { getOrCreateSite, updateSiteTotals, upsertPage } from '../routes/sites.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
 import { persistScreenshot, saveScreenshot, uploadScreenshotToS3 } from '../screenshots/manager.js';
@@ -515,22 +515,8 @@ async function persistPageState(
 	if (!pageData.url) return;
 
 	try {
-		const { and, eq } = await import('drizzle-orm');
-		const { db } = await import('../db/index.js');
-		const { sites } = await import('../db/schema.js');
-
 		const domain = new URL(pageData.url).hostname;
-
-		// Get or create site
-		let [site] = await db
-			.select({ id: sites.id })
-			.from(sites)
-			.where(and(eq(sites.domain, domain), eq(sites.userId, userId)))
-			.limit(1);
-
-		if (!site) {
-			[site] = await db.insert(sites).values({ userId, domain }).returning({ id: sites.id });
-		}
+		const site = await getOrCreateSite(userId, domain);
 
 		await upsertPage(site.id, { ...pageData, url: pageData.url! });
 		await updateSiteTotals(site.id);
