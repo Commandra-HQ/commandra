@@ -606,7 +606,19 @@ export function ChatTab() {
                 } else if (sb.type === 'text' && sb.content) {
                   blocks.push({ type: 'text', content: sb.content });
                 } else if (sb.type === 'tool_start' && sb.toolName) {
-                  // Find matching tool_end to get status
+                  // Look ahead in streamBlocks for matching tool_end to get status/result
+                  const allBlocks = m.toolData!.streamBlocks!;
+                  const startIdx = allBlocks.indexOf(sb);
+                  let toolStatus: 'running' | 'success' | 'error' = 'running';
+                  let toolError: string | undefined;
+                  for (let j = startIdx + 1; j < allBlocks.length; j++) {
+                    if (allBlocks[j].type === 'tool_end' && allBlocks[j].toolName === sb.toolName) {
+                      toolStatus = allBlocks[j].content === 'ok' ? 'success' : 'error';
+                      toolError = allBlocks[j].content !== 'ok' ? allBlocks[j].content : undefined;
+                      break;
+                    }
+                  }
+                  // Also check toolData.tools for args/result if available
                   const matchingTool = m.toolData?.tools?.find(
                     t => t.name === sb.toolName,
                   );
@@ -614,11 +626,8 @@ export function ChatTab() {
                     type: 'tool_call',
                     toolName: sb.toolName,
                     label: sb.content || formatToolLabel(sb.toolName),
-                    status: matchingTool
-                      ? matchingTool.success
-                        ? 'success'
-                        : 'error'
-                      : 'success',
+                    status: toolStatus,
+                    error: toolError,
                     args: matchingTool?.args as Record<string, unknown>,
                     result: matchingTool?.result,
                   });

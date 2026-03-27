@@ -262,13 +262,22 @@ function updateStreamBlocks(run: ActiveRun, event: SSEEvent): void {
 				ts: Date.now(),
 			});
 			break;
-		case 'approval_inline':
+		case 'approval_inline': {
+			// Save the full __approval__ string so it can be directly used for reconstruction
+			let approvalStr: string;
+			if (event.approvalType === 'plan') {
+				const steps = (event.planSteps as string[]) || [];
+				approvalStr = `plan:${event.requestId}:${event.label || ''}:${steps.join('|')}`;
+			} else {
+				approvalStr = `tool:${event.requestId}:${event.action}:${event.label || ''}:${event.reason}`;
+			}
 			blocks.push({
 				type: 'approval_inline',
-				content: `${event.approvalType}:${event.requestId}:${event.action}:${event.label || ''}:${event.reason}`,
+				content: approvalStr,
 				ts: Date.now(),
 			});
 			break;
+		}
 		case 'plan_submitted':
 			blocks.push({
 				type: 'plan_submitted',
