@@ -784,7 +784,7 @@ export function ChatTab() {
         // Remove the partial assistant message (from incremental flush) — the subscribe
         // will replay all events from the event buffer and create a proper live message.
         const convStatus = data.conversation?.status;
-        if ((convStatus === 'running' || convStatus === 'paused') && !isActiveRef.current) {
+        if (convStatus === 'running' || convStatus === 'paused') {
           console.log('[ChatTab] conversation is running — subscribing to live stream');
           // Drop the last assistant message if it's a partial (from flush)
           const lastLoaded = loaded[loaded.length - 1];

@@ -19,13 +19,25 @@ import { getRun } from './run-registry.js';
  * Partition tool blocks into safe/review/blocked buckets for parallel execution.
  * Internal tools are always safe (no WS routing).
  */
+// State-changing browser tools that must run sequentially — they modify the active tab
+// and running them in parallel causes only the last one to take effect.
+const SEQUENTIAL_TOOLS = new Set([
+	'navigate',
+	'click_element',
+	'type_text',
+	'select_option',
+	'go_back',
+	'scroll',
+]);
+
 export function partitionToolsBySafety(
 	toolBlocks: ToolUseBlock[],
 	domain?: string,
 	autonomy?: 'supervised' | 'trusted' | 'autonomous',
 	domainAutonomy?: Record<string, 'supervised' | 'trusted' | 'autonomous'>,
-): { safe: ToolUseBlock[]; review: ToolUseBlock[]; blocked: ToolUseBlock[] } {
+): { safe: ToolUseBlock[]; sequential: ToolUseBlock[]; review: ToolUseBlock[]; blocked: ToolUseBlock[] } {
 	const safe: ToolUseBlock[] = [];
+	const sequential: ToolUseBlock[] = [];
 	const review: ToolUseBlock[] = [];
 	const blocked: ToolUseBlock[] = [];
 
@@ -46,26 +58,19 @@ export function partitionToolsBySafety(
 			elementLabel,
 		});
 
-		if (effectiveAutonomy === 'autonomous') {
-			safe.push(block);
-		} else if (autonomy === 'trusted') {
-			if (classification.level === 'blocked') {
-				blocked.push(block);
-			} else {
-				safe.push(block);
-			}
+		if (classification.level === 'blocked') {
+			blocked.push(block);
+		} else if (classification.level === 'review' && effectiveAutonomy !== 'autonomous' && effectiveAutonomy !== 'trusted') {
+			review.push(block);
+		} else if (SEQUENTIAL_TOOLS.has(block.name)) {
+			// State-changing browser tools must run one at a time
+			sequential.push(block);
 		} else {
-			if (classification.level === 'blocked') {
-				blocked.push(block);
-			} else if (classification.level === 'review') {
-				review.push(block);
-			} else {
-				safe.push(block);
-			}
+			safe.push(block);
 		}
 	}
 
-	return { safe, review, blocked };
+	return { safe, sequential, review, blocked };
 }
 
 interface ToolCallResult {

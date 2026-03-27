@@ -744,7 +744,32 @@ async function processToolCalls(
 		}
 	}
 
-	// Phase 2: Execute review tools sequentially (need approval gates)
+	// Phase 2: Execute sequential browser tools one at a time (navigate, click, type, etc.)
+	// These tools modify the active tab — running them in parallel causes only the last to take effect.
+	if (partitioned.sequential.length > 0) {
+		console.log(`[Orchestrator] Executing ${partitioned.sequential.length} browser tools sequentially`);
+		for (const block of partitioned.sequential) {
+			if (signal?.aborted) break;
+			const result = await executeToolBlock(
+				block,
+				context,
+				userId,
+				connectionId,
+				domain,
+				onEvent,
+				provider,
+				domainMemory,
+				userMemory,
+				currentDepth,
+				conversationId,
+				agentConfig.autonomy,
+				agentConfig.hooks,
+			);
+			toolResults.push(result);
+		}
+	}
+
+	// Phase 3: Execute review tools sequentially (need approval gates)
 	for (const block of partitioned.review) {
 		if (signal?.aborted) break;
 		const result = await executeToolBlock(
@@ -764,7 +789,7 @@ async function processToolCalls(
 		toolResults.push(result);
 	}
 
-	// Phase 3: Reject blocked tools immediately
+	// Phase 4: Reject blocked tools immediately
 	for (const block of partitioned.blocked) {
 		toolResults.push({
 			type: 'tool_result',

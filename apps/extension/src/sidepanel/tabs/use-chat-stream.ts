@@ -620,7 +620,11 @@ export function useChatStream(options: UseChatStreamOptions) {
 
   const handleStop = useCallback(() => {
     console.log('[SSE] handleStop called, aborting SSE fetch. assistantMsgId:', assistantMsgIdRef.current);
+    // Clear refs immediately (not async) so the stale event guard works right away
+    // and subscribeToRun can set up a new assistantMsgId without conflict
+    assistantMsgIdRef.current = '';
     abortRef.current?.abort();
+    abortRef.current = null;
     setIsActive(false);
     try {
       chrome.action.setBadgeText({ text: '' });
