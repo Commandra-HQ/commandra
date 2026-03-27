@@ -183,7 +183,7 @@ export function createDurableOnEvent(
 			});
 		}
 
-		// 4. Fan out to all active SSE subscribers (best-effort)
+		// 5. Fan out to all active SSE subscribers (best-effort)
 		const dead: SSEWriter[] = [];
 		for (const sub of run.sseSubscribers) {
 			try {
