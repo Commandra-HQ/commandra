@@ -60,15 +60,48 @@ export function HubLayout() {
   }, [updateDomain]);
 
   // Add a tab when navigating to a conversation that doesn't have one yet
+  // Fetch the conversation title from the API for a better label
   useEffect(() => {
     if (convId && !tabs.find(t => t.id === convId)) {
+      // Add tab immediately with a placeholder label
       setTabs(prev => {
-        // Double-check inside setter to avoid race conditions
         if (prev.find(t => t.id === convId)) return prev;
-        return [...prev, { id: convId, label: currentDomain || 'Chat' }];
+        return [...prev, { id: convId, label: 'Chat' }];
       });
+      // Fetch the real title from the API
+      fetchConvTitle(convId);
     }
-  }, [convId]); // Only trigger on convId change, not on domain updates
+  }, [convId]);
+
+  // Periodically refresh the active tab's title (picks up LLM-generated titles)
+  useEffect(() => {
+    if (!convId) return;
+    const interval = setInterval(() => fetchConvTitle(convId), 10000);
+    return () => clearInterval(interval);
+  }, [convId]);
+
+  function fetchConvTitle(cId: string) {
+    chrome.storage.local.get('authToken', ({ authToken }) => {
+      if (!authToken) return;
+      const apiUrl = process.env.API_URL || 'http://localhost:3001';
+      fetch(`${apiUrl}/api/conversations/${cId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.conversation?.title) {
+            setTabs(prev =>
+              prev.map(t =>
+                t.id === cId && t.label !== data.conversation.title
+                  ? { ...t, label: data.conversation.title.slice(0, 40) }
+                  : t,
+              ),
+            );
+          }
+        })
+        .catch(() => {});
+    });
+  }
 
   const isNewChat = !convId;
 

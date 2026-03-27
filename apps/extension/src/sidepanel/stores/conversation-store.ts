@@ -618,9 +618,15 @@ export async function sendMessageToConv(
 					if (event.type === 'conversation_id' && event.conversationId) {
 						const newConvId = event.conversationId;
 						if (!activeConvId) {
-							// New chat — initialize store for this conversation
+							// New chat — initialize store with the user message + assistant placeholder
 							activeConvId = newConvId;
 							store.getOrCreate(newConvId);
+							// Add the user message that triggered this conversation
+							store.appendMessage(newConvId, {
+								id: crypto.randomUUID(),
+								role: 'user',
+								content: text,
+							});
 							store.startStream(newConvId, controller);
 							store.startAssistantMessage(newConvId);
 							markActive(newConvId, 'Chat', text.slice(0, 60));

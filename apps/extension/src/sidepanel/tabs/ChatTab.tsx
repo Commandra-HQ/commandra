@@ -775,17 +775,7 @@ export function ChatTab() {
 
   // --- Render ---
 
-  if (!domain) {
-    return (
-      <div className="p-4">
-        <p className="text-sm text-muted-foreground">
-          Navigate to a web app to get started.
-        </p>
-      </div>
-    );
-  }
-
-  if (mode === 'onboarding') {
+  if (mode === 'onboarding' && domain) {
     return (
       <OnboardingView
         domain={domain}
