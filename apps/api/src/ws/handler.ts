@@ -131,17 +131,28 @@ export function handleWsConnection(ws: WebSocket) {
 						if (conn?.userId) {
 							const runs = getAllRuns(conn.userId);
 							for (const run of runs) {
-								// Find and replace the approval_inline event in the buffer
+								// Find and replace the approval_inline event in the event buffer
 								const idx = run.eventBuffer.findIndex(
 									(e) => e.type === 'approval_inline' && e.requestId === requestId,
 								);
 								if (idx >= 0) {
-									// Replace with a resolved marker
 									(run.eventBuffer[idx] as Record<string, unknown>) = {
 										type: 'approval_resolved' as string,
 										requestId,
 										approved: !!message.approved,
 									};
+									// Also update streamBlocks (used for DB persistence)
+									const sbIdx = run.streamBlocks.findIndex(
+										(b) => b.type === 'approval_inline' && b.content?.includes(requestId),
+									);
+									if (sbIdx >= 0) {
+										run.streamBlocks[sbIdx] = {
+											type: 'approval_resolved',
+											content: `${!!message.approved ? 'approved' : 'rejected'}:${requestId}`,
+											ts: Date.now(),
+										};
+									}
+									console.log(`[WS] Updated approval ${requestId} to ${message.approved ? 'approved' : 'rejected'} in run ${run.conversationId}`);
 									break;
 								}
 							}
