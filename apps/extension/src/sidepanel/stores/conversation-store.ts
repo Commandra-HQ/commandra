@@ -247,6 +247,43 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
 		const conv = store.conversations.get(convId);
 		if (!conv) return;
 
+		// Handle non-standard events injected by server (not in SSEEvent union)
+		const eventType = (event as { type: string }).type;
+		if (eventType === 'approval_resolved') {
+			const resolved = event as unknown as { requestId: string; approved: boolean };
+			const prefix = resolved.approved ? '__approved__' : '__rejected__';
+			const current = store.conversations.get(convId);
+			if (!current) return;
+			const blocks = [...current.blocks];
+			for (let i = 0; i < blocks.length; i++) {
+				const b = blocks[i];
+				if (b.type === 'text' && b.content.includes(resolved.requestId) && b.content.startsWith('__approval__:')) {
+					blocks[i] = { ...b, content: b.content.replace('__approval__:', `${prefix}:`) };
+					break;
+				}
+			}
+			const next = new Map(store.conversations);
+			next.set(convId, {
+				...current,
+				blocks,
+				messages: current.messages.map((m) =>
+					m.id === current.assistantMsgId ? { ...m, blocks: [...blocks] } : m,
+				),
+			});
+			set({ conversations: next });
+			return;
+		}
+		if (eventType === 'title_updated') {
+			// Title updated — dispatch custom event for HubLayout
+			const title = (event as unknown as { title: string }).title;
+			window.dispatchEvent(
+				new CustomEvent('commandra-title-update', {
+					detail: { conversationId: convId, title },
+				}),
+			);
+			return;
+		}
+
 		// Helper: update blocks in place and schedule a flush
 		const mutateBlocks = (fn: (blocks: MessageBlock[]) => void) => {
 			const current = store.conversations.get(convId);

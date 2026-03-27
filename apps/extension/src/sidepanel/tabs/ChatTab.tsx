@@ -629,6 +629,10 @@ export function ChatTab() {
                 } else if (sb.type === 'approval_inline' && sb.content) {
                   // Reconstruct approval block: "approvalType:requestId:action:label:reason"
                   blocks.push({ type: 'text', content: `__approval__:${sb.content}` });
+                } else if (sb.type === 'approval_resolved' && sb.content) {
+                  // Resolved approval: "approved:requestId" or "rejected:requestId"
+                  const wasApproved = sb.content.startsWith('approved');
+                  blocks.push({ type: 'text', content: `${wasApproved ? '__approved__' : '__rejected__'}:${sb.content}` });
                 } else if (sb.type === 'sub_agent_start' && sb.toolName) {
                   // Reconstruct sub-agent block — collect subsequent sub_agent_action/end events
                   const agentId = sb.toolName;
