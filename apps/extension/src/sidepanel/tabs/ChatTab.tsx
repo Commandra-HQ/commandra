@@ -282,12 +282,38 @@ export function ChatTab() {
       if (action === 'reindex') handleReindexPage();
       if (action === 'deep-index') handleIndexSite();
       if (action === 'copy-chat') {
-        const text = chatMessages
-          .map(
-            m =>
-              `${m.role === 'user' ? 'You' : 'Agent'}: ${m.content || m.blocks?.map(b => ('content' in b ? b.content : '')).join('') || ''}`,
-          )
-          .join('\n\n');
+        const text = chatMessages.map(m => {
+          const prefix = m.role === 'user' ? '## You' : '## Agent';
+          if (!m.blocks?.length) return `${prefix}\n${m.content}`;
+          const parts: string[] = [prefix];
+          for (const b of m.blocks) {
+            switch (b.type) {
+              case 'thinking':
+                parts.push(`<thinking>\n${b.content}\n</thinking>`);
+                break;
+              case 'text':
+                if (!b.content.startsWith('__approval__:')) parts.push(b.content);
+                break;
+              case 'tool_call':
+                parts.push(`**Tool: ${b.toolName}** [${b.status}]${b.label ? ` — ${b.label}` : ''}`);
+                if (b.args) parts.push(`  Args: ${JSON.stringify(b.args, null, 2)}`);
+                if (b.result) parts.push(`  Result: ${typeof b.result === 'string' ? b.result : JSON.stringify(b.result, null, 2)}`);
+                if (b.error) parts.push(`  Error: ${b.error}`);
+                break;
+              case 'blocked':
+                parts.push(`**Blocked: ${b.toolName}** — ${b.reason}`);
+                break;
+              case 'sub_agent':
+                parts.push(`**Sub-agent: ${b.agentId}** [${b.status}] — ${b.task}`);
+                for (const a of b.actions) {
+                  parts.push(`  ${a.status === 'success' ? '✓' : '✗'} ${a.toolName}: ${a.label}`);
+                }
+                if (b.summary) parts.push(`  Summary: ${b.summary}`);
+                break;
+            }
+          }
+          return parts.join('\n');
+        }).join('\n\n---\n\n');
         navigator.clipboard.writeText(text);
       }
       if (action === 'compact') handleManualCompact();

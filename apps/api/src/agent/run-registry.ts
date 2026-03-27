@@ -173,6 +173,16 @@ export function createDurableOnEvent(
 			run.fullResponse += event.text;
 		}
 
+		// 4. Track tool calls for incremental persistence
+		if (event.type === 'tool_end') {
+			run.toolCalls.push({
+				name: event.toolName,
+				args: {},
+				result: event.result ?? (event.success ? 'ok' : event.error || 'failed'),
+				success: event.success,
+			});
+		}
+
 		// 4. Fan out to all active SSE subscribers (best-effort)
 		const dead: SSEWriter[] = [];
 		for (const sub of run.sseSubscribers) {
