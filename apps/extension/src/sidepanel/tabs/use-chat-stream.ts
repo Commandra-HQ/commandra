@@ -238,11 +238,15 @@ export function useChatStream(options: UseChatStreamOptions) {
       case 'plan_state':
         setPlanState(event.plan);
         if (event.plan) {
+          // Only auto-show the plan panel if execution has started (at least one step in progress/completed)
+          // or a step failed. Don't show it when plan is just submitted (all steps pending — awaiting approval).
+          const hasProgress = event.plan.steps.some(
+            (s: { status: string }) => s.status === 'in_progress' || s.status === 'completed',
+          );
           const hasFailed = event.plan.steps.some(
             (s: { status: string }) => s.status === 'failed',
           );
-          const isNew = !planState;
-          if (isNew || hasFailed) {
+          if (hasProgress || hasFailed) {
             setShowPlanPanel(true);
           }
         }
