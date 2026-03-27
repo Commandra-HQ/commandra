@@ -205,6 +205,7 @@ export function ChatTab() {
       setUsageTotal(null);
       setPlanState(null);
       setShowPlanPanel(false);
+      setIsActive(false);
       resetConversation();
       return;
     }
