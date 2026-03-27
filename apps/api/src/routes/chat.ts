@@ -15,7 +15,7 @@ import {
 	subscribeSSE,
 } from '../agent/run-registry.js';
 import { analyzeAndImprove, calculateCost, recordAgentRun } from '../agent/self-improve.js';
-import { isTabLocked, lockTab, unlockByConversation } from '../agent/tab-locks.js';
+import { getLockedTab, lockTab, unlockByConversation } from '../agent/tab-locks.js';
 import { db } from '../db/index.js';
 import { agents, conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
@@ -331,34 +331,41 @@ chatRoutes.post('/', async (c) => {
 	// Load existing plan for this conversation (if any) so the agent knows where it left off
 	const existingPlan = convId ? await loadPlan(user.id, convId).catch(() => null) : null;
 
-	// Tab locking — ensure this conversation has exclusive access to its tab.
-	// If the requested tab is already locked by another conversation, open a new tab.
-	let effectiveTabId = tabId;
-	if (effectiveTabId && convId && connectionId) {
-		if (isTabLocked(effectiveTabId, convId)) {
-			// Tab is owned by another conversation — open a new tab
-			console.log(`[Chat] Tab ${effectiveTabId} locked by another conv, opening new tab`);
-			try {
-				const currentUrl = pi?.url || 'about:blank';
-				const result = (await sendActionRequest(
-					connectionId,
-					'open_tab',
-					{
-						action: 'open_tab',
-						url: currentUrl,
-					},
-					15000,
-				)) as { success?: boolean; data?: { tabId?: number } };
-				if (result?.success && result.data?.tabId) {
-					effectiveTabId = result.data.tabId;
-					console.log(`[Chat] Opened new tab ${effectiveTabId} for conv ${convId}`);
+	// Tab management — each conversation gets its own dedicated browser tab.
+	// Strategy:
+	//   1. If this conversation already has a locked tab (follow-up / reconnect) → reuse it.
+	//   2. If this is the first message of a new conversation → open a fresh background tab.
+	//   3. Fallback: use the extension's reported active tab (e.g., extension not connected).
+	// This eliminates tab contention — two conversations can never fight over the same tab.
+	let effectiveTabId = tabId; // extension's active tab — used for initial page context only
+	if (convId && connectionId) {
+		const existingLock = getLockedTab(convId);
+		if (existingLock) {
+			// This conversation already owns a tab — reuse it (follow-up message or reconnect)
+			effectiveTabId = existingLock;
+			console.log(`[Chat] Conv ${convId} reusing locked tab ${effectiveTabId}`);
+		} else {
+			// New conversation — open a fresh background tab so we never touch the user's active tab
+			const isFirstMessage = history.filter((m) => m.role === 'user').length === 1;
+			if (isFirstMessage) {
+				console.log(`[Chat] New conv ${convId} — opening fresh background tab`);
+				try {
+					const result = (await sendActionRequest(
+						connectionId,
+						'open_tab',
+						{ action: 'open_tab', url: 'about:blank' },
+						15000,
+					)) as { success?: boolean; data?: { tabId?: number } };
+					if (result?.success && result.data?.tabId) {
+						effectiveTabId = result.data.tabId;
+						console.log(`[Chat] Fresh tab ${effectiveTabId} assigned to conv ${convId}`);
+					}
+				} catch (err) {
+					console.warn('[Chat] Failed to open fresh tab, falling back to active tab:', err);
 				}
-			} catch (err) {
-				console.warn('[Chat] Failed to open new tab, using original:', err);
 			}
+			if (effectiveTabId) lockTab(effectiveTabId, convId);
 		}
-		// Lock the tab for this conversation
-		lockTab(effectiveTabId, convId);
 	}
 
 	// HTTP signal — only controls the SSE stream, NOT the orchestrator

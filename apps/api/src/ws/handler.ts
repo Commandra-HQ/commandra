@@ -126,6 +126,7 @@ export function handleWsConnection(ws: WebSocket) {
 
 						// Update the event buffer: replace approval_inline with approval_resolved
 						// so that replays show the resolved state, not the original approval buttons.
+						// Also emit approval_resolved to live SSE subscribers so the UI updates immediately.
 						const { getAllRunsByUser: getAllRuns } = await import('../agent/run-registry.js');
 						const conn = connections.get(connectionId);
 						if (conn?.userId) {
@@ -136,11 +137,12 @@ export function handleWsConnection(ws: WebSocket) {
 									(e) => e.type === 'approval_inline' && e.requestId === requestId,
 								);
 								if (idx >= 0) {
-									(run.eventBuffer[idx] as Record<string, unknown>) = {
+									const resolvedEvent = {
 										type: 'approval_resolved' as string,
 										requestId,
 										approved: !!message.approved,
 									};
+									(run.eventBuffer[idx] as Record<string, unknown>) = resolvedEvent;
 									// Also update streamBlocks (used for DB persistence)
 									const sbIdx = run.streamBlocks.findIndex(
 										(b) => b.type === 'approval_inline' && b.content?.includes(requestId),
@@ -151,6 +153,13 @@ export function handleWsConnection(ws: WebSocket) {
 											content: `${!!message.approved ? 'approved' : 'rejected'}:${requestId}`,
 											ts: Date.now(),
 										};
+									}
+									// Emit to live SSE subscribers so they update without replay
+									for (const sub of run.sseSubscribers) {
+										sub.writeSSE({
+											event: 'approval_resolved',
+											data: JSON.stringify(resolvedEvent),
+										}).catch(() => run.sseSubscribers.delete(sub));
 									}
 									console.log(`[WS] Updated approval ${requestId} to ${message.approved ? 'approved' : 'rejected'} in run ${run.conversationId}`);
 									break;

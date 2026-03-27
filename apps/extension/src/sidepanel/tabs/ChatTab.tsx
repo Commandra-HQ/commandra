@@ -342,24 +342,14 @@ export function ChatTab() {
     if (pendingPlanApproval?.requestId === requestId) {
       setPendingPlanApproval(null);
     }
-    // Persist approval outcome in the block data so it survives tab switches.
-    // Replace __approval__: prefix with __approved__: or __rejected__:
+    // Update both conv.blocks and conv.messages atomically via processSSEEvent.
+    // This prevents subsequent SSE events from overwriting messages with the stale blocks.
     if (externalConvId) {
-      const conv = store.conversations.get(externalConvId);
-      if (conv) {
-        const prefix = approved ? '__approved__' : '__rejected__';
-        const updatedMsgs = conv.messages.map(m => {
-          if (m.role !== 'assistant' || !m.blocks) return m;
-          const updatedBlocks = m.blocks.map(b => {
-            if (b.type === 'text' && b.content.includes(requestId) && b.content.startsWith('__approval__:')) {
-              return { ...b, content: b.content.replace('__approval__:', `${prefix}:`) };
-            }
-            return b;
-          });
-          return { ...m, blocks: updatedBlocks };
-        });
-        store.setMessages(externalConvId, updatedMsgs);
-      }
+      store.processSSEEvent(
+        externalConvId,
+        { type: 'approval_resolved', requestId, approved } as unknown as import('@afe/shared').SSEEvent,
+        navigate,
+      );
     }
   }
 

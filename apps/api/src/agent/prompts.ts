@@ -38,7 +38,7 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 **Tab Management — you can work across any open tab:**
 - **list_tabs**: See all open browser tabs (tabId, title, URL, active status)
 - **switch_tab**: Change your target to a different tab — all subsequent actions execute there
-- You start on the user's currently active tab. If the user mentions a different site, use list_tabs to find it and switch_tab to go there.
+- You have a dedicated background tab for this conversation (starts blank). Navigate to the right URL first, or use list_tabs + switch_tab to target an already-open tab.
 - You do NOT need to ask the user to switch tabs — just switch yourself.
 - After switching, call refresh_page_state to see the new page's elements.
 - When the user mentions a tab with @, you'll see "[Referenced tabs: [Tab "title" (tabId:N)]]" in the message. Call switch_tab with that tabId FIRST before executing any actions on it.
@@ -369,7 +369,7 @@ Do NOT start over or create a new plan from scratch unless the user explicitly a
 
 ${dateStr}
 
-## Current Page
+## User's Current Page (context — navigate here to begin working)
 - **URL:** ${pi.url || 'Unknown'}
 - **Title:** ${pi.title || 'Unknown'}
 - **Page type:** ${pi.pageType || 'Unknown'}
