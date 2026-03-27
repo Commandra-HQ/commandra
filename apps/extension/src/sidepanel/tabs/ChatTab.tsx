@@ -967,7 +967,7 @@ export function ChatTab() {
             )}
           </div>
         )}
-        {chatMessages.map(msg => (
+        {chatMessages.map((msg, idx) => (
           <div key={msg.id}>
             {msg.role === 'user' ? (
               <UserMessage msg={msg} />
@@ -975,6 +975,7 @@ export function ChatTab() {
               <AssistantMessage
                 msg={msg}
                 isActive={isActive}
+                isLastMessage={idx === chatMessages.length - 1}
                 onApprove={handleApproval}
               />
             )}

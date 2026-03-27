@@ -108,15 +108,35 @@ function layoutGraph(
 ): { nodes: Node[]; edges: Edge[] } {
 	const g = new dagre.graphlib.Graph();
 	g.setDefaultEdgeLabel(() => ({}));
-	g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 80, edgesep: 30 });
+	g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 100, edgesep: 30 });
+
+	const nodeIds = new Set(graphNodes.map((n) => n.id));
 
 	for (const node of graphNodes) {
 		g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
 	}
 
+	// Build hierarchy edges from URL path structure (parent-child)
+	// e.g. /settings/profile is a child of /settings
+	const hierarchyEdges: { source: string; target: string; label: string }[] = [];
+
+	for (const node of graphNodes) {
+		const segments = node.id.split('/').filter(Boolean);
+		for (let i = segments.length - 1; i > 0; i--) {
+			const parentPath = `/${segments.slice(0, i).join('/')}`;
+			if (nodeIds.has(parentPath)) {
+				hierarchyEdges.push({ source: parentPath, target: node.id, label: segments[segments.length - 1] });
+				g.setEdge(parentPath, node.id);
+				break;
+			}
+		}
+	}
+
+	// Also add non-shared navigation edges (from the API) that aren't already hierarchy edges
+	const hierarchySet = new Set(hierarchyEdges.map((e) => `${e.source}→${e.target}`));
 	for (const edge of graphEdges) {
-		// Only add edge if both nodes exist
-		if (g.hasNode(edge.source) && g.hasNode(edge.target)) {
+		const key = `${edge.source}→${edge.target}`;
+		if (!hierarchySet.has(key) && g.hasNode(edge.source) && g.hasNode(edge.target)) {
 			g.setEdge(edge.source, edge.target);
 		}
 	}
@@ -136,21 +156,44 @@ function layoutGraph(
 		};
 	});
 
-	const edges: Edge[] = graphEdges.map((ge, i) => ({
-		id: `e-${i}`,
-		source: ge.source,
-		target: ge.target,
-		label: ge.label,
-		labelStyle: { fontSize: 10, fill: '#6b7280', fontFamily: 'monospace' },
-		labelBgStyle: { fill: '#0a0a0a', fillOpacity: 0.8 },
-		labelBgPadding: [4, 2] as [number, number],
-		style: {
-			stroke: '#4b5563',
-			strokeWidth: Math.max(1, Math.min(3, ge.traversals / 10)),
-		},
-		markerEnd: { type: MarkerType.ArrowClosed, color: '#4b5563', width: 12, height: 12 },
-		animated: ge.traversals > 20,
-	}));
+	// Render hierarchy edges (solid) + nav edges (dashed, lighter)
+	const edges: Edge[] = [];
+
+	// Hierarchy edges — solid, prominent
+	for (let i = 0; i < hierarchyEdges.length; i++) {
+		const he = hierarchyEdges[i];
+		edges.push({
+			id: `h-${i}`,
+			source: he.source,
+			target: he.target,
+			style: { stroke: '#6b7280', strokeWidth: 2 },
+			markerEnd: { type: MarkerType.ArrowClosed, color: '#6b7280', width: 12, height: 12 },
+		});
+	}
+
+	// Navigation edges — dashed, subtle, only non-hierarchy ones
+	for (let i = 0; i < graphEdges.length; i++) {
+		const ge = graphEdges[i];
+		const key = `${ge.source}→${ge.target}`;
+		if (hierarchySet.has(key)) continue;
+		if (!g.hasNode(ge.source) || !g.hasNode(ge.target)) continue;
+
+		edges.push({
+			id: `e-${i}`,
+			source: ge.source,
+			target: ge.target,
+			label: ge.label,
+			labelStyle: { fontSize: 9, fill: '#4b5563', fontFamily: 'monospace' },
+			labelBgStyle: { fill: '#0a0a0a', fillOpacity: 0.8 },
+			labelBgPadding: [4, 2] as [number, number],
+			style: {
+				stroke: '#374151',
+				strokeWidth: 1,
+				strokeDasharray: '4 4',
+			},
+			markerEnd: { type: MarkerType.ArrowClosed, color: '#374151', width: 10, height: 10 },
+		});
+	}
 
 	return { nodes, edges };
 }

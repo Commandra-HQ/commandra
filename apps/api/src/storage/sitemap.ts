@@ -138,7 +138,10 @@ export function mergePage(sitemap: Sitemap, pageIndex: PageIndexInput): boolean 
 	}
 
 	// ── Upsert edges from navigation links ──
+	// Track which links appear on this page so we can detect shared/global nav
 	if (pageIndex.navigationLinks?.length) {
+		const pageLinks: { targetPattern: string; label: string }[] = [];
+
 		for (const link of pageIndex.navigationLinks) {
 			if (!link.href || !link.label) continue;
 
@@ -153,13 +156,29 @@ export function mergePage(sitemap: Sitemap, pageIndex: PageIndexInput): boolean 
 			// Skip self-links
 			if (targetPattern === pattern) continue;
 
-			// Find existing edge
+			pageLinks.push({ targetPattern, label: link.label });
+		}
+
+		// Detect shared/global navigation: if a target appears as an edge from 3+ other
+		// pages already, it's likely a sidebar/header link — mark as global, not page-specific
+		for (const { targetPattern, label } of pageLinks) {
+			// Count how many OTHER source pages already link to this target
+			const existingSources = new Set(
+				sitemap.edges
+					.filter((e) => e.to === targetPattern && e.from !== pattern)
+					.map((e) => e.from),
+			);
+
+			// If 3+ pages already link here, this is global nav — skip adding more edges
+			if (existingSources.size >= 3) continue;
+
+			// Find existing edge from this page
 			const edgeIdx = sitemap.edges.findIndex((e) => e.from === pattern && e.to === targetPattern);
 
 			if (edgeIdx >= 0) {
 				// Update label if the new one is longer/better
-				if (link.label.length > sitemap.edges[edgeIdx].label.length) {
-					sitemap.edges[edgeIdx].label = link.label;
+				if (label.length > sitemap.edges[edgeIdx].label.length) {
+					sitemap.edges[edgeIdx].label = label;
 					changed = true;
 				}
 			} else {
@@ -167,7 +186,7 @@ export function mergePage(sitemap: Sitemap, pageIndex: PageIndexInput): boolean 
 				sitemap.edges.push({
 					from: pattern,
 					to: targetPattern,
-					label: link.label.slice(0, 80),
+					label: label.slice(0, 80),
 					type: 'nav_link',
 					traversals: 0,
 				});
@@ -269,7 +288,8 @@ Write a single concise sentence (under 100 chars) describing this page's purpose
 // ── Tree view for agent prompt ─────────────────────────────────────────────
 
 /**
- * Render the sitemap as a tree-formatted string for injection into the agent prompt.
+ * Render the sitemap as a URL-hierarchy tree for the agent prompt.
+ * Groups pages by path structure (e.g. /settings/* are children of /settings).
  * Capped at maxLines to stay within token budget.
  */
 export function renderSitemapTree(sitemap: Sitemap, maxLines = 80): string {
@@ -278,43 +298,55 @@ export function renderSitemapTree(sitemap: Sitemap, maxLines = 80): string {
 	const lines: string[] = [];
 	lines.push(`## Site Navigation Graph (${sitemap.domain})`);
 	lines.push(
-		`${sitemap.stats.totalNodes} pages mapped, ${sitemap.stats.totalEdges} navigation paths, ${sitemap.stats.totalVisits} total visits`,
+		`${sitemap.stats.totalNodes} pages mapped, ${sitemap.stats.totalVisits} total visits`,
 	);
 	lines.push('');
 
-	// Sort nodes: most visited first, then alphabetically
-	const sortedPatterns = Object.entries(sitemap.nodes)
-		.sort((a, b) => b[1].visits - a[1].visits || a[0].localeCompare(b[0]))
-		.map(([pattern]) => pattern);
+	// Build a path-based tree from URL patterns
+	const patterns = Object.keys(sitemap.nodes).sort();
 
-	// Build adjacency list for outgoing edges
-	const outgoing = new Map<string, SitemapEdge[]>();
-	for (const edge of sitemap.edges) {
-		if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
-		outgoing.get(edge.from)!.push(edge);
-	}
+	// Find parent for each pattern based on URL path hierarchy
+	const children = new Map<string, string[]>(); // parent → children
+	const roots: string[] = [];
 
-	for (const pattern of sortedPatterns) {
-		if (lines.length >= maxLines) break;
-
-		const node = sitemap.nodes[pattern];
-		const desc = node.description ? ` — ${node.description}` : '';
-		lines.push(`${pattern}${desc} (${node.type}, ${node.elements} elements)`);
-
-		// Show outgoing edges
-		const edges = outgoing.get(pattern) || [];
-		const sortedEdges = edges.sort((a, b) => b.traversals - a.traversals);
-		for (const edge of sortedEdges) {
-			if (lines.length >= maxLines) break;
-			const traversalInfo = edge.traversals > 0 ? ` (${edge.traversals} traversals)` : '';
-			lines.push(`  → ${edge.to} — "${edge.label}" ${edge.type}${traversalInfo}`);
+	for (const pattern of patterns) {
+		let parentFound = false;
+		// Walk up the path to find a parent node that exists
+		const segments = pattern.split('/').filter(Boolean);
+		for (let i = segments.length - 1; i > 0; i--) {
+			const parentPath = `/${segments.slice(0, i).join('/')}`;
+			if (sitemap.nodes[parentPath]) {
+				if (!children.has(parentPath)) children.set(parentPath, []);
+				children.get(parentPath)!.push(pattern);
+				parentFound = true;
+				break;
+			}
+		}
+		if (!parentFound) {
+			roots.push(pattern);
 		}
 	}
 
-	if (sortedPatterns.length > lines.length - 3) {
-		lines.push(
-			`\n... and ${sortedPatterns.length - (lines.length - 3)} more pages. Use read_knowledge to see the full SITEMAP.yaml.`,
-		);
+	// Render tree recursively
+	function renderNode(pattern: string, indent: number) {
+		if (lines.length >= maxLines) return;
+		const node = sitemap.nodes[pattern];
+		const prefix = indent > 0 ? `${'  '.repeat(indent)}└ ` : '';
+		const desc = node.description ? ` — ${node.description}` : '';
+		lines.push(`${prefix}${pattern}${desc} (${node.type}, ${node.elements} el, ${node.visits} visits)`);
+
+		const kids = children.get(pattern) || [];
+		for (const child of kids) {
+			renderNode(child, indent + 1);
+		}
+	}
+
+	for (const root of roots) {
+		renderNode(root, 0);
+	}
+
+	if (lines.length >= maxLines) {
+		lines.push(`\n... truncated. Use read_knowledge(category: 'domain', key: '${sitemap.domain}', filename: 'SITEMAP.yaml') for full graph.`);
 	}
 
 	return lines.join('\n');
@@ -386,8 +418,8 @@ export async function buildSitemapFromDB(
 		return { nodes: 0, edges: 0, newNodes: [] };
 	}
 
-	// Load existing sitemap or create empty
-	const sitemap = await loadSitemap(userId, domain);
+	// Start fresh — rebuild from scratch to avoid stale edges
+	const sitemap = createEmptySitemap(domain);
 	const newNodes: string[] = [];
 
 	// Merge each page

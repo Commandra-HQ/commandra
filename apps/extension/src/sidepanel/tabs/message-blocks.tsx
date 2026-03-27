@@ -129,10 +129,12 @@ export function UserMessage({ msg }: { msg: ChatMessage }) {
 export function AssistantMessage({
 	msg,
 	isActive,
+	isLastMessage,
 	onApprove,
 }: {
 	msg: ChatMessage;
 	isActive: boolean;
+	isLastMessage?: boolean;
 	onApprove: (requestId: string, approved: boolean) => void;
 }) {
 	const rawBlocks = msg.blocks;
@@ -168,6 +170,9 @@ export function AssistantMessage({
 							);
 						case 'text': {
 							if (block.content.startsWith('__approval__:')) {
+								// Approvals are only actionable on the last message of an active conversation.
+								// If this is an older message or the conversation finished, show as expired.
+								const approvalExpired = !isLastMessage || !isActive;
 								const parts = block.content.split(':');
 								const approvalType = parts[1];
 								const requestId = parts[2];
@@ -181,6 +186,7 @@ export function AssistantMessage({
 											type="plan"
 											description={desc}
 											steps={steps}
+											expired={approvalExpired}
 											onApprove={onApprove}
 										/>
 									);
@@ -196,6 +202,7 @@ export function AssistantMessage({
 										action={action}
 										label={label}
 										reason={reason}
+										expired={approvalExpired}
 										onApprove={onApprove}
 									/>
 								);
@@ -274,6 +281,7 @@ export function InlineApprovalBlock({
 	description,
 	steps,
 	agentPreview,
+	expired,
 	onApprove,
 }: {
 	requestId: string;
@@ -284,6 +292,7 @@ export function InlineApprovalBlock({
 	description?: string;
 	steps?: string[];
 	agentPreview?: { slug: string; name: string; description: string; soul: string; domains?: string[]; cron?: string };
+	expired?: boolean;
 	onApprove: (requestId: string, approved: boolean) => void;
 }) {
 	const [responded, setResponded] = useState<'approved' | 'rejected' | null>(null);
@@ -293,14 +302,13 @@ export function InlineApprovalBlock({
 		setResponded(approved ? 'approved' : 'rejected');
 	};
 
-	if (responded) {
+	if (responded || expired) {
+		const statusLabel = responded === 'approved' ? 'Approved' : responded === 'rejected' ? 'Rejected' : 'Skipped';
+		const colorClass = responded === 'approved' ? 'border-green-500/30 bg-green-500/5' : responded === 'rejected' ? 'border-red-500/30 bg-red-500/5' : 'border-muted bg-muted/5';
+		const textClass = responded === 'approved' ? 'text-green-500' : responded === 'rejected' ? 'text-red-500' : 'text-muted-foreground';
 		return (
-			<div className={`px-3 py-2 text-xs border ${responded === 'approved' ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
-				{responded === 'approved' ? (
-					<span className="text-green-500 font-medium">Approved</span>
-				) : (
-					<span className="text-red-500 font-medium">Rejected</span>
-				)}
+			<div className={`px-3 py-2 text-xs border ${colorClass}`}>
+				<span className={`${textClass} font-medium`}>{statusLabel}</span>
 				{type === 'tool' && <span className="text-muted-foreground"> — {TOOL_LABELS[action || ''] || action}{label ? ` "${label}"` : ''}</span>}
 				{type === 'plan' && <span className="text-muted-foreground"> — {description}</span>}
 				{type === 'agent' && <span className="text-muted-foreground"> — Agent "{label}"</span>}
