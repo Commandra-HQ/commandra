@@ -534,8 +534,18 @@ export function ChatTab() {
     const els = selectedElements.length > 0 ? selectedElements : undefined;
     setSelectedElements([]);
 
-    // Always use the current active tab — agent uses switch_tab tool if it needs a different one
-    await sendMessage(text, { pageIndex, selectedElements: els, tabId });
+    // Lock the browser tab to this conversation on first send.
+    // Subsequent sends use the locked tab — prevents two chats fighting for the same tab.
+    let targetTabId = tabId;
+    if (externalConvId) {
+      const conv = store.conversations.get(externalConvId);
+      if (conv?.tabId) {
+        targetTabId = conv.tabId; // Use the locked tab
+      } else if (tabId) {
+        store.updateConv(externalConvId, { tabId }); // Lock current tab to this conversation
+      }
+    }
+    await sendMessage(text, { pageIndex, selectedElements: els, tabId: targetTabId });
   }
 
   async function loadConversation(convId: string) {

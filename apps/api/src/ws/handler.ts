@@ -123,6 +123,30 @@ export function handleWsConnection(ws: WebSocket) {
 					if (pending) {
 						clearTimeout(pending.timer);
 						pendingRequests.delete(requestId);
+
+						// Update the event buffer: replace approval_inline with approval_resolved
+						// so that replays show the resolved state, not the original approval buttons.
+						const { getAllRunsByUser: getAllRuns } = await import('../agent/run-registry.js');
+						const conn = connections.get(connectionId);
+						if (conn?.userId) {
+							const runs = getAllRuns(conn.userId);
+							for (const run of runs) {
+								// Find and replace the approval_inline event in the buffer
+								const idx = run.eventBuffer.findIndex(
+									(e) => e.type === 'approval_inline' && e.requestId === requestId,
+								);
+								if (idx >= 0) {
+									// Replace with a resolved marker
+									(run.eventBuffer[idx] as Record<string, unknown>) = {
+										type: 'approval_resolved' as string,
+										requestId,
+										approved: !!message.approved,
+									};
+									break;
+								}
+							}
+						}
+
 						pending.resolve({ approved: !!message.approved, reason: message.reason });
 					}
 					break;

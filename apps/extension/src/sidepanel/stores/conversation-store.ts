@@ -53,6 +53,8 @@ export interface ConversationSlice {
 	pendingApprovals: ApprovalRequest[];
 	// SSE connection
 	sseController: AbortController | null;
+	// Browser tab this conversation targets (locked on first message)
+	tabId: number | null;
 }
 
 function createEmptySlice(): ConversationSlice {
@@ -64,6 +66,7 @@ function createEmptySlice(): ConversationSlice {
 		assistantMsgId: '',
 		isActive: false,
 		contextStatus: null,
+		tabId: null,
 		usageTotal: null,
 		planState: null,
 		showPlanPanel: false,
@@ -447,6 +450,23 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
 				}
 				mutateBlocks((blocks) => {
 					blocks.push({ type: 'text', content: approvalContent });
+				});
+				break;
+			}
+
+			case 'approval_resolved': {
+				// Server confirms approval was resolved — update the block to show resolved state
+				const resolvedRequestId = (event as unknown as { requestId: string }).requestId;
+				const wasApproved = (event as unknown as { approved: boolean }).approved;
+				const prefix = wasApproved ? '__approved__' : '__rejected__';
+				mutateBlocks((blocks) => {
+					for (let i = 0; i < blocks.length; i++) {
+						const b = blocks[i];
+						if (b.type === 'text' && b.content.includes(resolvedRequestId) && b.content.startsWith('__approval__:')) {
+							blocks[i] = { ...b, content: b.content.replace('__approval__:', `${prefix}:`) };
+							break;
+						}
+					}
 				});
 				break;
 			}
