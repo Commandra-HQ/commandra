@@ -247,7 +247,7 @@ Do NOT ask the user to "index the page" — just navigate there yourself and ref
 	// Use sitemap tree if available, fall back to flat page list
 	let siteSummary = '';
 	if (sitemapTree) {
-		siteSummary = `\n\n${sitemapTree}\n\nUse this graph to navigate efficiently — follow known paths instead of guessing. Use read_knowledge to access the full SITEMAP.yaml for details.`;
+		siteSummary = `\n\n${sitemapTree}\n\n**IMPORTANT: Always check this graph BEFORE navigating.** If a page exists here, use its exact URL pattern with the navigate tool — don't guess from link labels. The graph shows every page you've seen, its purpose, and how pages relate. For the full graph with all details, use read_knowledge(category: 'domain', key: '${pi.url ? new URL(pi.url).hostname : 'domain'}', filename: 'SITEMAP.yaml').`;
 	} else if (pi.sitePages?.length) {
 		const pageDetails = pi.sitePages.map((p) => {
 			let detail = `### ${p.title || p.urlPattern} (${p.pageType})\n  URL: ${p.url}\n  ${p.elementCount} elements`;
