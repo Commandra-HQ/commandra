@@ -116,7 +116,10 @@ export function useChatStream(options: UseChatStreamOptions) {
 
   function processSSEEvent(event: SSEEvent) {
     // Guard: if assistantMsgIdRef is empty, we've been reset (new chat) — ignore stale events
-    if (!assistantMsgIdRef.current && event.type !== 'conversation_id') return;
+    if (!assistantMsgIdRef.current && event.type !== 'conversation_id') {
+      console.log('[SSE] Ignoring stale event (no assistantMsgId):', event.type);
+      return;
+    }
 
     switch (event.type) {
       case 'conversation_id':
@@ -379,6 +382,7 @@ export function useChatStream(options: UseChatStreamOptions) {
 
   const sendMessage = useCallback(
     async (text: string, extraBody?: Record<string, unknown>) => {
+      console.log('[SSE] sendMessage called, externalConvId:', externalConvId, 'conversationIdRef:', conversationIdRef.current);
       const stored = await chrome.storage.local.get(['authToken']);
       const token = stored.authToken;
 
@@ -449,13 +453,16 @@ export function useChatStream(options: UseChatStreamOptions) {
         }
       } catch (err) {
         if (!controller.signal.aborted) {
-          // Only show error for non-abort errors (abort = user clicked Stop)
+          console.warn('[SSE] sendMessage error:', err);
           blocksRef.current.push({
             type: 'text',
             content: 'Failed to get a response. Make sure the API is running.',
           });
+        } else {
+          console.log('[SSE] sendMessage aborted (user stopped or navigated away)');
         }
       } finally {
+        console.log('[SSE] sendMessage finally — cleaning up, assistantMsgId:', assistantMsgIdRef.current);
         if (rafRef.current) {
           cancelAnimationFrame(rafRef.current);
         }
@@ -590,6 +597,7 @@ export function useChatStream(options: UseChatStreamOptions) {
   );
 
   const handleStop = useCallback(() => {
+    console.log('[SSE] handleStop called, aborting SSE fetch. assistantMsgId:', assistantMsgIdRef.current);
     abortRef.current?.abort();
     setIsActive(false);
     try {
@@ -598,6 +606,7 @@ export function useChatStream(options: UseChatStreamOptions) {
   }, [setIsActive]);
 
   const resetConversation = useCallback(() => {
+    console.log('[SSE] resetConversation — clearing all refs');
     conversationIdRef.current = '';
     assistantMsgIdRef.current = '';
     blocksRef.current = [];

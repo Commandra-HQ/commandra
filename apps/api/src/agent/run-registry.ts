@@ -72,6 +72,7 @@ export function createRun(
 	};
 
 	activeRuns.set(conversationId, run);
+	console.log(`[RunRegistry] createRun: ${conversationId} for user ${userId}`);
 
 	// Update conversation status in DB
 	updateConversationStatus(conversationId, 'running');
@@ -99,6 +100,7 @@ export function killRun(conversationId: string): void {
 	const run = activeRuns.get(conversationId);
 	if (!run) return;
 
+	console.log(`[RunRegistry] killRun: ${conversationId}`);
 	run.abortController.abort();
 	run.status = 'failed';
 
@@ -118,6 +120,7 @@ export async function completeRun(
 	const run = activeRuns.get(conversationId);
 	if (!run) return;
 
+	console.log(`[RunRegistry] completeRun: ${conversationId} status=${status} eventBuffer=${run.eventBuffer.length} subscribers=${run.sseSubscribers.size}`);
 	run.status = status;
 
 	// Stop periodic flush
@@ -337,6 +340,7 @@ async function flushPartialMessage(run: ActiveRun): Promise<void> {
 	// Only flush if there's content
 	const content = run.fullResponse.trim();
 	if (!content && run.streamBlocks.length === 0) return;
+	console.log(`[RunRegistry] flush: ${run.conversationId} blocks=${run.streamBlocks.length} contentLen=${content.length} partialMsgId=${run.partialMessageId || 'new'}`);
 
 	const toolData: Record<string, unknown> = { partial: true };
 	if (run.streamBlocks.length > 0) toolData.streamBlocks = [...run.streamBlocks];

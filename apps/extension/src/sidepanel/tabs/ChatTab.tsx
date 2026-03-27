@@ -196,10 +196,9 @@ export function ChatTab() {
   // conversationIdRef.current will match externalConvId — skip the DB reload since
   // live blocks in memory are more complete than what's persisted.
   useEffect(() => {
+    console.log('[ChatTab] externalConvId effect:', { externalConvId, conversationIdRef: conversationIdRef.current, isActive: isActiveRef.current });
     if (!externalConvId) {
-      // Navigated to new chat — always clear state.
-      // If a run was streaming, handleNewConversation already detached the SSE viewer.
-      // The server-side orchestrator continues independently (durable orchestrator).
+      console.log('[ChatTab] → clearing state for new chat');
       setChatMessages([]);
       setPendingApprovals([]);
       setContextStatus(null);
@@ -212,11 +211,13 @@ export function ChatTab() {
 
     // If the stream navigated us here, messages are already in state — skip reload
     if (conversationIdRef.current === externalConvId) {
+      console.log('[ChatTab] → stream navigated here, skipping reload');
       setMode('chat');
       return;
     }
 
     // Different conversation (tab switch or history open) — load from DB
+    console.log('[ChatTab] → loading conversation from DB:', externalConvId);
     setMode('chat');
     setChatMessages([]);
     setPendingApprovals([]);
@@ -464,7 +465,7 @@ export function ChatTab() {
   }
 
   function handleNewConversation() {
-    // Detach from current SSE stream (doesn't kill the server-side run — it continues via durable orchestrator)
+    console.log('[ChatTab] handleNewConversation called, isActive:', isActiveRef.current);
     handleStop();
     setChatMessages([]);
     setPendingApprovals([]);
@@ -559,16 +560,18 @@ export function ChatTab() {
   }
 
   async function loadConversation(convId: string) {
+    console.log('[ChatTab] loadConversation called:', convId);
     try {
       const token = await new Promise<string>(resolve =>
         chrome.storage.local.get('authToken', r => resolve(r.authToken || '')),
       );
-      if (!token) return;
+      if (!token) { console.log('[ChatTab] loadConversation: no token'); return; }
       const res = await fetch(`${API_URL}/api/conversations/${convId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
+        console.log('[ChatTab] loadConversation: got data, status:', data.conversation?.status, 'messages:', data.messages?.length);
         navigate(`/chat/${convId}`, { replace: true });
 
         // Always load from DB — this is the reliable path

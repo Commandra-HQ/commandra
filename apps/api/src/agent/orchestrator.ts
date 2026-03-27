@@ -296,13 +296,15 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		if (hasToolUseBlocks && !getConnectionByUser(userId)) {
 			const run = conversationId ? getRun(conversationId) : undefined;
 			if (run) {
+				console.log(`[Orchestrator] Extension disconnected, pausing run ${conversationId}`);
 				await onEvent({
 					type: 'paused',
 					reason: 'Browser disconnected — waiting for reconnection...',
 				});
 				await pauseForBrowser(run.conversationId);
 				// After resume, check if we were killed during the pause
-				if (signal?.aborted) break;
+				if (signal?.aborted) { console.log(`[Orchestrator] Run killed during pause`); break; }
+				console.log(`[Orchestrator] Resumed run ${conversationId}`);
 				await onEvent({ type: 'resumed' });
 				await updateConversationStatus(run.conversationId, 'running');
 			}
@@ -310,6 +312,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
 		// Get fresh connectionId (may have changed after pause/resume)
 		const activeConnectionId = getConnectionByUser(userId) || connectionId;
+		console.log(`[Orchestrator] Using connectionId: ${activeConnectionId} (original: ${connectionId})`);
 
 		// Process tool calls — parallel for safe tools, sequential for review/blocked
 		const { toolResults, hasToolUse } = await processToolCalls(

@@ -468,6 +468,7 @@ chatRoutes.get('/subscribe/:conversationId', requireAuth, async (c) => {
 	if (!conv) return c.json({ error: 'Not found' }, 404);
 
 	const run = getRun(convId);
+	console.log(`[Chat] subscribe/${convId}: run=${run ? `exists (status=${run.status}, events=${run.eventBuffer.length})` : 'NOT FOUND'}, dbStatus=${conv.status}`);
 	if (!run) {
 		return c.json({ status: conv.status || 'idle' });
 	}
