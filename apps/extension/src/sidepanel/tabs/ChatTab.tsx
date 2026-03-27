@@ -571,43 +571,14 @@ export function ChatTab() {
         const data = await res.json();
         navigate(`/chat/${convId}`, { replace: true });
 
-        // If the conversation is still running on the server, skip DB load and subscribe
-        // to the live stream instead — the event buffer has the complete state
-        const convStatus = data.conversation?.status;
-        if ((convStatus === 'running' || convStatus === 'paused') && !isActiveRef.current) {
-          // Load only the user messages from DB (before the current run)
-          const userMessages: ChatMessage[] = (data.messages || [])
-            .filter((m: { role: string; toolData?: { partial?: boolean } }) =>
-              m.role === 'user' || (!m.toolData?.partial && m.role === 'assistant'),
-            )
-            .map((m: { id: string; role: string; content: string }) => ({
-              id: m.id,
-              role: m.role as 'user' | 'assistant',
-              content: m.content,
-              blocks: [{ type: 'text' as const, content: m.content }],
-            }));
-          // Remove the last assistant message if it's from the current run (partial or incomplete)
-          // — the subscribe will replay it from the event buffer
-          const lastMsg = userMessages[userMessages.length - 1];
-          if (lastMsg?.role === 'assistant') {
-            userMessages.pop();
-          }
-          setChatMessages(userMessages);
-          subscribeToRun(convId);
-          return;
-        }
-
-        // Completed conversation — load full history from DB
-        // Filter out partial messages (from incremental persistence)
-        const filteredMessages = (data.messages || []).filter(
-          (m: { toolData?: { partial?: boolean } }) => !m.toolData?.partial,
-        );
-        const loaded: ChatMessage[] = filteredMessages.map(
+        // Always load from DB — this is the reliable path
+        const loaded: ChatMessage[] = (data.messages || []).map(
           (m: {
             id: string;
             role: string;
             content: string;
             toolData?: {
+              partial?: boolean;
               tools: {
                 name: string;
                 args: unknown;
@@ -654,6 +625,9 @@ export function ChatTab() {
                     toolName: sb.toolName,
                     reason: sb.content || '',
                   });
+                } else if (sb.type === 'approval_inline' && sb.content) {
+                  // Reconstruct approval block: "approvalType:requestId:action:label:reason"
+                  blocks.push({ type: 'text', content: `__approval__:${sb.content}` });
                 } else if (sb.type === 'sub_agent_start' && sb.toolName) {
                   // Reconstruct sub-agent block — collect subsequent sub_agent_action/end events
                   const agentId = sb.toolName;
@@ -715,9 +689,11 @@ export function ChatTab() {
               }
             }
             // Only add content as a text block if we didn't already extract
-            // text blocks from streamBlocks (which include the same content)
+            // text blocks from streamBlocks (which include the same content).
+            // Skip partial message placeholder text like "(processing...)"
             const hasTextBlock = blocks.some(b => b.type === 'text');
-            if (m.content?.trim() && !hasTextBlock) {
+            const isPartialPlaceholder = m.toolData?.partial && m.content === '(processing...)';
+            if (m.content?.trim() && !hasTextBlock && !isPartialPlaceholder) {
               blocks.push({ type: 'text' as const, content: m.content });
             }
             return {
@@ -734,7 +710,7 @@ export function ChatTab() {
         setChatMessages(loaded);
 
         // Estimate context usage from loaded messages so the indicator shows immediately
-        const totalChars = filteredMessages.reduce(
+        const totalChars = (data.messages || []).reduce(
           (sum: number, m: { content?: string }) =>
             sum + (m.content?.length || 0),
           0,

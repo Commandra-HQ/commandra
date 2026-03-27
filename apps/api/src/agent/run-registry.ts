@@ -259,6 +259,20 @@ function updateStreamBlocks(run: ActiveRun, event: SSEEvent): void {
 				ts: Date.now(),
 			});
 			break;
+		case 'approval_inline':
+			blocks.push({
+				type: 'approval_inline',
+				content: `${event.approvalType}:${event.requestId}:${event.action}:${event.label || ''}:${event.reason}`,
+				ts: Date.now(),
+			});
+			break;
+		case 'plan_submitted':
+			blocks.push({
+				type: 'plan_submitted',
+				content: event.description,
+				ts: Date.now(),
+			});
+			break;
 		case 'paused':
 			blocks.push({ type: 'paused', content: event.reason, ts: Date.now() });
 			break;
@@ -316,7 +330,7 @@ function startPeriodicFlush(run: ActiveRun): void {
 			return;
 		}
 		await flushPartialMessage(run);
-	}, 10_000);
+	}, 5_000);
 }
 
 async function flushPartialMessage(run: ActiveRun): Promise<void> {
