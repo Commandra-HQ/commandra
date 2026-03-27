@@ -35,7 +35,12 @@ export function partitionToolsBySafety(
 	domain?: string,
 	autonomy?: 'supervised' | 'trusted' | 'autonomous',
 	domainAutonomy?: Record<string, 'supervised' | 'trusted' | 'autonomous'>,
-): { safe: ToolUseBlock[]; sequential: ToolUseBlock[]; review: ToolUseBlock[]; blocked: ToolUseBlock[] } {
+): {
+	safe: ToolUseBlock[];
+	sequential: ToolUseBlock[];
+	review: ToolUseBlock[];
+	blocked: ToolUseBlock[];
+} {
 	const safe: ToolUseBlock[] = [];
 	const sequential: ToolUseBlock[] = [];
 	const review: ToolUseBlock[] = [];
@@ -60,7 +65,11 @@ export function partitionToolsBySafety(
 
 		if (classification.level === 'blocked') {
 			blocked.push(block);
-		} else if (classification.level === 'review' && effectiveAutonomy !== 'autonomous' && effectiveAutonomy !== 'trusted') {
+		} else if (
+			classification.level === 'review' &&
+			effectiveAutonomy !== 'autonomous' &&
+			effectiveAutonomy !== 'trusted'
+		) {
 			review.push(block);
 		} else if (SEQUENTIAL_TOOLS.has(block.name)) {
 			// State-changing browser tools must run one at a time

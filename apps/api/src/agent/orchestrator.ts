@@ -303,7 +303,10 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 				});
 				await pauseForBrowser(run.conversationId);
 				// After resume, check if we were killed during the pause
-				if (signal?.aborted) { console.log(`[Orchestrator] Run killed during pause`); break; }
+				if (signal?.aborted) {
+					console.log(`[Orchestrator] Run killed during pause`);
+					break;
+				}
 				console.log(`[Orchestrator] Resumed run ${conversationId}`);
 				await onEvent({ type: 'resumed' });
 				await updateConversationStatus(run.conversationId, 'running');
@@ -312,7 +315,9 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
 		// Get fresh connectionId (may have changed after pause/resume)
 		const activeConnectionId = getConnectionByUser(userId) || connectionId;
-		console.log(`[Orchestrator] Using connectionId: ${activeConnectionId} (original: ${connectionId})`);
+		console.log(
+			`[Orchestrator] Using connectionId: ${activeConnectionId} (original: ${connectionId})`,
+		);
 
 		// Process tool calls — parallel for safe tools, sequential for review/blocked
 		const { toolResults, hasToolUse } = await processToolCalls(
@@ -747,7 +752,9 @@ async function processToolCalls(
 	// Phase 2: Execute sequential browser tools one at a time (navigate, click, type, etc.)
 	// These tools modify the active tab — running them in parallel causes only the last to take effect.
 	if (partitioned.sequential.length > 0) {
-		console.log(`[Orchestrator] Executing ${partitioned.sequential.length} browser tools sequentially`);
+		console.log(
+			`[Orchestrator] Executing ${partitioned.sequential.length} browser tools sequentially`,
+		);
 		for (const block of partitioned.sequential) {
 			if (signal?.aborted) break;
 			const result = await executeToolBlock(
