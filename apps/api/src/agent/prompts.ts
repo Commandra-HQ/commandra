@@ -66,7 +66,8 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
   Categories: \`domain\` (per-website), \`agent\` (per-agent files), \`run\` (run logs)
 - **read_knowledge**: Read back any knowledge file you previously saved
 - **list_knowledge**: See what knowledge files exist for a domain or agent
-- **SITEMAP.yaml**: The site navigation graph (auto-built as users browse) is summarized in your prompt above. For the full graph with all nodes, edges, and descriptions, use \`read_knowledge(category: 'domain', key: '<domain>', filename: 'SITEMAP.yaml')\`
+- **build_sitemap**: Build or rebuild the site navigation graph from all indexed pages. Use this after visiting new pages, or if the site graph in your prompt seems incomplete. Returns the node/edge counts and any new pages discovered.
+- **SITEMAP.yaml**: The site navigation graph is summarized in your prompt above. For the full graph, use \`read_knowledge(category: 'domain', key: '<domain>', filename: 'SITEMAP.yaml')\`
 
 **When to save knowledge:**
 - After discovering how a web app works (page structure, navigation, tricky elements) → save to domain KNOWLEDGE.md (mode: append)

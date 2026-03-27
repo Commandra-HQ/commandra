@@ -5,7 +5,7 @@ import { db } from '../db/index.js';
 import { pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
-import { loadSitemap, updateSitemap } from '../storage/sitemap.js';
+import { buildSitemapFromDB, loadSitemap, updateSitemap } from '../storage/sitemap.js';
 import { parsePagination } from '../utils/pagination.js';
 
 export const siteRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -135,6 +135,15 @@ siteRoutes.post('/:domain/pages', async (c) => {
 	}).catch((err) => console.error('[sitemap] Failed to update:', err));
 
 	return c.json({ ok: true });
+});
+
+// Build/rebuild sitemap from existing DB pages
+siteRoutes.post('/:domain/graph/build', async (c) => {
+	const user = c.get('user');
+	const domain = c.req.param('domain');
+
+	const result = await buildSitemapFromDB(user.id, domain);
+	return c.json(result);
 });
 
 // Get site navigation graph

@@ -4,6 +4,7 @@
  */
 
 import {
+  Archive,
   Copy,
   EllipsisVertical,
   ExternalLink,
@@ -255,7 +256,7 @@ export function HubLayout() {
               onClick={() => dispatchAction('compact')}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-elevated"
             >
-              <Minimize2 size={11} strokeWidth={1.5} /> Compact chat
+              <Archive size={11} strokeWidth={1.5} /> Compact chat
             </button>
             <div className="my-1 h-px bg-border" />
             <button

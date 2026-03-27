@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
 	Background,
 	Controls,
@@ -224,6 +226,20 @@ export default function SiteGraphPage() {
 	const domain = decodeURIComponent(params.domain as string);
 	const { data, isLoading, error } = useSiteGraph(domain);
 	const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+	const queryClient = useQueryClient();
+
+	const buildMutation = useMutation({
+		mutationFn: async () => {
+			const res = await apiFetch(`/api/sites/${encodeURIComponent(domain)}/graph/build`, {
+				method: 'POST',
+			});
+			if (!res.ok) throw new Error('Build failed');
+			return res.json();
+		},
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ['site-graph', domain] });
+		},
+	});
 
 	const { layoutNodes, layoutEdges } = useMemo(() => {
 		if (!data?.nodes.length) return { layoutNodes: [], layoutEdges: [] };
@@ -255,9 +271,16 @@ export default function SiteGraphPage() {
 		return (
 			<div className="border border-border py-16 text-center">
 				<Map size={24} strokeWidth={1.5} className="mx-auto text-muted-foreground mb-3" />
-				<p className="text-sm text-muted-foreground">
-					No navigation graph yet. Browse {domain} with the extension to start mapping.
+				<p className="text-sm text-muted-foreground mb-3">
+					No navigation graph yet. Browse {domain} with the extension, then build the graph.
 				</p>
+				<button
+					onClick={() => buildMutation.mutate()}
+					disabled={buildMutation.isPending}
+					className="text-xs font-mono px-3 py-1.5 border border-border hover:border-foreground/30 transition-colors"
+				>
+					{buildMutation.isPending ? 'Building...' : 'Build Graph from Indexed Pages'}
+				</button>
 			</div>
 		);
 	}
@@ -266,9 +289,16 @@ export default function SiteGraphPage() {
 		return (
 			<div className="border border-border py-16 text-center">
 				<Map size={24} strokeWidth={1.5} className="mx-auto text-muted-foreground mb-3" />
-				<p className="text-sm text-muted-foreground">
+				<p className="text-sm text-muted-foreground mb-3">
 					No pages discovered yet. Visit pages on {domain} to build the graph.
 				</p>
+				<button
+					onClick={() => buildMutation.mutate()}
+					disabled={buildMutation.isPending}
+					className="text-xs font-mono px-3 py-1.5 border border-border hover:border-foreground/30 transition-colors"
+				>
+					{buildMutation.isPending ? 'Building...' : 'Build Graph from Indexed Pages'}
+				</button>
 			</div>
 		);
 	}
@@ -294,6 +324,15 @@ export default function SiteGraphPage() {
 							)}
 						</p>
 					</div>
+				</div>
+				<div className="flex items-center gap-3">
+					<button
+						onClick={() => buildMutation.mutate()}
+						disabled={buildMutation.isPending}
+						className="text-[11px] font-mono px-2.5 py-1 border border-border hover:border-foreground/30 transition-colors text-muted-foreground hover:text-foreground"
+					>
+						{buildMutation.isPending ? 'Rebuilding...' : 'Rebuild'}
+					</button>
 				</div>
 				{/* Legend */}
 				<div className="flex items-center gap-3">

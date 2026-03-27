@@ -2,15 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { jwtVerify } from 'jose';
 import type { WebSocket } from 'ws';
+import { getRunByUser, killRun, resumeRun, updateConnectionId } from '../agent/run-registry.js';
+import { onUserReconnected } from '../agent/scheduler.js';
 import { db } from '../db/index.js';
 import { sites } from '../db/schema.js';
-import { onUserReconnected } from '../agent/scheduler.js';
-import {
-	getRunByUser,
-	killRun,
-	resumeRun,
-	updateConnectionId,
-} from '../agent/run-registry.js';
 import { updateSiteTotals, upsertPage } from '../routes/sites.js';
 import { updateSitemap } from '../storage/sitemap.js';
 
@@ -59,7 +54,9 @@ export function handleWsConnection(ws: WebSocket) {
 						// Resume any paused orchestrator runs for this user
 						const pausedRun = getRunByUser(conn.userId);
 						if (pausedRun && pausedRun.status === 'paused') {
-							console.log(`[WS] Resuming paused run ${pausedRun.conversationId} for user ${conn.userId}`);
+							console.log(
+								`[WS] Resuming paused run ${pausedRun.conversationId} for user ${conn.userId}`,
+							);
 							updateConnectionId(pausedRun.conversationId, connectionId);
 							resumeRun(pausedRun.conversationId);
 						}
@@ -183,7 +180,9 @@ export function handleWsConnection(ws: WebSocket) {
 								title: pageIndex.title,
 								pageType: pageIndex.pageType,
 								elements: pageIndex.elements,
-								navigationLinks: pageIndex.navigationLinks as { label: string; href: string }[] | undefined,
+								navigationLinks: pageIndex.navigationLinks as
+									| { label: string; href: string }[]
+									| undefined,
 							}).catch((err) => console.error('[sitemap] Failed to update:', err));
 
 							console.log(`[WS] Page indexed: ${domain} ${pageIndex.urlPattern || pageIndex.url}`);

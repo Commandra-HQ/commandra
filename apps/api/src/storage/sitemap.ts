@@ -9,7 +9,10 @@
  */
 
 import { normalizeUrlPattern } from '@afe/shared';
+import { and, eq } from 'drizzle-orm';
 import yaml from 'js-yaml';
+import { db } from '../db/index.js';
+import { pages, sites } from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
 import { collectStream } from '../llm/types.js';
 import { downloadDomainFile, uploadDomainFile } from './domain-files.js';
@@ -342,4 +345,81 @@ export async function updateSitemap(
 	if (isNewNode) {
 		generateNodeDescription(userId, domain, sitemap, pattern).catch(() => {});
 	}
+}
+
+// ── Active build from DB ───────────────────────────────────────────────────
+
+/**
+ * Build the sitemap from all pages stored in Postgres for a domain.
+ * This is the active alternative to passive WS-based building — reads the pages
+ * table and constructs the full graph. Called by the build_sitemap agent tool.
+ */
+export async function buildSitemapFromDB(
+	userId: string,
+	domain: string,
+): Promise<{ nodes: number; edges: number; newNodes: string[] }> {
+	// Find the site
+	const [site] = await db
+		.select({ id: sites.id })
+		.from(sites)
+		.where(and(eq(sites.domain, domain), eq(sites.userId, userId)))
+		.limit(1);
+
+	if (!site) {
+		return { nodes: 0, edges: 0, newNodes: [] };
+	}
+
+	// Load all pages for this site
+	const sitePages = await db
+		.select({
+			url: pages.url,
+			urlPattern: pages.urlPattern,
+			title: pages.title,
+			pageType: pages.pageType,
+			elements: pages.elements,
+			navigationLinks: pages.navigationLinks,
+		})
+		.from(pages)
+		.where(eq(pages.siteId, site.id));
+
+	if (sitePages.length === 0) {
+		return { nodes: 0, edges: 0, newNodes: [] };
+	}
+
+	// Load existing sitemap or create empty
+	const sitemap = await loadSitemap(userId, domain);
+	const newNodes: string[] = [];
+
+	// Merge each page
+	for (const page of sitePages) {
+		const pattern = page.urlPattern || normalizeUrlPattern(new URL(page.url).pathname);
+		const isNew = !sitemap.nodes[pattern];
+
+		mergePage(sitemap, {
+			url: page.url,
+			urlPattern: page.urlPattern ?? undefined,
+			title: page.title ?? undefined,
+			pageType: page.pageType ?? undefined,
+			elements: page.elements as unknown[] | undefined,
+			navigationLinks: page.navigationLinks as { label: string; href: string }[] | undefined,
+		});
+
+		if (isNew) {
+			newNodes.push(pattern);
+		}
+	}
+
+	// Save
+	await saveSitemap(userId, domain, sitemap);
+
+	// Generate descriptions for new nodes (fire-and-forget)
+	for (const pattern of newNodes) {
+		generateNodeDescription(userId, domain, sitemap, pattern).catch(() => {});
+	}
+
+	return {
+		nodes: sitemap.stats.totalNodes,
+		edges: sitemap.stats.totalEdges,
+		newNodes,
+	};
 }
