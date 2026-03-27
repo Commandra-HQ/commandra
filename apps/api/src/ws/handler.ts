@@ -323,7 +323,7 @@ function broadcastStatus(connectionId: string, update: unknown) {
 export function sendApprovalRequest(
 	connectionId: string,
 	details: Record<string, unknown> & { action?: string; type?: string; reason?: string },
-	timeoutMs = 60000,
+	timeoutMs = 600000, // 10 minutes — durable orchestrator means users may navigate away
 	explicitRequestId?: string,
 ): Promise<{ approved: boolean; reason?: string }> {
 	const conn = connections.get(connectionId);

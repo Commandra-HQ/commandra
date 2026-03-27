@@ -570,7 +570,35 @@ export function ChatTab() {
       if (res.ok) {
         const data = await res.json();
         navigate(`/chat/${convId}`, { replace: true });
-        // Filter out partial messages (from incremental persistence) — they'll be replaced by live stream
+
+        // If the conversation is still running on the server, skip DB load and subscribe
+        // to the live stream instead — the event buffer has the complete state
+        const convStatus = data.conversation?.status;
+        if ((convStatus === 'running' || convStatus === 'paused') && !isActiveRef.current) {
+          // Load only the user messages from DB (before the current run)
+          const userMessages: ChatMessage[] = (data.messages || [])
+            .filter((m: { role: string; toolData?: { partial?: boolean } }) =>
+              m.role === 'user' || (!m.toolData?.partial && m.role === 'assistant'),
+            )
+            .map((m: { id: string; role: string; content: string }) => ({
+              id: m.id,
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              blocks: [{ type: 'text' as const, content: m.content }],
+            }));
+          // Remove the last assistant message if it's from the current run (partial or incomplete)
+          // — the subscribe will replay it from the event buffer
+          const lastMsg = userMessages[userMessages.length - 1];
+          if (lastMsg?.role === 'assistant') {
+            userMessages.pop();
+          }
+          setChatMessages(userMessages);
+          subscribeToRun(convId);
+          return;
+        }
+
+        // Completed conversation — load full history from DB
+        // Filter out partial messages (from incremental persistence)
         const filteredMessages = (data.messages || []).filter(
           (m: { toolData?: { partial?: boolean } }) => !m.toolData?.partial,
         );
@@ -738,13 +766,6 @@ export function ChatTab() {
           }
         }
 
-        // If the conversation is still running or paused on the server, auto-subscribe
-        // to the live SSE stream so the user sees real-time updates.
-        // Only subscribe if we're not already streaming (prevents repeated subscribe loops).
-        const convStatus = data.conversation?.status;
-        if ((convStatus === 'running' || convStatus === 'paused') && !isActiveRef.current) {
-          subscribeToRun(convId);
-        }
       }
     } catch (err) {
       console.error('Failed to load conversation:', err);
