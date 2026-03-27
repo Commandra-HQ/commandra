@@ -119,6 +119,9 @@ async function generateConversationTitle(
 			} else {
 				console.log(`[TitleGen] No onEvent available — title saved to DB only`);
 			}
+		}
+	} catch (err) {
+		console.error(`[TitleGen] Failed for ${convId}:`, err);
 	}
 }
 
@@ -195,10 +198,14 @@ chatRoutes.post('/', async (c) => {
 	// Delayed slightly so the run exists and we can emit via its SSE stream.
 	const userMsgCount = history.filter((m) => m.role === 'user').length;
 	if (userMsgCount === 1 || userMsgCount === 3) {
+		console.log(`[Chat] Scheduling title generation for ${convId} (userMsgCount=${userMsgCount})`);
 		setTimeout(() => {
 			const run = getRun(convId!);
 			const onEvent = run ? createDurableOnEvent(run) : undefined;
-			generateConversationTitle(convId!, chatMessages, onEvent).catch(() => {});
+			console.log(`[Chat] Title gen timeout fired for ${convId}, run=${run ? 'exists' : 'NOT FOUND'}`);
+			generateConversationTitle(convId!, chatMessages, onEvent).catch((err) => {
+				console.error(`[Chat] Title gen failed for ${convId}:`, err);
+			});
 		}, 2000);
 	}
 
