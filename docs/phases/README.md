@@ -78,6 +78,9 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 |       |                                                                     | indicator (ContextSquare), manual compaction, coordinator usage tracking.                                                     |         |
 | 29    | [Scheduled Jobs Dashboard](29-scheduled-jobs-dashboard.md)          | Dedicated schedules page with all cron agents, run/pause/run-now controls,                                                    | ✅ Done |
 |       |                                                                     | latest run status, `POST /agents/:id/run-now` endpoint, `GET /agents/scheduled` endpoint.                                     |         |
+| 30    | [Notifications, MCP & Skill Packs](30-notifications-mcp-skills.md) | Webhook/push/email notifications (30a), fire-and-forget UX + /runs dashboard (30b),                                           | Planned |
+|       |                                                                     | MCP client — agents consume external servers (30c), MCP server — Commandra as tool source (30d),                              |         |
+|       |                                                                     | pre-built skill packs for 10 enterprise apps, import/export skills (30e).                                                     |         |
 
 ## Navigation Intelligence
 
