@@ -106,7 +106,7 @@ export function SettingsTab() {
 		loadCurrentSite();
 	}, [checkBackend, checkWsStatus, loadCurrentSite]);
 
-	async function handleDisconnect() {
+	async function handleLogout() {
 		await logout();
 	}
 
@@ -327,7 +327,7 @@ export function SettingsTab() {
 					</p>
 					<button
 						type="button"
-						onClick={handleDisconnect}
+						onClick={handleLogout}
 						className="flex items-center gap-2 w-full py-2 text-sm text-destructive hover:bg-destructive/5 rounded-md justify-center transition-colors"
 					>
 						<LogOut size={14} />
