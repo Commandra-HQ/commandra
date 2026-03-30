@@ -13,5 +13,6 @@ declare namespace process {
 		API_URL: string;
 		WS_URL?: string;
 		DASHBOARD_URL?: string;
+		GOODBYE_URL?: string;
 	};
 }

@@ -5,16 +5,21 @@ interface User {
 	email: string;
 }
 
+export type LogoutOptions = {
+	/** When true (default), opens the marketing “goodbye” page in a new tab. */
+	openFarewellPage?: boolean;
+};
+
 interface AuthContextValue {
 	user: User | null;
 	loading: boolean;
-	logout: () => Promise<void>;
+	logout: (options?: LogoutOptions) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
 	user: null,
 	loading: true,
-	logout: async () => {},
+	logout: async (_opts?: LogoutOptions) => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -43,10 +48,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 		return () => window.removeEventListener('auth-changed', handler);
 	}, [loadUser]);
 
-	const logout = useCallback(async () => {
+	const logout = useCallback(async (options?: LogoutOptions) => {
+		const openFarewell = options?.openFarewellPage !== false;
 		await chrome.storage.local.remove(['authToken', 'user']);
 		setUser(null);
 		window.dispatchEvent(new Event('auth-changed'));
+		try {
+			await chrome.runtime.sendMessage({ type: 'EXTENSION_LOGOUT' });
+		} catch {
+			/* background may be unavailable in edge cases */
+		}
+		if (openFarewell) {
+			const url = process.env.GOODBYE_URL || 'http://localhost:3003/goodbye';
+			await chrome.tabs.create({ url });
+		}
 	}, []);
 
 	return (

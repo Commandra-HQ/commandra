@@ -320,14 +320,18 @@ export function SettingsTab() {
 					)}
 				</section>
 
-				{/* Danger zone */}
-				<section className="pt-2 border-t border-border">
+				{/* Account exit */}
+				<section className="pt-2 border-t border-border space-y-1">
+					<p className="text-[10px] text-muted-foreground text-center px-1">
+						Log out clears this device and opens a short note on our site.
+					</p>
 					<button
+						type="button"
 						onClick={handleDisconnect}
 						className="flex items-center gap-2 w-full py-2 text-sm text-destructive hover:bg-destructive/5 rounded-md justify-center transition-colors"
 					>
 						<LogOut size={14} />
-						<span>Disconnect</span>
+						<span>Log out</span>
 					</button>
 				</section>
 			</div>

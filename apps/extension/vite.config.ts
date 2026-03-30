@@ -21,10 +21,16 @@ function deriveWsUrl(apiUrl: string): string {
 }
 
 export default defineConfig(({ mode }: ConfigEnv) => {
-	const env = loadEnv(mode, '../../', ['VITE_', 'API_', 'WS_', 'DASHBOARD_']);
+	const env = loadEnv(mode, '../../', ['VITE_', 'API_', 'WS_', 'DASHBOARD_', 'LANDING_', 'GOODBYE_']);
 	const API_URL = process.env.API_URL || env.API_URL || 'http://localhost:3001';
 	const WS_URL = process.env.WS_URL || env.WS_URL || deriveWsUrl(API_URL);
 	const DASHBOARD_URL = process.env.DASHBOARD_URL || env.DASHBOARD_URL || 'http://localhost:3000';
+	const landingBase = (process.env.LANDING_URL || env.LANDING_URL || 'http://localhost:3003').replace(
+		/\/$/,
+		'',
+	);
+	const GOODBYE_URL =
+		process.env.GOODBYE_URL || env.GOODBYE_URL || `${landingBase}/goodbye`;
 
 	return {
 		plugins: [react(), crx({ manifest })],
@@ -32,6 +38,7 @@ export default defineConfig(({ mode }: ConfigEnv) => {
 			'process.env.API_URL': JSON.stringify(API_URL),
 			'process.env.WS_URL': JSON.stringify(WS_URL),
 			'process.env.DASHBOARD_URL': JSON.stringify(DASHBOARD_URL),
+			'process.env.GOODBYE_URL': JSON.stringify(GOODBYE_URL),
 		},
 		build: {
 			outDir: 'dist',

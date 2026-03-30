@@ -4,6 +4,7 @@ import { startCrawl, stopCrawl } from './crawler.js';
 import { getTrackedTabs, initTabRegistry, startTabEventListeners } from './tab-registry.js';
 import {
 	connectWebSocket,
+	disconnectWebSocket,
 	isConnected,
 	sendApproval,
 	sendKill,
@@ -16,6 +17,15 @@ initTabRegistry().then(() => startTabEventListeners());
 
 // Injected at build time by Vite define (see vite.config.ts)
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
+const GOODBYE_URL = process.env.GOODBYE_URL ?? 'http://localhost:3003/goodbye';
+
+function registerUninstallLandingPage() {
+	try {
+		chrome.runtime.setUninstallURL(GOODBYE_URL);
+	} catch (err) {
+		console.warn('[Commandra] setUninstallURL failed:', err);
+	}
+}
 
 // Open side panel when extension icon is clicked
 chrome.sidePanel
@@ -29,9 +39,12 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
+	registerUninstallLandingPage();
 	console.log('Commandra extension installed');
 	connectWebSocket();
 });
+
+registerUninstallLandingPage();
 
 // Also connect on startup (extension reload, browser restart)
 connectWebSocket();
@@ -71,6 +84,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 		case 'GET_WS_STATUS': {
 			sendResponse({ connected: isConnected() });
+			break;
+		}
+
+		case 'EXTENSION_LOGOUT': {
+			disconnectWebSocket();
+			connectWebSocket();
+			sendResponse({ ok: true });
 			break;
 		}
 
