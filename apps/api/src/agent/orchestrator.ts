@@ -7,27 +7,42 @@
  */
 
 import type { AgentConfig, SSEEvent } from '@afe/shared';
+import {
+	collectStream,
+	emptyTokenUsage,
+	getFastModel,
+	getModelCapabilities,
+	getProvider,
+	getStrongModel,
+} from '../llm/index.js';
 import type {
 	ContentBlock,
 	Message,
 	TextBlock,
 	ThinkingContentBlock,
+	TokenUsage,
 	ToolResultBlock,
 	ToolUseBlock,
 } from '../llm/types.js';
-import { collectStream, getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import { compressHistory } from '../memory/conversation.js';
 import { saveCompaction } from '../storage/compaction-files.js';
-import { isKilled } from '../ws/handler.js';
-import { buildSystemPrompt } from './prompts.js';
-import { buildToolList } from './tool-definitions.js';
+import { getConnectionByUser, getConnectionForConversation, isKilled } from '../ws/handler.js';
 import { executeToolBlock, partitionToolsBySafety } from './browser-tools.js';
+import { evaluateOnComplete } from './hooks.js';
+import { buildSystemPrompt } from './prompts.js';
+import { getRun, pauseForBrowser, updateConversationStatus } from './run-registry.js';
 import {
-	trimMessagesForTokenBudget,
-	estimateMessageChars,
-	MAX_INPUT_TOKENS,
 	CHARS_PER_TOKEN,
+	MAX_INPUT_TOKENS,
+	estimateMessageChars,
+	setCharsPerToken,
+	setMaxInputTokens,
+	trimMessagesForTokenBudget,
 } from './token-budget.js';
+import { buildToolList } from './tool-definitions.js';
+
+// In-memory compaction lock — prevents concurrent compaction for the same conversation
+const compactionLocks = new Set<string>();
 
 export interface OrchestratorParams {
 	userId: string;
@@ -53,6 +68,8 @@ export interface OrchestratorParams {
 	depth?: number;
 	domainKnowledge?: string;
 	tabId?: number;
+	existingPlan?: import('../storage/plan-files.js').StoredPlan | null;
+	sitemapTree?: string;
 }
 
 export interface ToolCallRecord {
@@ -60,11 +77,13 @@ export interface ToolCallRecord {
 	args: unknown;
 	result: unknown;
 	success: boolean;
+	durationMs?: number;
 }
 
 export interface OrchestratorResult {
 	response: string;
 	toolCalls: ToolCallRecord[];
+	usage: TokenUsage;
 }
 
 /**
@@ -89,9 +108,15 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		domainKnowledge,
 	} = params;
 
-	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 15;
+	const maxIterations = agentConfig.maxIterations ?? maxIter ?? 100;
 	const provider = getProvider();
 	const model = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
+
+	// Set context limit based on model capabilities — higher limits = fewer compactions = better multi-step tasks
+	const providerName = process.env.LLM_PROVIDER || 'anthropic';
+	const capabilities = getModelCapabilities(providerName, model);
+	setMaxInputTokens(Math.floor(capabilities.contextWindow * 0.8));
+	setCharsPerToken(capabilities.charsPerToken);
 	const systemPrompt = buildSystemPrompt(
 		pageIndex,
 		selectedElements,
@@ -99,6 +124,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		userMemory,
 		agentConfig,
 		domainKnowledge,
+		params.existingPlan,
+		params.sitemapTree,
 	);
 
 	const currentDepth = params.depth ?? 0;
@@ -122,6 +149,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 	let fullResponse = '';
 	let iterations = 0;
 	const allToolCalls: ToolCallRecord[] = [];
+	const accumulatedUsage = emptyTokenUsage();
+	let compactedThisRun = false;
 
 	while (iterations < maxIterations) {
 		// Token budget guard — strip old screenshots and truncate if messages are too large
@@ -139,16 +168,29 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		});
 
 		// Auto-compact at 80% context usage — save transcript, replace with summary
-		if (contextPercent >= 80 && currentMessages.length > 4 && conversationId) {
-			currentMessages = await autoCompact(
-				currentMessages,
-				provider,
-				agentConfig,
-				userId,
-				conversationId,
-				onEvent,
-				contextPercent,
-			);
+		// Lock prevents concurrent compaction; compactedThisRun prevents repeated compaction in same orchestrator run
+		if (
+			contextPercent >= 80 &&
+			currentMessages.length > 4 &&
+			conversationId &&
+			!compactedThisRun &&
+			!compactionLocks.has(conversationId)
+		) {
+			compactionLocks.add(conversationId);
+			try {
+				currentMessages = await autoCompact(
+					currentMessages,
+					provider,
+					agentConfig,
+					userId,
+					conversationId,
+					onEvent,
+					contextPercent,
+				);
+				compactedThisRun = true;
+			} finally {
+				compactionLocks.delete(conversationId);
+			}
 		}
 
 		// Kill switch / abort check
@@ -162,30 +204,75 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		// Signal that the LLM is thinking
 		await onEvent({ type: 'thinking' });
 
+		// Pre-flight token check when close to budget (Anthropic free endpoint)
+		if (contextPercent > 60 && provider.countTokens) {
+			try {
+				const exactTokens = await provider.countTokens({
+					model,
+					system: systemPrompt,
+					messages: currentMessages,
+					tools,
+				});
+				const exactPercent = Math.round((exactTokens / capabilities.contextWindow) * 100);
+				if (exactPercent >= 95) {
+					currentMessages = trimMessagesForTokenBudget(currentMessages);
+					console.log(
+						`[Orchestrator] Pre-flight: ${exactPercent}% context used, trimmed before sending`,
+					);
+				}
+			} catch (err) {
+				console.warn('[Orchestrator] Pre-flight countTokens failed (non-critical):', err);
+			}
+		}
+
 		// Call LLM with abort signal — enable extended thinking for richer reasoning
+		// Use per-model budgets from capabilities, with agent overrides taking precedence
 		const streamIter = provider.chat({
 			model,
 			system: systemPrompt,
 			messages: currentMessages,
 			tools: connectionId ? tools : undefined,
-			maxTokens: 8000,
+			maxTokens: agentConfig.llm?.maxOutputTokens ?? capabilities.defaultOutputBudget,
 			signal,
-			thinking: { budgetTokens: 4000 },
+			thinking:
+				agentConfig.llm?.thinkingEnabled === false
+					? undefined
+					: capabilities.supportsThinking
+						? {
+								budgetTokens: agentConfig.llm?.thinkingBudget ?? capabilities.defaultThinkingBudget,
+							}
+						: undefined,
 		});
 
 		// Stream text to client in real time while collecting tool calls
 		const content: ContentBlock[] = [];
 		let stopReason: 'end_turn' | 'tool_use' | 'max_tokens' = 'end_turn';
 
-		const streamResult = await streamLLMResponse(
-			streamIter,
-			content,
-			onEvent,
-			signal,
-			iterations,
-		);
+		const streamResult = await streamLLMResponse(streamIter, content, onEvent, signal, iterations);
 		stopReason = streamResult.stopReason;
 		fullResponse += streamResult.text;
+
+		// Accumulate real token usage from this iteration
+		if (streamResult.usage) {
+			accumulatedUsage.inputTokens += streamResult.usage.inputTokens;
+			accumulatedUsage.outputTokens += streamResult.usage.outputTokens;
+			accumulatedUsage.cacheReadTokens += streamResult.usage.cacheReadTokens;
+			accumulatedUsage.cacheWriteTokens += streamResult.usage.cacheWriteTokens;
+			accumulatedUsage.thinkingTokens += streamResult.usage.thinkingTokens;
+
+			// Emit live usage update so the client can show cost during the run
+			const caps = capabilities;
+			const { calculateCost: calcCost } = await import('./self-improve.js');
+			await onEvent({
+				type: 'usage_total',
+				inputTokens: accumulatedUsage.inputTokens,
+				outputTokens: accumulatedUsage.outputTokens,
+				cacheReadTokens: accumulatedUsage.cacheReadTokens,
+				cacheWriteTokens: accumulatedUsage.cacheWriteTokens,
+				thinkingTokens: accumulatedUsage.thinkingTokens,
+				estimatedCostUsd: calcCost(accumulatedUsage, caps),
+			});
+		}
 
 		if (streamResult.contextError) {
 			// Context length exceeded — aggressively trim and retry
@@ -202,6 +289,38 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
 		const response = { content, stopReason };
 
+		// Check if there are tool_use blocks that need the extension
+		const hasToolUseBlocks = content.some((b) => b.type === 'tool_use');
+
+		// If extension disconnected and we need browser tools, pause and wait for reconnection
+		const hasConnection = (conversationId ? getConnectionForConversation(conversationId) : null) || getConnectionByUser(userId);
+		if (hasToolUseBlocks && !hasConnection) {
+			const run = conversationId ? getRun(conversationId) : undefined;
+			if (run) {
+				console.log(`[Orchestrator] Extension disconnected, pausing run ${conversationId}`);
+				await onEvent({
+					type: 'paused',
+					reason: 'Browser disconnected — waiting for reconnection...',
+				});
+				await pauseForBrowser(run.conversationId);
+				// After resume, check if we were killed during the pause
+				if (signal?.aborted) {
+					console.log(`[Orchestrator] Run killed during pause`);
+					break;
+				}
+				console.log(`[Orchestrator] Resumed run ${conversationId}`);
+				await onEvent({ type: 'resumed' });
+				await updateConversationStatus(run.conversationId, 'running');
+			}
+		}
+
+		// Get fresh connectionId (may have changed after pause/resume)
+		// Prefer conversation-scoped connection, fall back to user-level, then original
+		const activeConnectionId = (conversationId ? getConnectionForConversation(conversationId) : null) || getConnectionByUser(userId) || connectionId;
+		console.log(
+			`[Orchestrator] Using connectionId: ${activeConnectionId} (original: ${connectionId})`,
+		);
+
 		// Process tool calls — parallel for safe tools, sequential for review/blocked
 		const { toolResults, hasToolUse } = await processToolCalls(
 			response,
@@ -209,7 +328,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			agentConfig,
 			context,
 			userId,
-			connectionId,
+			activeConnectionId,
 			onEvent,
 			provider,
 			domainMemory,
@@ -220,8 +339,35 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 			allToolCalls,
 		);
 
-		// If no tool use or end_turn, we're done
+		// If no tool use or end_turn, check OnComplete hooks before stopping
 		if (!hasToolUse || response.stopReason === 'end_turn') {
+			// OnComplete hook — verify task completion if agent has hooks configured
+			if (agentConfig.hooks?.onComplete?.length) {
+				const toolSummary = allToolCalls
+					.map((t) => `${t.name}: ${t.success ? 'ok' : 'failed'}`)
+					.join(', ');
+				const completionCheck = await evaluateOnComplete(
+					agentConfig.hooks,
+					fullResponse,
+					toolSummary,
+				);
+				if (!completionCheck.done) {
+					// Hook says task isn't done — inject feedback and continue
+					currentMessages = [
+						...currentMessages,
+						{ role: 'assistant', content: response.content },
+						{
+							role: 'user',
+							content: `[Hook verification failed] ${completionCheck.reason}. Please complete the remaining work.`,
+						},
+					];
+					await onEvent({
+						type: 'text_delta',
+						text: `\n\n*Verifying completion... ${completionCheck.reason}*\n\n`,
+					});
+					continue; // Go back to the loop
+				}
+			}
 			break;
 		}
 
@@ -234,7 +380,30 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 		];
 	}
 
-	return { response: fullResponse, toolCalls: allToolCalls };
+	// If we exhausted all iterations without end_turn, let the user know
+	if (iterations >= maxIterations) {
+		const msg = `\n\n*Reached maximum iterations (${maxIterations}). The task may not be complete — send "continue" to keep going.*`;
+		fullResponse += msg;
+		await onEvent({ type: 'text_delta', text: msg });
+	}
+
+	// Emit real token usage to the client (works for all chats including coordinator)
+	if (accumulatedUsage.inputTokens > 0 || accumulatedUsage.outputTokens > 0) {
+		const caps = capabilities;
+		const { calculateCost } = await import('./self-improve.js');
+		const estimatedCostUsd = calculateCost(accumulatedUsage, caps);
+		await onEvent({
+			type: 'usage_total',
+			inputTokens: accumulatedUsage.inputTokens,
+			outputTokens: accumulatedUsage.outputTokens,
+			cacheReadTokens: accumulatedUsage.cacheReadTokens,
+			cacheWriteTokens: accumulatedUsage.cacheWriteTokens,
+			thinkingTokens: accumulatedUsage.thinkingTokens,
+			estimatedCostUsd,
+		});
+	}
+
+	return { response: fullResponse, toolCalls: allToolCalls, usage: accumulatedUsage };
 }
 
 /**
@@ -252,6 +421,8 @@ export async function runSimpleChat(params: {
 }): Promise<string> {
 	const provider = getProvider();
 	const model = params.agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
+	const simpleChatProviderName = process.env.LLM_PROVIDER || 'anthropic';
+	const simpleChatCaps = getModelCapabilities(simpleChatProviderName, model);
 	const systemPrompt = buildSystemPrompt(
 		params.pageIndex,
 		params.selectedElements,
@@ -268,9 +439,17 @@ export async function runSimpleChat(params: {
 		model,
 		system: systemPrompt,
 		messages: params.messages.map((m) => ({ role: m.role, content: m.content })),
-		maxTokens: 8000,
+		maxTokens: params.agentConfig.llm?.maxOutputTokens ?? simpleChatCaps.defaultOutputBudget,
 		signal: params.signal,
-		thinking: { budgetTokens: 3000 },
+		thinking:
+			params.agentConfig.llm?.thinkingEnabled === false
+				? undefined
+				: simpleChatCaps.supportsThinking
+					? {
+							budgetTokens:
+								params.agentConfig.llm?.thinkingBudget ?? simpleChatCaps.defaultThinkingBudget,
+						}
+					: undefined,
 	});
 
 	try {
@@ -356,13 +535,14 @@ interface StreamResult {
 	stopReason: 'end_turn' | 'tool_use' | 'max_tokens';
 	contextError: boolean;
 	aborted: boolean;
+	usage?: TokenUsage;
 }
 
 /**
  * Stream the LLM response, accumulating content blocks and emitting SSE events.
  */
 async function streamLLMResponse(
-	streamIter: AsyncIterable<{ type: string; text?: string; id?: string; name?: string; input?: unknown; stopReason?: string; signature?: string }>,
+	streamIter: AsyncIterable<import('../llm/types.js').StreamEvent>,
 	content: ContentBlock[],
 	onEvent: (event: SSEEvent) => Promise<void>,
 	signal: AbortSignal | undefined,
@@ -372,6 +552,7 @@ async function streamLLMResponse(
 	let thinkingChunks = 0;
 	let textChunks = 0;
 	let text = '';
+	let usage: TokenUsage | undefined;
 
 	try {
 		for await (const event of streamIter) {
@@ -424,14 +605,24 @@ async function streamLLMResponse(
 				case 'message_end':
 					stopReason = event.stopReason as typeof stopReason;
 					break;
+				case 'usage':
+					usage = event.usage;
+					break;
 			}
 		}
 	} catch (err) {
 		if (signal?.aborted) return { text, stopReason, contextError: false, aborted: true };
 
 		const errMsg = err instanceof Error ? err.message : String(err);
-		if (errMsg.includes('context_length_exceeded') || errMsg.includes('token')) {
-			console.warn(`[Orchestrator] Context length exceeded on iteration ${iterations}, trimming aggressively`);
+		if (
+			errMsg.includes('context_length_exceeded') ||
+			errMsg.includes('prompt is too long') ||
+			errMsg.includes('maximum context length') ||
+			errMsg.includes('Input is too long')
+		) {
+			console.warn(
+				`[Orchestrator] Context length exceeded on iteration ${iterations}, trimming aggressively`,
+			);
 			return { text, stopReason, contextError: true, aborted: false };
 		}
 		throw err;
@@ -441,7 +632,7 @@ async function streamLLMResponse(
 		`[Orchestrator] iter=${iterations} stream done: thinkingChunks=${thinkingChunks} textChunks=${textChunks} stopReason=${stopReason} contentBlocks=${content.map((b) => b.type).join(',')}`,
 	);
 
-	return { text, stopReason, contextError: false, aborted: false };
+	return { text, stopReason, contextError: false, aborted: false, usage };
 }
 
 /**
@@ -464,7 +655,10 @@ function aggressiveTrim(currentMessages: Message[]): Message[] {
 									.filter((sub: TextBlock | { type: string }) => sub.type !== 'image')
 									.map((sub: TextBlock | { type: string }) =>
 										sub.type === 'text' && (sub as TextBlock).text.length > 500
-											? { ...sub, text: (sub as TextBlock).text.slice(0, 500) + '...' }
+											? {
+													...sub,
+													text: (sub as TextBlock).text.slice(0, 500) + '...',
+												}
 											: sub,
 									),
 							} as ToolResultBlock;
@@ -508,7 +702,12 @@ async function processToolCalls(
 	}
 
 	// Partition tools by safety level for parallel execution
-	const partitioned = partitionToolsBySafety(toolBlocks, domain, agentConfig.autonomy);
+	const partitioned = partitionToolsBySafety(
+		toolBlocks,
+		domain,
+		agentConfig.autonomy,
+		agentConfig.domainAutonomy,
+	);
 
 	// Phase 1: Execute all safe tools in parallel
 	if (partitioned.safe.length > 0) {
@@ -516,9 +715,19 @@ async function processToolCalls(
 		const safeResults = await Promise.allSettled(
 			partitioned.safe.map((block) =>
 				executeToolBlock(
-					block, context, userId, connectionId, domain, onEvent,
-					provider, domainMemory, userMemory, currentDepth, conversationId,
+					block,
+					context,
+					userId,
+					connectionId,
+					domain,
+					onEvent,
+					provider,
+					domainMemory,
+					userMemory,
+					currentDepth,
+					conversationId,
 					agentConfig.autonomy,
+					agentConfig.hooks,
 				),
 			),
 		);
@@ -542,18 +751,54 @@ async function processToolCalls(
 		}
 	}
 
-	// Phase 2: Execute review tools sequentially (need approval gates)
+	// Phase 2: Execute sequential browser tools one at a time (navigate, click, type, etc.)
+	// These tools modify the active tab — running them in parallel causes only the last to take effect.
+	if (partitioned.sequential.length > 0) {
+		console.log(
+			`[Orchestrator] Executing ${partitioned.sequential.length} browser tools sequentially`,
+		);
+		for (const block of partitioned.sequential) {
+			if (signal?.aborted) break;
+			const result = await executeToolBlock(
+				block,
+				context,
+				userId,
+				connectionId,
+				domain,
+				onEvent,
+				provider,
+				domainMemory,
+				userMemory,
+				currentDepth,
+				conversationId,
+				agentConfig.autonomy,
+				agentConfig.hooks,
+			);
+			toolResults.push(result);
+		}
+	}
+
+	// Phase 3: Execute review tools sequentially (need approval gates)
 	for (const block of partitioned.review) {
 		if (signal?.aborted) break;
 		const result = await executeToolBlock(
-			block, context, userId, connectionId, domain, onEvent,
-			provider, domainMemory, userMemory, currentDepth, conversationId,
+			block,
+			context,
+			userId,
+			connectionId,
+			domain,
+			onEvent,
+			provider,
+			domainMemory,
+			userMemory,
+			currentDepth,
+			conversationId,
 			agentConfig.autonomy,
 		);
 		toolResults.push(result);
 	}
 
-	// Phase 3: Reject blocked tools immediately
+	// Phase 4: Reject blocked tools immediately
 	for (const block of partitioned.blocked) {
 		toolResults.push({
 			type: 'tool_result',
@@ -589,9 +834,7 @@ async function processToolCalls(
 
 	// Sort results back to original tool call order (LLM expects this)
 	const orderMap = new Map(toolBlocks.map((b, i) => [b.id, i]));
-	toolResults.sort(
-		(a, b) => (orderMap.get(a.toolUseId) ?? 0) - (orderMap.get(b.toolUseId) ?? 0),
-	);
+	toolResults.sort((a, b) => (orderMap.get(a.toolUseId) ?? 0) - (orderMap.get(b.toolUseId) ?? 0));
 
 	return { toolResults, hasToolUse: true };
 }

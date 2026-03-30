@@ -25,6 +25,7 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 **When the user asks about the page:** Reference elements by label/type. Describe what's possible. Be concise.
 
 **When the user asks you to DO something:**
+- **Check the Site Navigation Graph first** — if you need to go to a page, check if it's already mapped. Use its exact URL with navigate instead of clicking through links.
 - Look at the Interactive Elements list below — find the element by its label, then use its exact selector
 - Use browser tools to execute actions
 - Page state auto-refreshes after click, navigate, type, and select actions — you'll see updated elements in the tool result. **Read the new elements in the tool result carefully** — use THOSE selectors for your next actions.
@@ -34,6 +35,14 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 - Use go_back to return to the previous page
 - Confirm what you did after completing the task
 
+**Tab Management — you can work across any open tab:**
+- **list_tabs**: See all open browser tabs (tabId, title, URL, active status)
+- **switch_tab**: Change your target to a different tab — all subsequent actions execute there
+- You have a dedicated background tab for this conversation (starts blank). Navigate to the right URL first, or use list_tabs + switch_tab to target an already-open tab.
+- You do NOT need to ask the user to switch tabs — just switch yourself.
+- After switching, call refresh_page_state to see the new page's elements.
+- When the user mentions a tab with @, you'll see "[Referenced tabs: [Tab "title" (tabId:N)]]" in the message. Call switch_tab with that tabId FIRST before executing any actions on it.
+
 **When reading/extracting data:**
 - read_table for tabular data (structured headers + rows)
 - read_text for specific element content
@@ -41,22 +50,34 @@ Use ALL of this context to inform your approach. Don't navigate blindly — chec
 - wait_for_element for loading/dynamic content
 - export_data to format as CSV/JSON
 
+**Context efficiency — keep your context window lean:**
+- Page state auto-refreshes after actions show a compact summary + top 10 elements. Call refresh_page_state if you need the full list.
+- **Screenshots are expensive** (~2000 tokens each). Use ONLY for visual verification when text-based tools are insufficient (charts, images, visual layout issues).
+- Prefer read_text and read_table over screenshots for data extraction — they're cheaper and more accurate.
+- NEVER take screenshots just to "see what happened" — the auto-refreshed page state tells you what changed.
+- After you respond to a screenshot, it's automatically removed from context to save space.
+
 **Knowledge & Memory — you manage your own learning:**
-- **save_memory**: Quick-save corrections, preferences, terminology to Postgres (always injected into your prompt next time)
-- **recall_memory**: Search your saved memories by keyword
-- **save_knowledge**: Write knowledge files to persistent S3 storage. Categories:
-  - \`domain\`: Per-website knowledge (how the app works, navigation, selectors, quirks). Key = domain name.
-  - \`agent\`: Per-agent files (SKILLS.md, LEARNINGS.md). Key = agent slug.
-  - \`run\`: Run summaries for noteworthy completions. Key = date (YYYY-MM-DD).
+- **save_memory**: Quick-save corrections, preferences, terminology to your MEMORY.md file (always injected into your prompt next time)
+- **recall_memory**: Search your saved memories by keyword (searches MEMORY.md)
+- **save_knowledge**: Write knowledge files to persistent storage with three modes:
+  - \`append\` (default): Adds your content after existing content — safe, never loses data
+  - \`merge\`: Deduplicates your entries against existing ones — best for bulk updates
+  - \`rewrite\`: Replaces the entire file — ALWAYS use read_knowledge first!
+  Categories: \`domain\` (per-website), \`agent\` (per-agent files), \`run\` (run logs)
 - **read_knowledge**: Read back any knowledge file you previously saved
 - **list_knowledge**: See what knowledge files exist for a domain or agent
+- **build_sitemap**: Build or rebuild the site navigation graph from all indexed pages. Use this after visiting new pages, or if the site graph in your prompt seems incomplete. Returns the node/edge counts and any new pages discovered.
+- **SITEMAP.yaml**: The site navigation graph is summarized in your prompt above. For the full graph, use \`read_knowledge(category: 'domain', key: '<domain>', filename: 'SITEMAP.yaml')\`
 
 **When to save knowledge:**
-- After discovering how a web app works (page structure, navigation, tricky elements) → save to domain KNOWLEDGE.md
-- After completing a multi-step workflow successfully → save to domain WORKFLOWS.md
-- When you notice user preferences specific to a domain → save to domain MEMORY.md
+- After discovering how a web app works (page structure, navigation, tricky elements) → save to domain KNOWLEDGE.md (mode: append)
+- After completing a multi-step workflow successfully → save to domain WORKFLOWS.md (mode: append)
+- When you notice user preferences specific to a domain → save to domain MEMORY.md (mode: append)
 - After a noteworthy run (completed a big task, learned from a failure) → save a run summary
+- To clean up/reorganize a messy knowledge file → read_knowledge first, then save_knowledge with mode: rewrite
 - You do NOT need to save after every interaction — only when there's something genuinely useful for next time
+- **NEVER use mode: rewrite without reading the file first** — you will lose all existing knowledge
 
 ## Sub-Agents (Parallel Work)
 You can spawn sub-agents to work in parallel browser tabs. Use them ONLY when genuinely beneficial:
@@ -89,10 +110,41 @@ You can create persistent, specialized agents that remember their skills across 
 
 **How to create:**
 1. Call create_agent with a slug, name, description, soul (personality), and optionally domains + cron schedule
-2. Optionally call update_agent_files to add SKILLS.md with techniques from the current conversation
-3. Tell the user what you created and how to use it
+2. ALWAYS call update_agent_files to add SKILLS.md — extract the specific steps, selectors, and techniques from the current conversation. This is critical: without SKILLS.md, the agent starts cold next time.
+3. Tell the user what you created, what skills it has, and how to use it
 
 **Write good SOUL.md content** — be specific about the agent's purpose, tone, and approach. Not generic "you are helpful" but "You are a GitHub PR reviewer who focuses on test coverage, security issues, and code style. You check every PR for missing tests and flag any use of eval() or raw SQL."
+
+**Write good SKILLS.md content** — extract concrete, replayable steps from the conversation:
+\`\`\`
+## How to download the Instamart sales report
+1. Navigate to https://partner.instamart.in/sales
+2. Click the date range dropdown [selector: .date-picker]
+3. Select "Custom Range"
+4. Fill start date and end date
+5. Click "Generate Report"
+6. Wait for the report to appear in "Available Reports"
+7. Click the download icon
+\`\`\`
+
+## Editing Existing Agents
+When the user mentions an existing agent by name and asks to change its behavior:
+- Read the agent's current files first using read_knowledge (category: "agent", key: agentSlug)
+- Modify the relevant file (SOUL.md for personality, SKILLS.md for capabilities)
+- Write it back via update_agent_files
+- Confirm what you changed
+
+## Inter-Agent Data Sharing
+When working with sub-agents, use the scratchpad to pass structured data:
+- **write_scratchpad(key, data)**: Save data that sub-agents can read (e.g., extracted tables, parsed reports)
+- **read_scratchpad(key)**: Read data another agent saved
+- This is ephemeral — for passing data within one conversation, not long-term storage
+
+## Local File Access
+- **save_to_local**: Save exports and files to ~/.commandra/
+- **read_local_file**: Read back previously saved files
+- **list_local_files**: See what files are available
+- Use these for data the user wants to keep on their machine
 
 ## Context Efficiency
 - Do NOT take excessive screenshots — page state auto-refreshes after actions
@@ -102,6 +154,9 @@ You can create persistent, specialized agents that remember their skills across 
 function buildBasePrompt(agentConfig?: AgentConfig): string {
 	const identity = agentConfig?.soul || IDENTITY_SECTION;
 	const skillsSection = agentConfig?.skills ? `\n\n## Agent Skills\n${agentConfig.skills}` : '';
+	const memorySection = agentConfig?.memory
+		? `\n\n## Agent Memory\nThese are your accumulated notes from past sessions. Update your MEMORY.md via save_knowledge(category: "agent", key: "${agentConfig.slug}", filename: "MEMORY.md") as you learn important facts.\n\n${agentConfig.memory}`
+		: '';
 	let learningsSection = '';
 	if (agentConfig?.learnings) {
 		const lines = agentConfig.learnings.split('\n').filter((l) => l.trim().startsWith('- '));
@@ -116,7 +171,7 @@ function buildBasePrompt(agentConfig?: AgentConfig): string {
 			errorsSection = `\n\n## Known Failure Patterns\n${lines.slice(-10).join('\n')}`;
 		}
 	}
-	return `${identity}\n\n${RULES_SECTION}${skillsSection}${learningsSection}${errorsSection}`;
+	return `${identity}\n\n${RULES_SECTION}${skillsSection}${learningsSection}${errorsSection}${memorySection}`;
 }
 
 interface SelectedElement {
@@ -155,13 +210,15 @@ export function buildSystemPrompt(
 	userMemory?: string,
 	agentConfig?: AgentConfig,
 	domainKnowledge?: string,
+	existingPlan?: import('../storage/plan-files.js').StoredPlan | null,
+	sitemapTree?: string,
 ): string {
 	const basePrompt = buildBasePrompt(agentConfig);
 
 	// Inject today's date
 	const now = new Date();
 	const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-	const dateStr = `**Today:** ${dayNames[now.getDay()]}, ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} (${now.toISOString().slice(0, 10)})`;
+	const dateStr = `**Today:** ${dayNames[now.getDay()]}, ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} (${now.toISOString().slice(0, 10)})\n**Current time:** ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} (${now.toISOString()})`;
 
 	if (!pageIndex) {
 		return `${basePrompt}
@@ -188,8 +245,11 @@ Do NOT ask the user to "index the page" — just navigate there yourself and ref
 				.join('\n')
 		: 'No navigation links found.';
 
+	// Use sitemap tree if available, fall back to flat page list
 	let siteSummary = '';
-	if (pi.sitePages?.length) {
+	if (sitemapTree) {
+		siteSummary = `\n\n${sitemapTree}\n\n**IMPORTANT: Always check this graph BEFORE navigating.** If a page exists here, use its exact URL pattern with the navigate tool — don't guess from link labels. The graph shows every page you've seen, its purpose, and how pages relate. For the full graph with all details, use read_knowledge(category: 'domain', key: '${pi.url ? new URL(pi.url).hostname : 'domain'}', filename: 'SITEMAP.yaml').`;
+	} else if (pi.sitePages?.length) {
 		const pageDetails = pi.sitePages.map((p) => {
 			let detail = `### ${p.title || p.urlPattern} (${p.pageType})\n  URL: ${p.url}\n  ${p.elementCount} elements`;
 			if (p.lastIndexedAt) {
@@ -248,14 +308,12 @@ When the user refers to "these elements" or "the selected elements", they mean t
 		}
 	}
 
-	let memorySummary = '';
-	if (domainMemory) {
-		memorySummary = `\n\n## What You Know About This App\n${domainMemory}`;
-	}
+	// domainMemory param is deprecated (was Postgres shared memory) — always empty now
+	const memorySummary = '';
 
 	let userMemorySummary = '';
 	if (userMemory) {
-		userMemorySummary = `\n\n## What You Know About This User\n${userMemory}`;
+		userMemorySummary = `\n\n## User Memory (corrections, preferences, terminology)\n${userMemory}`;
 	}
 
 	let identitySummary = '';
@@ -265,14 +323,53 @@ When the user refers to "these elements" or "the selected elements", they mean t
 
 	let domainKnowledgeSummary = '';
 	if (domainKnowledge) {
-		domainKnowledgeSummary = `\n\n## Domain Knowledge (from past sessions)\n${domainKnowledge}`;
+		domainKnowledgeSummary = `\n\n## Domain Knowledge (CRITICAL — from past sessions)
+**You MUST follow the instructions below.** This knowledge was learned from previous sessions on this app. It contains verified selectors, escape rules, and workflows. Following it prevents errors.
+
+${domainKnowledge}`;
+	}
+
+	let existingPlanSummary = '';
+	if (existingPlan && existingPlan.steps.length > 0) {
+		const statusIcons: Record<string, string> = {
+			completed: 'done',
+			in_progress: 'IN PROGRESS',
+			failed: 'FAILED',
+			pending: 'pending',
+		};
+		const stepList = existingPlan.steps
+			.map((s, i) => {
+				let line = `${i + 1}. [${statusIcons[s.status] || s.status}] ${s.label}`;
+				if (s.instructions) line += `\n   Instructions: ${s.instructions}`;
+				return line;
+			})
+			.join('\n');
+
+		let planContext = '';
+		if (existingPlan.context) {
+			planContext = `\n\n**Context:** ${existingPlan.context}`;
+		}
+		let planRefs = '';
+		if (existingPlan.references?.length) {
+			planRefs = `\n**References:** ${existingPlan.references.join(', ')}`;
+		}
+
+		existingPlanSummary = `\n\n## Active Plan
+**${existingPlan.description}**${planContext}${planRefs}
+
+${stepList}
+
+You have an active plan from this conversation. Continue executing it — use \`update_plan\` to mark steps as you complete them.
+If you need more context during execution, call \`read_knowledge\` or \`refresh_page_state\` — don't guess.
+If the user asks for changes to the plan, use \`submit_plan\` to propose a revised plan.
+Do NOT start over or create a new plan from scratch unless the user explicitly asks for a completely different task.`;
 	}
 
 	return `${basePrompt}
 
 ${dateStr}
 
-## Current Page
+## User's Current Page (context — navigate here to begin working)
 - **URL:** ${pi.url || 'Unknown'}
 - **Title:** ${pi.title || 'Unknown'}
 - **Page type:** ${pi.pageType || 'Unknown'}
@@ -282,7 +379,7 @@ ${dateStr}
 ${elementsSummary}
 
 ## Navigation Links
-${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${domainKnowledgeSummary}${PLANNING_INSTRUCTIONS}`;
+${navSummary}${siteSummary}${selectedSummary}${memorySummary}${userMemorySummary}${domainKnowledgeSummary}${existingPlanSummary}${PLANNING_INSTRUCTIONS}`;
 }
 
 function formatIndexAge(lastIndexedAt: string | Date): string {

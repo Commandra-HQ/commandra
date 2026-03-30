@@ -5,9 +5,11 @@ An open-source platform that lets anyone automate tasks on any web application t
 ## What It Does
 
 - **Chat with any page** — open the extension side panel, ask the agent to do things on the page you're looking at
+- **Work across tabs** — type `@` to mention any open tab, or let the agent discover and switch tabs on its own
 - **Point and click** — select elements, tell the agent what to do with them
-- **Teach mode** — show the agent how to do something once, it learns the steps and can repeat them
-- **Saved flows** — turn one-time tasks into reusable automations with parameters
+- **Autonomous agents** — create persistent agents that specialize in domains, learn from every run, and can be scheduled
+- **Multi-agent swarm** — spawn sub-agents in parallel browser tabs for cross-site workflows
+- **Self-improving memory** — agents manage their own knowledge as S3 markdown files, learning from corrections and successes
 - **Works behind your VPN/SSO** — the agent runs in YOUR browser, not a server-side browser. Your credentials never leave your machine
 
 ```
@@ -38,9 +40,11 @@ The extension handles UI, DOM indexing, and action execution. The backend handle
 
 **Key design decisions:**
 - Extension is a thin client — no LLM calls, no agent logic
-- Custom provider-agnostic orchestrator (modular, no framework deps)
+- Custom provider-agnostic orchestrator (Anthropic, OpenAI, with Files API for screenshots)
 - Agent always runs in the user's browser — core privacy guarantee
 - Pre-indexed pages — agent knows the app before you ask (faster + cheaper than screenshot-reading)
+- All memory as S3 markdown files — agent has full read/write control over its own knowledge
+- Fluid tab context — agent discovers and switches tabs autonomously, user can @mention tabs
 
 ## Quick Start
 
@@ -92,14 +96,15 @@ commandra/
 │   │       ├── background/
 │   │       │   ├── ws-client.ts       # WS connection management + message routing
 │   │       │   ├── action-handler.ts  # Action dispatch (click, type, navigate, etc.)
+│   │       │   ├── tab-registry.ts    # Passive tab tracking via Chrome events
 │   │       │   └── page-scripts.ts    # Injectable page functions (run in DOM context)
 │   │       ├── content/               # Content scripts (DOM indexer, selector)
 │   │       └── sidepanel/
 │   │           └── tabs/
 │   │               ├── ChatTab.tsx       # Main chat component (state + layout)
 │   │               ├── chat-types.ts     # Types, constants, formatters
-│   │               ├── chat-layout.tsx   # Context bar, plan panel, input area
-│   │               ├── message-blocks.tsx # Message rendering (tool calls, approvals, etc.)
+│   │               ├── chat-layout.tsx   # Tiptap editor, @tab mentions, plan panel
+│   │               ├── message-blocks.tsx # Message rendering (tool calls, approvals, mentions)
 │   │               └── use-chat-stream.ts # SSE streaming hook
 │   │
 │   ├── api/             # Backend (Hono + orchestrator)
@@ -116,7 +121,7 @@ commandra/
 │   │       │   ├── planner.ts           # Plan parsing + approval
 │   │       │   └── prompts.ts           # System prompt construction
 │   │       ├── llm/          # Provider layer + adapters (Anthropic, OpenAI)
-│   │       ├── memory/       # Domain memory + user memory
+│   │       ├── memory/       # S3-backed user + domain memory
 │   │       ├── safety/       # Action classifier + audit logging
 │   │       ├── tools/        # Tool registry (browser tools)
 │   │       ├── storage/      # Supabase Storage (agent files, domain knowledge)
@@ -159,12 +164,12 @@ The API exposes `POST /api/token/exchange` as a bridge for external auth provide
 
 Bring your own key. Set `LLM_PROVIDER` and `LLM_API_KEY` in `.env`.
 
-| Provider | Strong Model | Fast Model | Status |
-|----------|-------------|------------|--------|
-| Anthropic | Claude Sonnet/Opus | Claude Haiku | Supported |
-| OpenAI | GPT-4o / o3 | GPT-4o-mini | Supported |
-| Google | Gemini Pro | Gemini Flash | Planned |
-| Ollama | Any local model | Any local model | Planned |
+| Provider | Strong Model | Fast Model | Features | Status |
+|----------|-------------|------------|----------|--------|
+| Anthropic | Claude Sonnet/Opus | Claude Haiku | Files API, extended thinking, prompt caching | Supported |
+| OpenAI | GPT-4o/4.1/5 / o3 | GPT-4o-mini | Responses API, Files API (vision), reasoning | Supported |
+| Google | Gemini Pro | Gemini Flash | | Planned |
+| Ollama | Any local model | Any local model | | Planned |
 
 ## Safety
 
@@ -180,8 +185,9 @@ Kill switch: press Escape to halt all agent activity immediately.
 
 - **TypeScript** everywhere
 - **Hono** for HTTP, **ws** for WebSocket
-- **Drizzle ORM** + Supabase (Postgres + pgvector)
+- **Drizzle ORM** + Supabase (Postgres + Storage)
 - **React 19** + Tailwind + shadcn/ui (extension + dashboard)
+- **Tiptap** rich text editor with @mention for tab context
 - **Vite + CRXJS** for extension dev
 - **pnpm** + **Turborepo** monorepo
 - **Biome** for linting/formatting

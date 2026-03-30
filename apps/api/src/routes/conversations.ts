@@ -1,11 +1,11 @@
-import { and, count, desc, eq, gte } from 'drizzle-orm';
-import { sql } from 'drizzle-orm';
+import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { agents, conversations, messages, userMemory } from '../db/schema.js';
+import { agents, conversations, messages } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { loadPlan } from '../storage/plan-files.js';
+import { parsePagination } from '../utils/pagination.js';
 
 export const conversationRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
@@ -14,35 +14,47 @@ conversationRoutes.use('*', requireAuth);
 // List conversations
 conversationRoutes.get('/', async (c) => {
 	const user = c.get('user');
+	const { limit, offset } = parsePagination(c);
+
+	const scope = getOrgOrUserScope(user, conversations);
+
+	const [totalResult] = await db
+		.select({ count: count() })
+		.from(conversations)
+		.where(scope);
+
+	// Message count subquery
+	const msgCount = db
+		.select({
+			conversationId: messages.conversationId,
+			count: count().as('msg_count'),
+		})
+		.from(messages)
+		.groupBy(messages.conversationId)
+		.as('msg_counts');
 
 	const rows = await db
 		.select({
 			id: conversations.id,
 			title: conversations.title,
+			outcome: conversations.outcome,
+			status: conversations.status,
 			agentId: conversations.agentId,
 			agentName: agents.name,
 			planStatus: conversations.planStatus,
 			createdAt: conversations.createdAt,
 			updatedAt: conversations.updatedAt,
+			messageCount: sql<number>`COALESCE(${msgCount.count}, 0)`.as('messageCount'),
 		})
 		.from(conversations)
 		.leftJoin(agents, eq(conversations.agentId, agents.id))
-		.where(getOrgOrUserScope(user, conversations))
+		.leftJoin(msgCount, eq(conversations.id, msgCount.conversationId))
+		.where(scope)
 		.orderBy(desc(conversations.updatedAt))
-		.limit(50);
+		.limit(limit)
+		.offset(offset);
 
-	// Get message counts
-	const withCounts = await Promise.all(
-		rows.map(async (conv) => {
-			const [result] = await db
-				.select({ count: count() })
-				.from(messages)
-				.where(eq(messages.conversationId, conv.id));
-			return { ...conv, messageCount: result?.count ?? 0 };
-		}),
-	);
-
-	return c.json({ conversations: withCounts });
+	return c.json({ conversations: rows, total: totalResult?.count ?? 0 });
 });
 
 // Get conversation with messages
@@ -109,33 +121,9 @@ conversationRoutes.post('/:id/outcome', async (c) => {
 		.set({ outcome, updatedAt: new Date() })
 		.where(eq(conversations.id, convId));
 
-	// Reinforce or flag memories based on outcome
-	if (outcome === 'success') {
-		// Reinforce memories used during this conversation
-		await db
-			.update(userMemory)
-			.set({
-				timesReinforced: sql`${userMemory.timesReinforced} + 1`,
-				confidence: sql`LEAST(${userMemory.confidence} + 1, 5)`,
-				updatedAt: new Date(),
-			})
-			.where(and(eq(userMemory.userId, user.id), gte(userMemory.lastUsedAt, conv.createdAt)));
-	} else if (outcome === 'failure') {
-		// Reduce confidence of auto-memories used during this conversation
-		await db
-			.update(userMemory)
-			.set({
-				confidence: sql`GREATEST(${userMemory.confidence} - 1, 0)`,
-				updatedAt: new Date(),
-			})
-			.where(
-				and(
-					eq(userMemory.userId, user.id),
-					eq(userMemory.source, 'auto'),
-					gte(userMemory.lastUsedAt, conv.createdAt),
-				),
-			);
-	}
+	// Outcome is stored on the conversation record.
+	// Memory reinforcement is handled by the S3-backed memory system —
+	// the agent reinforces its own memories via save_memory/save_knowledge tools.
 
 	return c.json({ ok: true, outcome });
 });

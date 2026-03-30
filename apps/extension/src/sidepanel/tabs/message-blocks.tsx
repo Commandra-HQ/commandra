@@ -8,6 +8,7 @@ import {
 	CheckCircle2,
 	ChevronRight,
 	Circle,
+	Copy,
 	Download,
 	Globe,
 	ListChecks,
@@ -15,7 +16,7 @@ import {
 	Settings2,
 	X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { CrawlProgress } from '@afe/shared';
 import type { ChatMessage, MessageBlock, Plan, TOOL_LABELS as TL } from './chat-types.js';
@@ -27,12 +28,76 @@ import {
 	formatRelativeTime,
 } from './chat-types.js';
 
+// --- Copy button ---
+
+function CopyButton({ text, className = '' }: { text: string; className?: string }) {
+	const [copied, setCopied] = useState(false);
+	const handleCopy = useCallback(() => {
+		navigator.clipboard.writeText(text).then(() => {
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1500);
+		});
+	}, [text]);
+
+	return (
+		<button
+			onClick={handleCopy}
+			className={`p-1 rounded transition-colors ${className}`}
+			title="Copy"
+		>
+			{copied ? (
+				<Check size={12} className="text-green-400" />
+			) : (
+				<Copy size={12} />
+			)}
+		</button>
+	);
+}
+
+// --- Mention rendering ---
+
+const TAB_MENTION_RE = /@\[([^\]]+)\]\(tabId:(\d+)\)/g;
+
+function UserMessageContent({ content }: { content: string }) {
+	if (!content.includes('@[')) return <>{content}</>;
+
+	const parts: React.ReactNode[] = [];
+	let lastIndex = 0;
+	let match: RegExpExecArray | null;
+	const re = new RegExp(TAB_MENTION_RE.source, 'g');
+
+	while ((match = re.exec(content)) !== null) {
+		if (match.index > lastIndex) {
+			parts.push(content.slice(lastIndex, match.index));
+		}
+		parts.push(
+			<span
+				key={match.index}
+				className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-primary-foreground/15 border border-primary-foreground/25 text-primary-foreground text-[11px] font-mono"
+			>
+				<Globe size={10} />
+				{match[1]}
+			</span>,
+		);
+		lastIndex = re.lastIndex;
+	}
+
+	if (lastIndex < content.length) {
+		parts.push(content.slice(lastIndex));
+	}
+
+	return <>{parts}</>;
+}
+
 // --- User & Assistant Messages ---
 
 export function UserMessage({ msg }: { msg: ChatMessage }) {
 	return (
-		<div className="flex justify-end">
-			<div className="max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-primary text-primary-foreground">
+		<div className="group/msg flex justify-end">
+			<div className="relative max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-primary text-primary-foreground">
+				<div className="absolute -left-8 top-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+					<CopyButton text={msg.content} className="text-muted-foreground hover:text-foreground hover:bg-elevated" />
+				</div>
 				{msg.selectedElements && msg.selectedElements.length > 0 && (
 					<div className="flex flex-wrap gap-1 mb-1.5">
 						{msg.selectedElements.length === 1 ? (
@@ -55,7 +120,7 @@ export function UserMessage({ msg }: { msg: ChatMessage }) {
 						)}
 					</div>
 				)}
-				{msg.content}
+				<UserMessageContent content={msg.content} />
 			</div>
 		</div>
 	);
@@ -64,10 +129,12 @@ export function UserMessage({ msg }: { msg: ChatMessage }) {
 export function AssistantMessage({
 	msg,
 	isActive,
+	isLastMessage,
 	onApprove,
 }: {
 	msg: ChatMessage;
 	isActive: boolean;
+	isLastMessage?: boolean;
 	onApprove: (requestId: string, approved: boolean) => void;
 }) {
 	const rawBlocks = msg.blocks;
@@ -82,9 +149,19 @@ export function AssistantMessage({
 
 	if (blocks.length === 0) return null;
 
+	const copyableText = blocks
+		.filter((b): b is Extract<MessageBlock, { type: 'text' }> => b.type === 'text' && !b.content.startsWith('__approval') && !b.content.startsWith('__approved') && !b.content.startsWith('__rejected'))
+		.map(b => b.content)
+		.join('\n\n');
+
 	return (
-		<div className="flex justify-start">
-			<div className="max-w-[90%] space-y-2">
+		<div className="group/msg flex justify-start w-full">
+			<div className="relative w-[90%] space-y-2">
+				{copyableText && (
+					<div className="absolute -right-7 top-0 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+						<CopyButton text={copyableText} className="text-muted-foreground hover:text-foreground hover:bg-elevated" />
+					</div>
+				)}
 				{blocks.map((block, i) => {
 					switch (block.type) {
 						case 'thinking':
@@ -92,7 +169,27 @@ export function AssistantMessage({
 								<ThinkingBlock key={i} content={block.content} isLast={i === blocks.length - 1} />
 							);
 						case 'text': {
+							// Handle resolved approvals (persisted after user approved/rejected)
+							if (block.content.startsWith('__approved__:') || block.content.startsWith('__rejected__:')) {
+								const wasApproved = block.content.startsWith('__approved__:');
+								const parts = block.content.split(':');
+								const approvalType = parts[1];
+								const action = approvalType === 'plan' ? 'Plan' : (TOOL_LABELS[parts[3] || ''] || parts[3] || 'Action');
+								const label = parts[4] || parts[3] || '';
+								const colorClass = wasApproved ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5';
+								const textClass = wasApproved ? 'text-green-500' : 'text-red-500';
+								const statusLabel = wasApproved ? 'Approved' : 'Rejected';
+								return (
+									<div key={i} className={`px-3 py-2 text-xs border ${colorClass}`}>
+										<span className={`${textClass} font-medium`}>{statusLabel}</span>
+										<span className="text-muted-foreground"> — {approvalType === 'plan' ? label : `${action}${label ? ` "${label}"` : ''}`}</span>
+									</div>
+								);
+							}
 							if (block.content.startsWith('__approval__:')) {
+								// Approvals are only actionable on the last message of an active conversation.
+								// If this is an older message or the conversation finished, show as expired.
+								const approvalExpired = !isLastMessage || !isActive;
 								const parts = block.content.split(':');
 								const approvalType = parts[1];
 								const requestId = parts[2];
@@ -106,6 +203,7 @@ export function AssistantMessage({
 											type="plan"
 											description={desc}
 											steps={steps}
+											expired={approvalExpired}
 											onApprove={onApprove}
 										/>
 									);
@@ -121,6 +219,7 @@ export function AssistantMessage({
 										action={action}
 										label={label}
 										reason={reason}
+										expired={approvalExpired}
 										onApprove={onApprove}
 									/>
 								);
@@ -173,8 +272,8 @@ export function ThinkingBlock({ content, isLast }: { content: string; isLast: bo
 				<span>Thinking{isLast && hasContent ? '...' : ''}</span>
 			</button>
 			{showContent && hasContent && (
-				<div className="mt-1 ml-5 text-[11px] text-muted-foreground/70 whitespace-pre-wrap max-h-[200px] overflow-y-auto leading-relaxed">
-					{content}
+				<div className="mt-1 ml-5 text-[11px] text-muted-foreground/70 max-h-[200px] overflow-y-auto leading-relaxed break-words prose prose-sm dark:prose-invert max-w-none prose-p:my-0.5 prose-headings:my-1 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-0.5 prose-code:text-[10px] prose-strong:text-muted-foreground/90">
+					<ReactMarkdown breaks>{content.replace(/([^\n])\n(\*\*)/g, '$1\n\n$2')}</ReactMarkdown>
 				</div>
 			)}
 		</div>
@@ -198,15 +297,19 @@ export function InlineApprovalBlock({
 	reason,
 	description,
 	steps,
+	agentPreview,
+	expired,
 	onApprove,
 }: {
 	requestId: string;
-	type: 'tool' | 'plan';
+	type: 'tool' | 'plan' | 'agent';
 	action?: string;
 	label?: string;
 	reason?: string;
 	description?: string;
 	steps?: string[];
+	agentPreview?: { slug: string; name: string; description: string; soul: string; domains?: string[]; cron?: string };
+	expired?: boolean;
 	onApprove: (requestId: string, approved: boolean) => void;
 }) {
 	const [responded, setResponded] = useState<'approved' | 'rejected' | null>(null);
@@ -216,22 +319,22 @@ export function InlineApprovalBlock({
 		setResponded(approved ? 'approved' : 'rejected');
 	};
 
-	if (responded) {
+	if (responded || expired) {
+		const statusLabel = responded === 'approved' ? 'Approved' : responded === 'rejected' ? 'Rejected' : 'Skipped';
+		const colorClass = responded === 'approved' ? 'border-green-500/30 bg-green-500/5' : responded === 'rejected' ? 'border-red-500/30 bg-red-500/5' : 'border-muted bg-muted/5';
+		const textClass = responded === 'approved' ? 'text-green-500' : responded === 'rejected' ? 'text-red-500' : 'text-muted-foreground';
 		return (
-			<div className={`rounded-md px-3 py-2 text-xs border ${responded === 'approved' ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
-				{responded === 'approved' ? (
-					<span className="text-green-500 font-medium">Approved</span>
-				) : (
-					<span className="text-red-500 font-medium">Rejected</span>
-				)}
+			<div className={`px-3 py-2 text-xs border ${colorClass}`}>
+				<span className={`${textClass} font-medium`}>{statusLabel}</span>
 				{type === 'tool' && <span className="text-muted-foreground"> — {TOOL_LABELS[action || ''] || action}{label ? ` "${label}"` : ''}</span>}
 				{type === 'plan' && <span className="text-muted-foreground"> — {description}</span>}
+				{type === 'agent' && <span className="text-muted-foreground"> — Agent "{label}"</span>}
 			</div>
 		);
 	}
 
 	return (
-		<div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2.5 space-y-2">
+		<div className="border border-yellow-500/30 bg-yellow-500/5 px-3 py-2.5 space-y-2">
 			{type === 'tool' ? (
 				<>
 					<p className="text-xs font-medium text-foreground">
@@ -240,6 +343,23 @@ export function InlineApprovalBlock({
 						{label ? ` "${label}"` : ''}
 					</p>
 					{reason && <p className="text-[11px] text-muted-foreground">{reason}</p>}
+				</>
+			) : type === 'agent' ? (
+				<>
+					<p className="text-xs font-semibold text-foreground">Create Agent: {label}</p>
+					{reason && <p className="text-[11px] text-muted-foreground">{reason}</p>}
+					{agentPreview && (
+						<div className="mt-1 p-2 bg-secondary/50 text-[11px] space-y-1">
+							<div><span className="text-muted-foreground">Slug:</span> <code className="font-mono">{agentPreview.slug}</code></div>
+							{agentPreview.domains?.length ? (
+								<div><span className="text-muted-foreground">Domains:</span> {agentPreview.domains.join(', ')}</div>
+							) : null}
+							{agentPreview.cron && (
+								<div><span className="text-muted-foreground">Schedule:</span> <code className="font-mono">{agentPreview.cron}</code></div>
+							)}
+							<div className="text-muted-foreground/70 line-clamp-3 whitespace-pre-wrap">{agentPreview.soul}</div>
+						</div>
+					)}
 				</>
 			) : (
 				<>
@@ -256,13 +376,13 @@ export function InlineApprovalBlock({
 			<div className="flex gap-2">
 				<button
 					onClick={() => handleClick(true)}
-					className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
+					className="px-3 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700"
 				>
-					{type === 'plan' ? 'Approve Plan' : 'Approve'}
+					{type === 'plan' ? 'Approve Plan' : type === 'agent' ? 'Create Agent' : 'Approve'}
 				</button>
 				<button
 					onClick={() => handleClick(false)}
-					className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700"
+					className="px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700"
 				>
 					Reject
 				</button>

@@ -2,27 +2,52 @@
  * Browser tool execution — safety classification, approval gates, and WS-routed execution.
  */
 
-import type { SSEEvent } from '@afe/shared';
+import type { AgentHooks, SSEEvent } from '@afe/shared';
 import type { ImageBlock, TextBlock, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
+import { getOrCreateSite, updateSiteTotals, upsertPage } from '../routes/sites.js';
 import { logAction } from '../safety/audit.js';
 import { classifyAction } from '../safety/classifier.js';
-import { persistScreenshot, saveScreenshot } from '../screenshots/manager.js';
+import { persistScreenshot, saveScreenshot, uploadScreenshotToS3 } from '../screenshots/manager.js';
+import { updateSitemap } from '../storage/sitemap.js';
 import { executeTool } from '../tools/registry.js';
-import { isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { getConnectionByUser, getConnectionForConversation, isKilled, sendApprovalRequest } from '../ws/handler.js';
+import { evaluatePostToolUse, evaluatePreToolUse } from './hooks.js';
 import { INTERNAL_TOOL_NAMES } from './internal-tools.js';
+import { getRun } from './run-registry.js';
 
 /**
  * Partition tool blocks into safe/review/blocked buckets for parallel execution.
  * Internal tools are always safe (no WS routing).
  */
+// State-changing browser tools that must run sequentially — they modify the active tab
+// and running them in parallel causes only the last one to take effect.
+const SEQUENTIAL_TOOLS = new Set([
+	'navigate',
+	'click_element',
+	'type_text',
+	'select_option',
+	'go_back',
+	'scroll',
+]);
+
 export function partitionToolsBySafety(
 	toolBlocks: ToolUseBlock[],
 	domain?: string,
 	autonomy?: 'supervised' | 'trusted' | 'autonomous',
-): { safe: ToolUseBlock[]; review: ToolUseBlock[]; blocked: ToolUseBlock[] } {
+	domainAutonomy?: Record<string, 'supervised' | 'trusted' | 'autonomous'>,
+): {
+	safe: ToolUseBlock[];
+	sequential: ToolUseBlock[];
+	review: ToolUseBlock[];
+	blocked: ToolUseBlock[];
+} {
 	const safe: ToolUseBlock[] = [];
+	const sequential: ToolUseBlock[] = [];
 	const review: ToolUseBlock[] = [];
 	const blocked: ToolUseBlock[] = [];
+
+	// Resolve effective autonomy: domain-specific override > agent default
+	const effectiveAutonomy = (domain && domainAutonomy?.[domain]) || autonomy;
 
 	for (const block of toolBlocks) {
 		if (INTERNAL_TOOL_NAMES.has(block.name)) {
@@ -38,26 +63,23 @@ export function partitionToolsBySafety(
 			elementLabel,
 		});
 
-		if (autonomy === 'autonomous') {
-			safe.push(block);
-		} else if (autonomy === 'trusted') {
-			if (classification.level === 'blocked') {
-				blocked.push(block);
-			} else {
-				safe.push(block);
-			}
+		if (classification.level === 'blocked') {
+			blocked.push(block);
+		} else if (
+			classification.level === 'review' &&
+			effectiveAutonomy !== 'autonomous' &&
+			effectiveAutonomy !== 'trusted'
+		) {
+			review.push(block);
+		} else if (SEQUENTIAL_TOOLS.has(block.name)) {
+			// State-changing browser tools must run one at a time
+			sequential.push(block);
 		} else {
-			if (classification.level === 'blocked') {
-				blocked.push(block);
-			} else if (classification.level === 'review') {
-				review.push(block);
-			} else {
-				safe.push(block);
-			}
+			safe.push(block);
 		}
 	}
 
-	return { safe, review, blocked };
+	return { safe, sequential, review, blocked };
 }
 
 interface ToolCallResult {
@@ -75,6 +97,7 @@ export async function handleBrowserToolCall(
 	connectionId: string,
 	onEvent: (event: SSEEvent) => Promise<void>,
 	autonomy?: 'supervised' | 'trusted' | 'autonomous',
+	hooks?: AgentHooks,
 ): Promise<ToolCallResult> {
 	const { name, input: toolArgs } = block;
 	const elementLabel = (toolArgs.description as string) || (toolArgs.selector as string) || '';
@@ -83,6 +106,20 @@ export async function handleBrowserToolCall(
 	if (isKilled(connectionId)) {
 		return {
 			data: { success: false, error: 'Agent stopped by user' },
+			isError: true,
+		};
+	}
+
+	// Agent hooks: PreToolUse — deterministic rule-based check before safety classification
+	const hookCheck = evaluatePreToolUse(hooks, name, toolArgs as Record<string, unknown>);
+	if (!hookCheck.allowed) {
+		await onEvent({
+			type: 'blocked',
+			toolName: name,
+			reason: hookCheck.reason || 'Blocked by agent hook',
+		});
+		return {
+			data: { success: false, error: `Hook blocked: ${hookCheck.reason}` },
 			isError: true,
 		};
 	}
@@ -115,21 +152,27 @@ export async function handleBrowserToolCall(
 	// Review — skip approval for trusted/autonomous agents
 	if (classification.level === 'review' && autonomy !== 'trusted' && autonomy !== 'autonomous') {
 		try {
+			const inlineRequestId = `${block.id}-approval`;
 			await onEvent({
 				type: 'approval_inline',
-				requestId: `${block.id}-approval`,
+				requestId: inlineRequestId,
 				action: name,
 				label: elementLabel || undefined,
 				reason: classification.reason,
 				approvalType: 'tool',
 			});
 
-			const approval = await sendApprovalRequest(connectionId, {
-				action: name,
-				selector: toolArgs.selector as string,
-				label: elementLabel,
-				reason: classification.reason,
-			});
+			const approval = await sendApprovalRequest(
+				connectionId,
+				{
+					action: name,
+					selector: toolArgs.selector as string,
+					label: elementLabel,
+					reason: classification.reason,
+				},
+				60000,
+				inlineRequestId,
+			);
 
 			if (!approval.approved) {
 				await logAction({
@@ -195,6 +238,19 @@ export async function handleBrowserToolCall(
 				const freshData = freshState as unknown as Record<string, unknown>;
 				if (freshData?.success) {
 					pageStateUpdate = freshData.data;
+
+					// Persist page to DB + sitemap (fire-and-forget)
+					const pageData = freshData.data as {
+						url?: string;
+						urlPattern?: string;
+						title?: string;
+						pageType?: string;
+						elements?: unknown[];
+						navigationLinks?: unknown[];
+					};
+					if (pageData?.url) {
+						persistPageState(userId, pageData).catch(() => {});
+					}
 				}
 			} catch {
 				// Non-critical
@@ -206,7 +262,7 @@ export async function handleBrowserToolCall(
 				? ((resultData.data as Record<string, unknown>)?.image as string | undefined)
 				: undefined;
 
-		// Merge page state update into the result
+		// Merge page state update into the result — compact format to save context
 		let enrichedResult: unknown = result;
 		if (pageStateUpdate && resultData?.success) {
 			const ps = pageStateUpdate as {
@@ -219,21 +275,36 @@ export async function handleBrowserToolCall(
 				const otherEls = ps.elements.filter((e) => !e.inOverlay);
 
 				const formatEl = (e: { type: string; label: string; selector: string }) =>
-					`[${e.type}] "${e.label}" → selector: ${e.selector}`;
+					`[${e.type}] "${e.label}" → ${e.selector}`;
 
-				const elementSummary = [
-					...(overlayEls.length > 0
-						? ['MODAL/DIALOG ELEMENTS (use these first):', ...overlayEls.slice(0, 20).map(formatEl)]
-						: []),
-					'PAGE ELEMENTS:',
-					...otherEls.slice(0, 30).map(formatEl),
-					...(otherEls.length > 30 ? [`...and ${otherEls.length - 30} more`] : []),
-				].join('\n');
+				// Group by type for a compact count summary
+				const typeCounts: Record<string, number> = {};
+				for (const el of otherEls) {
+					typeCounts[el.type] = (typeCounts[el.type] || 0) + 1;
+				}
+				const countSummary = Object.entries(typeCounts)
+					.map(([type, count]) => `${count} ${type}s`)
+					.join(', ');
+
+				const lines: string[] = [];
+
+				// Overlay elements always shown in full (they're immediately actionable)
+				if (overlayEls.length > 0) {
+					lines.push('MODAL/DIALOG ELEMENTS (use these first):');
+					lines.push(...overlayEls.slice(0, 20).map(formatEl));
+				}
+
+				// Regular elements: compact summary + only top 10 for context
+				lines.push(`PAGE UPDATED: ${ps.elements.length} elements (${countSummary})`);
+				lines.push(...otherEls.slice(0, 10).map(formatEl));
+				if (otherEls.length > 10) {
+					lines.push(`...and ${otherEls.length - 10} more — use refresh_page_state to see all`);
+				}
 
 				enrichedResult = {
 					...resultData,
-					updatedPageElements: elementSummary,
-					note: 'USE ONLY the selectors listed above. Do NOT invent selectors.',
+					updatedPageElements: lines.join('\n'),
+					note: 'USE ONLY selectors from above or call refresh_page_state for the full list.',
 				};
 			} else {
 				enrichedResult = { ...resultData, pageState: pageStateUpdate };
@@ -248,6 +319,12 @@ export async function handleBrowserToolCall(
 			screenshot: screenshotImage,
 			error: toolSucceeded ? undefined : (resultData?.error as string) || 'Action failed',
 		});
+
+		// Agent hooks: PostToolUse — side effects after execution
+		const postHook = evaluatePostToolUse(hooks, name, toolArgs as Record<string, unknown>);
+		for (const msg of postHook.logMessages) {
+			console.log(`[Hooks] PostToolUse log: ${msg}`);
+		}
 
 		return { data: enrichedResult, isError: !toolSucceeded };
 	} catch (err) {
@@ -289,6 +366,7 @@ export async function executeToolBlock(
 	depth?: number,
 	conversationId?: string,
 	autonomy?: 'supervised' | 'trusted' | 'autonomous',
+	hooks?: AgentHooks,
 ): Promise<ToolResultBlock> {
 	// Try internal tools first
 	const { executeInternalTool } = await import('./internal-tools.js');
@@ -302,11 +380,31 @@ export async function executeToolBlock(
 		depth,
 		conversationId,
 		autonomy,
+		// When switch_tab is called, update the orchestrator context so subsequent tools target the new tab
+		onTabSwitch: (newTabId: number) => {
+			(context as { tabId?: number }).tabId = newTabId;
+		},
 	});
 	if (internalResult) return internalResult;
 
+	// Get fresh connectionId — prefer conversation-scoped, then run, then user-level
+	const freshConnectionId =
+		(conversationId ? getConnectionForConversation(conversationId) : null) ||
+		(conversationId ? getRun(conversationId)?.connectionId : undefined) ||
+		getConnectionByUser(userId) ||
+		connectionId;
+	const freshContext = { ...context, connectionId: freshConnectionId };
+
 	// Browser tool — classify, approve, execute
-	const result = await handleBrowserToolCall(block, context, userId, connectionId, onEvent, autonomy);
+	const result = await handleBrowserToolCall(
+		block,
+		freshContext,
+		userId,
+		freshConnectionId,
+		onEvent,
+		autonomy,
+		hooks,
+	);
 
 	// Build tool result content — save screenshots to disk, keep compressed version for LLM
 	let toolContent: string | (TextBlock | ImageBlock)[];
@@ -320,10 +418,25 @@ export async function executeToolBlock(
 		provider.supportsVision
 	) {
 		const { image, ...rest } = imageData;
-		const saved = saveScreenshot(image as string);
-		console.log(
-			`[Orchestrator] Screenshot saved: ${saved.id} (${Math.round(saved.sizeBytes / 1024)}KB)`,
-		);
+
+		// Upload to S3 and get signed URL — persistent, referenceable, no inline base64 bloat
+		let screenshotUrl: string | undefined;
+		let screenshotId: string;
+		try {
+			const s3Result = await uploadScreenshotToS3(image as string, userId, {
+				domain,
+				conversationId,
+			});
+			screenshotUrl = s3Result.url;
+			screenshotId = s3Result.id;
+		} catch (err) {
+			// Fallback to local save if S3 fails
+			console.warn('[Orchestrator] S3 screenshot upload failed, using local:', err);
+			const saved = saveScreenshot(image as string);
+			screenshotId = saved.id;
+		}
+
+		// Also persist locally for long-term storage
 		if (domain) {
 			try {
 				persistScreenshot(image as string, domain, `${userId.slice(0, 8)}-${Date.now()}`);
@@ -331,17 +444,61 @@ export async function executeToolBlock(
 				// Non-critical
 			}
 		}
-		toolContent = [
-			{
-				type: 'text' as const,
-				text: JSON.stringify({ success: true, data: { ...rest, screenshotId: saved.id } }),
-			},
-			{
-				type: 'image' as const,
-				data: saved.base64,
-				mediaType: 'image/jpeg' as const,
-			},
-		];
+
+		// Upload to LLM provider's Files API — reference by fileId, no base64 in context
+		let providerFileId: string | undefined;
+		try {
+			const { uploadScreenshotToProvider } = await import('../screenshots/provider-upload.js');
+			const fileId = await uploadScreenshotToProvider(image as string, screenshotId);
+			if (fileId) providerFileId = fileId;
+		} catch (err) {
+			console.warn('[Orchestrator] Provider file upload failed (will use fallback):', err);
+		}
+
+		if (providerFileId) {
+			// Best path: reference by provider file_id — zero base64 in context
+			toolContent = [
+				{
+					type: 'text' as const,
+					text: JSON.stringify({ success: true, data: { ...rest, screenshotId, screenshotUrl } }),
+				},
+				{
+					type: 'image' as const,
+					data: image as string, // kept for S3/local storage only, NOT sent to LLM
+					mediaType: 'image/jpeg' as const,
+					url: screenshotUrl,
+					fileId: providerFileId,
+				},
+			];
+		} else if (screenshotUrl) {
+			// Fallback: URL reference (works for Anthropic with public URLs)
+			toolContent = [
+				{
+					type: 'text' as const,
+					text: JSON.stringify({ success: true, data: { ...rest, screenshotId, screenshotUrl } }),
+				},
+				{
+					type: 'image' as const,
+					data: image as string,
+					mediaType: 'image/jpeg' as const,
+					url: screenshotUrl,
+				},
+			];
+		} else {
+			// Last resort: inline base64
+			const saved = saveScreenshot(image as string);
+			toolContent = [
+				{
+					type: 'text' as const,
+					text: JSON.stringify({ success: true, data: { ...rest, screenshotId: saved.id } }),
+				},
+				{
+					type: 'image' as const,
+					data: saved.base64,
+					mediaType: 'image/jpeg' as const,
+				},
+			];
+		}
 	} else {
 		toolContent = JSON.stringify(result.data);
 	}
@@ -352,4 +509,43 @@ export async function executeToolBlock(
 		content: toolContent,
 		isError: result.isError,
 	};
+}
+
+/**
+ * Persist page state to DB (pages table) and S3 (SITEMAP.yaml).
+ * Called after every auto page-state refresh so the agent's browsing
+ * actively builds the sitemap — not relying on the extension's passive events.
+ */
+async function persistPageState(
+	userId: string,
+	pageData: {
+		url?: string;
+		urlPattern?: string;
+		title?: string;
+		pageType?: string;
+		elements?: unknown[];
+		navigationLinks?: unknown[];
+	},
+): Promise<void> {
+	if (!pageData.url) return;
+
+	try {
+		const domain = new URL(pageData.url).hostname;
+		const site = await getOrCreateSite(userId, domain);
+
+		await upsertPage(site.id, { ...pageData, url: pageData.url! });
+		await updateSiteTotals(site.id);
+
+		// Update sitemap
+		updateSitemap(userId, domain, {
+			url: pageData.url,
+			urlPattern: pageData.urlPattern,
+			title: pageData.title,
+			pageType: pageData.pageType,
+			elements: pageData.elements,
+			navigationLinks: pageData.navigationLinks as { label: string; href: string }[] | undefined,
+		}).catch(() => {});
+	} catch (err) {
+		console.error('[browser-tools] Failed to persist page state:', err);
+	}
 }

@@ -1,18 +1,11 @@
 'use client';
 
+import { MarkdownEditor } from '@/components/markdown-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-	Bot,
-	ChevronDown,
-	ChevronRight,
-	Clock,
-	FileText,
-	Save,
-	Trash2,
-	Upload,
-} from 'lucide-react';
+import { Bot, ChevronDown, ChevronRight, Clock, FileText, Plus, Save, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export interface Agent {
 	id: string;
@@ -34,54 +27,65 @@ export interface AgentFile {
 	updatedAt: string;
 }
 
+export interface AgentRun {
+	id: string;
+	status: string;
+	toolCalls: number;
+	durationMs: number | null;
+	error: string | null;
+	createdAt: string;
+}
+
 const KNOWN_FILES = ['SOUL.md', 'SKILLS.md', 'LEARNINGS.md', 'ERRORS.md'];
 
 function getPlaceholder(filename: string): string {
 	switch (filename) {
 		case 'SOUL.md':
-			return 'You are a GitHub specialist. You help users navigate repositories, review PRs, and manage issues efficiently...';
+			return "Define this agent's personality and identity...";
 		case 'SKILLS.md':
-			return '## Learned Skills\n\n- Navigate to PR review page using the "Pull requests" tab\n- Filter issues by label using the sidebar...';
+			return 'Learned capabilities will appear here...';
 		case 'LEARNINGS.md':
-			return '## Corrections & Discoveries\n\n- User prefers squash merges over regular merges\n- The "Files changed" tab loads slowly on large PRs...';
+			return 'Corrections and discoveries will appear here...';
 		case 'ERRORS.md':
-			return '## Failure Patterns\n\n- Clicking "Merge" too quickly after approval causes a race condition...';
+			return 'Failure patterns will appear here...';
 		default:
-			return '';
+			return 'Start writing...';
 	}
+}
+
+function isMarkdownFile(filename: string): boolean {
+	return filename.endsWith('.md');
 }
 
 export function AgentCard({
 	agent,
 	isExpanded,
 	files,
-	editingFile,
-	editContent,
-	saving,
+	fileContents,
+	savingFile,
 	onToggleExpand,
 	onDelete,
 	onToggleSchedule,
-	onStartEdit,
 	onCreateNewFile,
-	onEditContentChange,
 	onSaveFile,
-	onCancelEdit,
+	onLoadFile,
+	runs,
 }: {
 	agent: Agent;
 	isExpanded: boolean;
 	files: AgentFile[];
-	editingFile: { agentId: string; filename: string } | null;
-	editContent: string;
-	saving: boolean;
+	fileContents: Record<string, string>;
+	savingFile: string | null;
+	runs?: AgentRun[];
 	onToggleExpand: () => void;
 	onDelete: () => void;
 	onToggleSchedule: () => void;
-	onStartEdit: (filename: string) => void;
 	onCreateNewFile: () => void;
-	onEditContentChange: (content: string) => void;
-	onSaveFile: () => void;
-	onCancelEdit: () => void;
+	onSaveFile: (filename: string, content: string) => void;
+	onLoadFile: (filename: string) => void;
 }) {
+	const missingFiles = KNOWN_FILES.filter((f) => !files.some((af) => af.name === f));
+
 	return (
 		<Card>
 			<CardContent className="py-3 px-4">
@@ -94,7 +98,7 @@ export function AgentCard({
 						{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 						<Bot size={16} className="text-primary shrink-0" />
 						<span className="font-medium text-sm">{agent.name}</span>
-						<Badge variant="outline" className="text-[10px] ml-1">
+						<Badge variant="outline" className="text-[10px] ml-1 font-mono">
 							{agent.slug}
 						</Badge>
 						{agent.model && (
@@ -125,13 +129,11 @@ export function AgentCard({
 				</div>
 
 				{agent.description && (
-					<p className="text-xs text-muted-foreground mt-1 ml-8">
-						{agent.description}
-					</p>
+					<p className="text-xs text-muted-foreground mt-1 ml-8">{agent.description}</p>
 				)}
 
 				{/* Tags */}
-				{(agent.domains?.length || agent.tools?.length) && (
+				{agent.domains?.length || agent.tools?.length ? (
 					<div className="flex gap-1.5 flex-wrap mt-2 ml-8">
 						{agent.domains?.map((d) => (
 							<Badge key={d} variant="default" className="text-[10px]">
@@ -144,16 +146,22 @@ export function AgentCard({
 							</Badge>
 						))}
 					</div>
-				)}
+				) : null}
 
-				{/* Expanded: Files */}
+				{/* Expanded content */}
 				{isExpanded && (
-					<div className="mt-4 ml-8 space-y-3">
+					<div className="mt-4 ml-8 space-y-4">
+						{/* Schedule */}
 						{agent.trigger?.cron && (
-							<div className="flex items-center justify-between p-2 rounded border border-border bg-muted/30">
+							<div className="flex items-center justify-between p-2.5 border border-border bg-surface">
 								<div className="flex items-center gap-2 text-xs">
 									<Clock size={14} className="text-muted-foreground" />
-									<span>Schedule: <code className="bg-muted px-1 rounded">{agent.trigger.cron}</code></span>
+									<span>
+										Schedule:{' '}
+										<code className="bg-elevated px-1.5 py-0.5 font-mono text-[11px]">
+											{agent.trigger.cron}
+										</code>
+									</span>
 								</div>
 								<Button
 									size="sm"
@@ -165,6 +173,8 @@ export function AgentCard({
 								</Button>
 							</div>
 						)}
+
+						{/* Files header */}
 						<div className="flex items-center justify-between">
 							<h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
 								Agent Files
@@ -172,22 +182,21 @@ export function AgentCard({
 							<Button
 								size="sm"
 								variant="outline"
-								className="h-7 text-xs"
+								className="h-7 text-xs gap-1"
 								onClick={onCreateNewFile}
 							>
-								<Upload size={12} className="mr-1" />
-								New File
+								<Plus size={12} /> New File
 							</Button>
 						</div>
 
-						{/* Quick-create buttons for known files that don't exist yet */}
-						{KNOWN_FILES.filter((f) => !files.some((af) => af.name === f)).length > 0 && (
+						{/* Quick-create for missing standard files */}
+						{missingFiles.length > 0 && (
 							<div className="flex gap-1.5 flex-wrap">
-								{KNOWN_FILES.filter((f) => !files.some((af) => af.name === f)).map((f) => (
+								{missingFiles.map((f) => (
 									<button
 										key={f}
-										onClick={() => onStartEdit(f)}
-										className="px-2 py-1 text-[10px] rounded border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-primary transition-colors"
+										onClick={() => onSaveFile(f, `# ${f.replace('.md', '')}\n\n`)}
+										className="px-2.5 py-1 text-[11px] border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors font-mono"
 									>
 										+ {f}
 									</button>
@@ -195,85 +204,186 @@ export function AgentCard({
 							</div>
 						)}
 
-						{files.length === 0 && !editingFile && (
-							<p className="text-xs text-muted-foreground">
+						{files.length === 0 && (
+							<p className="text-xs text-muted-foreground py-2">
 								No files yet. Create SOUL.md to give this agent a personality.
 							</p>
 						)}
 
+						{/* Inline editable files — always rendered as editors */}
 						{files.map((file) => (
-							<div
+							<InlineFileEditor
 								key={file.name}
-								className="flex items-center justify-between p-2 rounded border border-border hover:bg-muted/50"
-							>
-								<div className="flex items-center gap-2">
-									<FileText size={14} className="text-muted-foreground" />
-									<span className="text-sm">{file.name}</span>
-									<span className="text-[10px] text-muted-foreground">
-										{file.size > 0 ? `${(file.size / 1024).toFixed(1)} KB` : ''}
-									</span>
-								</div>
-								<Button
-									size="sm"
-									variant="ghost"
-									className="h-7 text-xs"
-									onClick={() => onStartEdit(file.name)}
-								>
-									Edit
-								</Button>
-							</div>
+								filename={file.name}
+								content={fileContents[file.name]}
+								saving={savingFile === file.name}
+								onSave={(content) => onSaveFile(file.name, content)}
+								onLoad={() => onLoadFile(file.name)}
+							/>
 						))}
 
-						{/* File editor */}
-						{editingFile?.agentId === agent.id && (
+						{/* Recent runs */}
+						{runs && runs.length > 0 && (
 							<div className="space-y-2">
-								<div className="flex items-center justify-between">
-									<span className="text-sm font-medium">
-										{editingFile.filename}
-									</span>
-									<div className="flex items-center gap-1">
-										<Button
-											size="sm"
-											className="h-7 text-xs"
-											onClick={onSaveFile}
-											disabled={saving}
+								<h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+									Recent Runs
+								</h4>
+								<div className="space-y-1">
+									{runs.slice(0, 10).map((run) => (
+										<div
+											key={run.id}
+											className={`flex items-center justify-between p-2.5 border text-xs ${
+												run.status === 'completed'
+													? 'border-green-500/20 bg-green-500/5'
+													: run.status === 'failed'
+														? 'border-red-500/20 bg-red-500/5'
+														: run.status === 'queued'
+															? 'border-yellow-500/20 bg-yellow-500/5'
+															: 'border-border'
+											}`}
 										>
-											<Save size={12} className="mr-1" />
-											{saving ? 'Saving...' : 'Save'}
-										</Button>
-										<Button
-											size="sm"
-											variant="ghost"
-											className="h-7 text-xs"
-											onClick={onCancelEdit}
-										>
-											Cancel
-										</Button>
-									</div>
+											<div className="flex items-center gap-3">
+												<span
+													className={`inline-block w-2 h-2 ${
+														run.status === 'completed'
+															? 'bg-green-500'
+															: run.status === 'failed'
+																? 'bg-red-500'
+																: run.status === 'queued'
+																	? 'bg-yellow-500'
+																	: 'bg-muted-foreground'
+													}`}
+												/>
+												<span className="text-muted-foreground font-mono">
+													{new Date(run.createdAt).toLocaleString(undefined, {
+														month: 'short',
+														day: 'numeric',
+														hour: '2-digit',
+														minute: '2-digit',
+													})}
+												</span>
+												{run.durationMs != null && (
+													<span className="text-muted-foreground font-mono">
+														{run.durationMs < 60000
+															? `${Math.round(run.durationMs / 1000)}s`
+															: `${Math.round(run.durationMs / 60000)}m`}
+													</span>
+												)}
+												<span className="text-muted-foreground">{run.toolCalls} tools</span>
+											</div>
+											{run.error && (
+												<span
+													className="text-red-400 truncate max-w-[200px] font-mono"
+													title={run.error}
+												>
+													{run.error.slice(0, 50)}
+												</span>
+											)}
+										</div>
+									))}
 								</div>
-								<textarea
-									value={editContent}
-									onChange={(e) => onEditContentChange(e.target.value)}
-									className="w-full min-h-[200px] rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
-									placeholder={getPlaceholder(editingFile.filename)}
-								/>
-							</div>
-						)}
-
-						{/* Soul preview if loaded */}
-						{agent.soul && !editingFile && (
-							<div className="p-3 rounded bg-muted/50 border border-border">
-								<p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
-									SOUL.md Preview
-								</p>
-								<p className="text-xs text-foreground whitespace-pre-wrap line-clamp-4">
-									{agent.soul}
-								</p>
 							</div>
 						)}
 					</div>
 				)}
 			</CardContent>
 		</Card>
+	);
+}
+
+/** Inline file editor — always editable, with per-file save button. */
+function InlineFileEditor({
+	filename,
+	content,
+	saving,
+	onSave,
+	onLoad,
+}: {
+	filename: string;
+	content: string | undefined;
+	saving: boolean;
+	onSave: (content: string) => void;
+	onLoad: () => void;
+}) {
+	const [localContent, setLocalContent] = useState<string | null>(null);
+	const [dirty, setDirty] = useState(false);
+
+	// Load content on mount if not already loaded
+	useEffect(() => {
+		if (content === undefined) {
+			onLoad();
+		}
+	}, [content, onLoad]);
+
+	// Sync from parent when content first arrives
+	useEffect(() => {
+		if (content !== undefined && localContent === null) {
+			setLocalContent(content);
+		}
+	}, [content, localContent]);
+
+	const handleChange = (md: string) => {
+		setLocalContent(md);
+		setDirty(true);
+	};
+
+	const handleSave = () => {
+		if (localContent !== null) {
+			onSave(localContent);
+			setDirty(false);
+		}
+	};
+
+	if (content === undefined) {
+		return (
+			<div className="border border-border p-3">
+				<div className="flex items-center gap-2">
+					<FileText size={14} className="text-muted-foreground" />
+					<span className="text-sm font-mono">{filename}</span>
+					<span className="text-[10px] text-muted-foreground animate-pulse">Loading...</span>
+				</div>
+			</div>
+		);
+	}
+
+	const displayContent = localContent ?? content;
+
+	return (
+		<div className="border border-border">
+			<div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface">
+				<div className="flex items-center gap-2">
+					<FileText size={12} className="text-muted-foreground" />
+					<span className="text-[11px] font-mono font-medium text-muted-foreground">
+						{filename}
+					</span>
+					{dirty && <span className="text-[10px] text-yellow-500 font-mono">unsaved</span>}
+				</div>
+				<Button
+					size="sm"
+					variant={dirty ? 'default' : 'ghost'}
+					className="h-6 text-[11px] gap-1 px-2"
+					onClick={handleSave}
+					disabled={saving || !dirty}
+				>
+					<Save size={11} />
+					{saving ? 'Saving...' : 'Save'}
+				</Button>
+			</div>
+			{isMarkdownFile(filename) ? (
+				<MarkdownEditor
+					content={displayContent}
+					onChange={handleChange}
+					placeholder={getPlaceholder(filename)}
+					minHeight="120px"
+				/>
+			) : (
+				<textarea
+					value={displayContent}
+					onChange={(e) => handleChange(e.target.value)}
+					className="w-full min-h-[120px] border-0 bg-transparent px-3 py-2 text-sm font-mono focus:outline-none resize-y"
+					placeholder={getPlaceholder(filename)}
+				/>
+			)}
+		</div>
 	);
 }

@@ -1,6 +1,7 @@
 import { startSelectorInPage, stopSelectorInPage } from '../content/selector.js';
 import { initSentry } from '../lib/sentry.js';
 import { startCrawl, stopCrawl } from './crawler.js';
+import { getTrackedTabs, initTabRegistry, startTabEventListeners } from './tab-registry.js';
 import {
 	connectWebSocket,
 	isConnected,
@@ -10,6 +11,8 @@ import {
 } from './ws-client.js';
 
 initSentry('background');
+// Start passive tab tracking
+initTabRegistry().then(() => startTabEventListeners());
 
 // Injected at build time by Vite define (see vite.config.ts)
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
@@ -36,6 +39,11 @@ connectWebSocket();
 // Handle messages from side panel and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	switch (message.type) {
+		case 'GET_TABS': {
+			sendResponse({ tabs: getTrackedTabs() });
+			break;
+		}
+
 		case 'CRAWL_START': {
 			const { tabId, maxPages } = message.payload as { tabId: number; maxPages?: number };
 			startCrawl(tabId, maxPages);

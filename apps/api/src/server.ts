@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { WebSocketServer } from 'ws';
+import { resetStaleRuns } from './agent/run-registry.js';
 import { startScheduler, stopScheduler } from './agent/scheduler.js';
 import { agentRoutes } from './routes/agents.js';
 import { auditRoutes } from './routes/audit.js';
@@ -19,7 +20,9 @@ import { settingsRoutes } from './routes/settings.js';
 import { siteRoutes } from './routes/sites.js';
 import { statsRoutes } from './routes/stats.js';
 import { storageRoutes } from './routes/storage.js';
+import { syncRoutes } from './routes/sync.js';
 import { tokenRoutes } from './routes/token.js';
+import { usageRoutes } from './routes/usage.js';
 import { initLocalStorage } from './storage/local.js';
 import { handleWsConnection } from './ws/handler.js';
 
@@ -46,7 +49,7 @@ app.use(
 			return null;
 		},
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-		allowHeaders: ['Content-Type', 'Authorization'],
+		allowHeaders: ['Content-Type', 'Authorization', 'X-Sync-Secret'],
 	}),
 );
 
@@ -61,12 +64,17 @@ app.route('/api/sites', siteRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/stats', statsRoutes);
 app.route('/api/memory', memoryRoutes);
+app.route('/api/orgs/sync', syncRoutes);
 app.route('/api/orgs', orgRoutes);
 app.route('/api/storage', storageRoutes);
 app.route('/api/agents', agentRoutes);
+app.route('/api/usage', usageRoutes);
 
 // Initialize local storage directories
 initLocalStorage();
+
+// Reset any stale running/paused conversations from a previous server process
+resetStaleRuns();
 
 // Start agent scheduler
 startScheduler();

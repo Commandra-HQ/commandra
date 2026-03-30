@@ -3,7 +3,6 @@ import { useTheme } from './theme.js';
 import { useAuth } from './contexts/auth.js';
 import { LoginScreen } from './screens/LoginScreen.js';
 import { ChatTab } from './tabs/ChatTab.js';
-import { HubTab } from './tabs/HubTab.js';
 import { SettingsTab } from './tabs/SettingsTab.js';
 import { HubLayout } from './layouts/HubLayout.js';
 
@@ -14,7 +13,10 @@ export function App() {
 	if (loading) {
 		return (
 			<div className="flex items-center justify-center h-screen">
-				<p className="text-sm text-muted-foreground">Loading...</p>
+				<div className="flex items-center gap-2">
+					<span className="status-pixel bg-muted-foreground animate-pulse" />
+					<p className="text-xs font-mono text-muted-foreground">Loading...</p>
+				</div>
 			</div>
 		);
 	}
@@ -25,10 +27,10 @@ export function App() {
 				{user ? (
 					<>
 						<Route element={<HubLayout />}>
-							<Route index element={<HubTab />} />
+							{/* Default route is now a fresh chat */}
+							<Route index element={<ChatTab />} />
+							<Route path="/chat/:conversationId" element={<ChatTab />} />
 						</Route>
-						<Route path="/chat" element={<ChatTab />} />
-						<Route path="/chat/:conversationId" element={<ChatTab />} />
 						<Route path="/settings" element={<SettingsTab />} />
 						<Route path="*" element={<Navigate to="/" replace />} />
 					</>

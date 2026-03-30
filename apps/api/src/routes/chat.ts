@@ -1,17 +1,36 @@
-import type { SSEEvent } from '@afe/shared';
-import { and, asc, eq } from 'drizzle-orm';
+import type { AgentConfig, SSEEvent } from '@afe/shared';
+import { and, asc, count, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { resolveAgent } from '../agent/agent-registry.js';
+import type { OrchestratorResult } from '../agent/orchestrator.js';
 import { runOrchestrator, runSimpleChat } from '../agent/orchestrator.js';
-import { analyzeAndImprove, recordAgentRun } from '../agent/self-improve.js';
+import {
+	abortPromise,
+	completeRun,
+	createDurableOnEvent,
+	createRun,
+	getRun,
+	saveFinalMessage,
+	subscribeSSE,
+} from '../agent/run-registry.js';
+import { analyzeAndImprove, calculateCost, recordAgentRun } from '../agent/self-improve.js';
+import { getLockedTab, lockTab, unlockByConversation } from '../agent/tab-locks.js';
 import { db } from '../db/index.js';
-import { conversations, messages, pages, sites } from '../db/schema.js';
+import { agents, conversations, messages, pages, sites } from '../db/schema.js';
 import { getOrgOrUserScope } from '../db/scope.js';
-import { loadDomainKnowledgeFromS3, loadDomainMemory } from '../memory/domain.js';
-import { loadUserMemory } from '../memory/user.js';
+import { getFastModel, getModelCapabilities, getProvider, getStrongModel } from '../llm/index.js';
+import { loadDomainKnowledgeFromS3, syncDomainKnowledgeToS3 } from '../memory/domain.js';
+import { extractAndSaveUserMemory, loadUserMemory } from '../memory/user.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
-import { getConnectionByUser, resetKill } from '../ws/handler.js';
+import { loadPlan } from '../storage/plan-files.js';
+import { loadSitemap, renderSitemapTree } from '../storage/sitemap.js';
+import {
+	getConnectionByUser,
+	registerConversationConnection,
+	resetKill,
+	sendActionRequest,
+} from '../ws/handler.js';
 
 /**
  * Detect if a user message clearly requires PARALLEL work across multiple distinct websites.
@@ -56,6 +75,66 @@ function detectMultiSiteIntent(message: string): boolean {
 	}
 
 	return false;
+}
+
+/**
+ * Generate a short conversation title using the fast model.
+ * Called after the 1st message (initial title) and 3rd message (refined title).
+ * Fire-and-forget — never blocks the chat flow.
+ */
+async function generateConversationTitle(
+	convId: string,
+	chatMessages: { role: string; content: string }[],
+	onEvent?: (event: SSEEvent) => Promise<void>,
+): Promise<void> {
+	console.log(
+		`[TitleGen] Starting title generation for ${convId} (${chatMessages.length} messages)`,
+	);
+	try {
+		const provider = getProvider();
+		const fastModel = getFastModel();
+		const { collectStream } = await import('../llm/types.js');
+
+		const recent = chatMessages
+			.slice(-6)
+			.map((m) => `${m.role}: ${m.content.slice(0, 200)}`)
+			.join('\n');
+
+		const stream = provider.chat({
+			model: fastModel,
+			system:
+				'Generate a short title (3-6 words) for this conversation. Return ONLY the title, no quotes, no punctuation at the end.',
+			messages: [{ role: 'user', content: recent }],
+			maxTokens: 30,
+		});
+
+		const response = await collectStream(stream);
+		const title = response.content
+			.filter((b) => b.type === 'text')
+			.map((b) => (b as { text: string }).text)
+			.join('')
+			.trim()
+			.slice(0, 100);
+
+		console.log(`[TitleGen] Generated title for ${convId}: "${title}"`);
+
+		if (title) {
+			await db
+				.update(conversations)
+				.set({ title, updatedAt: new Date() })
+				.where(eq(conversations.id, convId));
+			console.log(`[TitleGen] Saved title to DB for ${convId}`);
+			// Emit title to the client via SSE (if run is active)
+			if (onEvent) {
+				await onEvent({ type: 'title_updated', title });
+				console.log(`[TitleGen] Emitted title_updated SSE event for ${convId}`);
+			} else {
+				console.log(`[TitleGen] No onEvent available — title saved to DB only`);
+			}
+		}
+	} catch (err) {
+		console.error(`[TitleGen] Failed for ${convId}:`, err);
+	}
 }
 
 export const chatRoutes = new Hono<{ Variables: { user: AuthUser } }>();
@@ -127,30 +206,48 @@ chatRoutes.post('/', async (c) => {
 		};
 	});
 
+	// Auto-generate conversation title via fast model (fire-and-forget).
+	// Delayed slightly so the run exists and we can emit via its SSE stream.
+	const userMsgCount = history.filter((m) => m.role === 'user').length;
+	if (userMsgCount === 1 || userMsgCount === 3) {
+		console.log(`[Chat] Scheduling title generation for ${convId} (userMsgCount=${userMsgCount})`);
+		setTimeout(() => {
+			const run = getRun(convId!);
+			const onEvent = run ? createDurableOnEvent(run) : undefined;
+			console.log(
+				`[Chat] Title gen timeout fired for ${convId}, run=${run ? 'exists' : 'NOT FOUND'}`,
+			);
+			generateConversationTitle(convId!, chatMessages, onEvent).catch((err) => {
+				console.error(`[Chat] Title gen failed for ${convId}:`, err);
+			});
+		}, 2000);
+	}
+
 	// Check if extension is connected
 	const connectionId = getConnectionByUser(user.id);
 	const canAct = !!connectionId;
 	if (connectionId) resetKill(connectionId);
 
-	// Load domain memory, user memory, and site pages context
+	// Load user memory + domain knowledge from S3
 	const pi = pageIndex as
 		| { url?: string; urlPattern?: string; sitePages?: unknown; lastIndexedAt?: unknown }
 		| undefined;
 	let domain: string | undefined;
-	let domainMem: string | undefined;
 	let userMem: string | undefined;
 	let domainKnowledge: string | undefined;
+	let sitemapTree: string | undefined;
 	if (pi?.url) {
 		try {
 			domain = new URL(pi.url).hostname;
-			const [dm, um, dk] = await Promise.all([
-				loadDomainMemory(domain),
+			const [um, dk, sitemap] = await Promise.all([
 				loadUserMemory(user.id, domain),
 				loadDomainKnowledgeFromS3(user.id, domain),
+				loadSitemap(user.id, domain),
 			]);
-			domainMem = dm ?? undefined;
 			userMem = um ?? undefined;
 			domainKnowledge = dk ?? undefined;
+			const tree = renderSitemapTree(sitemap);
+			sitemapTree = tree || undefined;
 
 			// Enrich pageIndex with all indexed pages for this site so the agent
 			// knows the full site structure (what pages exist, their purpose, key elements)
@@ -231,121 +328,453 @@ chatRoutes.post('/', async (c) => {
 			.catch(() => {}); // fire-and-forget
 	}
 
-	// Get the abort signal from the request (fires when client disconnects)
-	const signal = c.req.raw.signal;
+	// Load existing plan for this conversation (if any) so the agent knows where it left off
+	const existingPlan = convId ? await loadPlan(user.id, convId).catch(() => null) : null;
 
-	// Stream response as SSE
+	// Tab management — each conversation gets its own dedicated browser tab.
+	// Strategy:
+	//   1. If this conversation already has a locked tab (follow-up / reconnect) → reuse it.
+	//   2. If this is the first message of a new conversation → open a fresh background tab.
+	//   3. Fallback: use the extension's reported active tab (e.g., extension not connected).
+	// This eliminates tab contention — two conversations can never fight over the same tab.
+	let effectiveTabId = tabId; // extension's active tab — used for initial page context only
+	if (convId && connectionId) {
+		const existingLock = getLockedTab(convId);
+		if (existingLock) {
+			// This conversation already owns a tab — reuse it (follow-up message or reconnect)
+			effectiveTabId = existingLock;
+			console.log(`[Chat] Conv ${convId} reusing locked tab ${effectiveTabId}`);
+		} else {
+			// New conversation — open a fresh background tab so we never touch the user's active tab
+			const isFirstMessage = history.filter((m) => m.role === 'user').length === 1;
+			if (isFirstMessage) {
+				console.log(`[Chat] New conv ${convId} — opening fresh background tab`);
+				try {
+					const result = (await sendActionRequest(
+						connectionId,
+						'open_tab',
+						{ action: 'open_tab', url: 'about:blank' },
+						15000,
+					)) as { success?: boolean; data?: { tabId?: number } };
+					if (result?.success && result.data?.tabId) {
+						effectiveTabId = result.data.tabId;
+						console.log(`[Chat] Fresh tab ${effectiveTabId} assigned to conv ${convId}`);
+					}
+				} catch (err) {
+					console.warn('[Chat] Failed to open fresh tab, falling back to active tab:', err);
+				}
+			}
+			if (effectiveTabId) lockTab(effectiveTabId, convId);
+		}
+	}
+
+	// HTTP signal — only controls the SSE stream, NOT the orchestrator
+	const httpSignal = c.req.raw.signal;
+
+	// Stream response as SSE — the orchestrator runs independently
 	return streamSSE(c, async (stream) => {
-		let fullResponse = '';
+		// Check if there's already an active run for this conversation (reconnection case)
+		let run = convId ? getRun(convId!) : undefined;
 
-		// SSE heartbeat — keeps connection alive during long tool executions
+		if (!run) {
+			// New run — create and launch orchestrator as a detached promise
+			run = createRun(convId!, user.id, connectionId || '');
+			if (connectionId) registerConversationConnection(convId!, connectionId);
+			const durableOnEvent = createDurableOnEvent(run);
+
+			// Emit conversationId immediately so the frontend can track it
+			await durableOnEvent({ type: 'conversation_id', conversationId: convId! } as SSEEvent);
+
+			// Capture context for the completion handler
+			const runContext = {
+				user,
+				agentConfig,
+				chatMessages,
+				domain,
+				convId: convId!,
+				canAct,
+				connectionId,
+				pageIndex,
+				selectedElements,
+				userMem,
+				domainKnowledge,
+				existingPlan,
+				tabId: effectiveTabId,
+				sitemapTree,
+			};
+
+			const startTime = Date.now();
+
+			// Launch orchestrator — fire and forget from HTTP perspective
+			const orchestratorPromise = canAct
+				? runOrchestrator({
+						userId: user.id,
+						connectionId: connectionId!,
+						messages: chatMessages,
+						pageIndex,
+						selectedElements,
+						domainMemory: undefined,
+						userMemory: userMem,
+						domain,
+						conversationId: convId,
+						onEvent: durableOnEvent,
+						signal: run.abortController.signal,
+						agentConfig,
+						tabId: effectiveTabId,
+						domainKnowledge,
+						existingPlan,
+						sitemapTree,
+					})
+				: runSimpleChat({
+						messages: chatMessages,
+						pageIndex,
+						selectedElements,
+						domainMemory: undefined,
+						userMemory: userMem,
+						onEvent: durableOnEvent,
+						signal: run.abortController.signal,
+						agentConfig,
+					}).then(
+						(text): OrchestratorResult => ({
+							response: text,
+							toolCalls: [],
+							usage: {
+								inputTokens: 0,
+								outputTokens: 0,
+								cacheReadTokens: 0,
+								cacheWriteTokens: 0,
+								thinkingTokens: 0,
+							},
+						}),
+					);
+
+			// Handle completion in the background (not tied to HTTP)
+			orchestratorPromise
+				.then(async (result) => {
+					const currentRun = getRun(convId!);
+					if (!currentRun) return;
+
+					// Update run state with final data
+					currentRun.fullResponse = result.response;
+					currentRun.toolCalls = result.toolCalls;
+
+					// Save final assistant message to DB
+					await saveFinalMessage(
+						currentRun,
+						result.toolCalls.length > 0 ? result.toolCalls : undefined,
+					);
+
+					// Self-improvement + recording (fire-and-forget)
+					handlePostOrchestrator(result, runContext, startTime);
+
+					// Emit done event via durable handler
+					await durableOnEvent({ type: 'done', conversationId: convId! });
+
+					// Release tab lock + mark run complete
+					unlockByConversation(convId!);
+					await completeRun(convId!, 'completed');
+				})
+				.catch(async (err) => {
+					const currentRun = getRun(convId!);
+					if (currentRun?.abortController.signal.aborted) {
+						// User killed the run — save whatever we have
+						await saveFinalMessage(
+							currentRun,
+							currentRun.toolCalls.length > 0 ? currentRun.toolCalls : undefined,
+						);
+						await completeRun(convId!, 'completed');
+						return;
+					}
+					console.error('[Chat] Orchestrator error:', err);
+					await durableOnEvent({
+						type: 'error',
+						message: 'Something went wrong. Please try again.',
+					});
+					await saveFinalMessage(currentRun!, currentRun?.toolCalls);
+					unlockByConversation(convId!);
+					await completeRun(convId!, 'failed');
+				});
+		}
+
+		// ── SSE subscriber: replay buffered events then stream live ──
+
 		const heartbeat = setInterval(async () => {
-			if (signal.aborted) return;
+			if (httpSignal.aborted) return;
 			try {
 				await stream.writeSSE({ event: 'heartbeat', data: '{}' });
 			} catch {
 				// Stream closed
 			}
-		}, 15000); // Every 15 seconds
+		}, 15000);
 
-		const onEvent = async (event: SSEEvent) => {
-			if (signal.aborted) return;
-			await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });
-		};
-
-		try {
-			let toolData:
-				| { tools: { name: string; args: unknown; result: unknown; success: boolean }[] }
-				| undefined;
-			const startTime = Date.now();
-			if (canAct) {
-				const result = await runOrchestrator({
-					userId: user.id,
-					connectionId: connectionId!,
-					messages: chatMessages,
-					pageIndex,
-					selectedElements,
-					domainMemory: domainMem,
-					userMemory: userMem,
-					domain,
-					conversationId: convId,
-					onEvent,
-					signal,
-					agentConfig,
-					tabId,
-					domainKnowledge,
+		// Replay any buffered events (handles reconnection)
+		for (const event of run.eventBuffer) {
+			if (httpSignal.aborted) break;
+			try {
+				await stream.writeSSE({
+					event: event.type,
+					data: JSON.stringify(event),
 				});
-				fullResponse = result.response;
-				if (result.toolCalls.length > 0) {
-					toolData = { tools: result.toolCalls };
-				}
-
-				// Self-improvement: record run + analyze for non-coordinator agents
-				if (agentConfig.id !== '_coordinator') {
-					const durationMs = Date.now() - startTime;
-					recordAgentRun({
-						agentId: agentConfig.id,
-						userId: user.id,
-						conversationId: convId,
-						status: 'completed',
-						toolCalls: result.toolCalls.length,
-						durationMs,
-					}).catch((err) => console.warn('[SelfImprove] recordAgentRun failed:', err));
-
-					const transcript = [
-						...chatMessages.slice(-10).map((m) => `${m.role}: ${m.content}`),
-						`assistant: ${fullResponse}`,
-					].join('\n\n');
-					analyzeAndImprove({
-						userId: user.id,
-						agentConfig,
-						toolCalls: result.toolCalls,
-						transcript,
-						duration: durationMs,
-						domain,
-						conversationId: convId,
-					}).catch((err) => console.warn('[SelfImprove] analyzeAndImprove failed:', err));
-				}
-			} else {
-				fullResponse = await runSimpleChat({
-					messages: chatMessages,
-					pageIndex,
-					selectedElements,
-					domainMemory: domainMem,
-					userMemory: userMem,
-					onEvent,
-					signal,
-					agentConfig,
-				});
+			} catch {
+				break;
 			}
-
-			if (signal.aborted) return;
-
-			// Store assistant response with structured tool data
-			// If no text response but tools were used, save a summary so the conversation isn't lost
-			const contentToSave =
-				fullResponse.trim() ||
-				(toolData ? `[Agent executed ${toolData.tools.length} actions]` : '');
-			if (contentToSave) {
-				await db.insert(messages).values({
-					conversationId: convId!,
-					role: 'assistant',
-					content: contentToSave,
-					...(toolData && { toolData }),
-				});
-			}
-
-			// Knowledge management is now agent-driven via save_knowledge/save_memory tools.
-			// No background LLM extraction calls — the agent decides what to save.
-
-			// Send done event with conversation ID
-			await onEvent({ type: 'done', conversationId: convId! });
-		} catch (err) {
-			if (signal.aborted) return;
-			console.error('Chat error:', err);
-			await onEvent({ type: 'error', message: 'Something went wrong. Please try again.' });
-		} finally {
-			clearInterval(heartbeat);
 		}
+
+		// Subscribe for live events
+		const unsub = subscribeSSE(convId!, stream);
+
+		// Block until run finishes OR client disconnects
+		await Promise.race([run.completionPromise, abortPromise(httpSignal)]);
+
+		clearInterval(heartbeat);
+		unsub();
 	});
+});
+
+/**
+ * GET /api/chat/subscribe/:conversationId — reconnect to a running conversation's SSE stream.
+ * Returns live events + replays buffered events from the current run.
+ */
+chatRoutes.get('/subscribe/:conversationId', requireAuth, async (c) => {
+	const user = c.get('user');
+	const convId = c.req.param('conversationId');
+
+	// Verify ownership
+	const [conv] = await db
+		.select()
+		.from(conversations)
+		.where(and(eq(conversations.id, convId), eq(conversations.userId, user.id)));
+	if (!conv) return c.json({ error: 'Not found' }, 404);
+
+	const run = getRun(convId);
+	console.log(
+		`[Chat] subscribe/${convId}: run=${run ? `exists (status=${run.status}, events=${run.eventBuffer.length})` : 'NOT FOUND'}, dbStatus=${conv.status}`,
+	);
+	if (!run) {
+		return c.json({ status: conv.status || 'idle' });
+	}
+
+	const httpSignal = c.req.raw.signal;
+
+	return streamSSE(c, async (stream) => {
+		const heartbeat = setInterval(async () => {
+			if (httpSignal.aborted) return;
+			try {
+				await stream.writeSSE({ event: 'heartbeat', data: '{}' });
+			} catch {
+				// Stream closed
+			}
+		}, 15000);
+
+		// Replay buffered events
+		for (const event of run.eventBuffer) {
+			if (httpSignal.aborted) break;
+			try {
+				await stream.writeSSE({
+					event: event.type,
+					data: JSON.stringify(event),
+				});
+			} catch {
+				break;
+			}
+		}
+
+		// Subscribe for live events
+		const unsub = subscribeSSE(convId, stream);
+
+		// Block until run finishes OR client disconnects
+		await Promise.race([run.completionPromise, abortPromise(httpSignal)]);
+
+		clearInterval(heartbeat);
+		unsub();
+	});
+});
+
+/**
+ * Post-orchestrator handler — self-improvement, recording, memory extraction.
+ * Runs in the background, not tied to any HTTP connection.
+ */
+function handlePostOrchestrator(
+	result: OrchestratorResult,
+	ctx: {
+		user: AuthUser;
+		agentConfig: AgentConfig;
+		chatMessages: { role: string; content: string }[];
+		domain?: string;
+		convId: string;
+		canAct: boolean;
+	},
+	startTime: number,
+): void {
+	const { user, agentConfig, chatMessages, domain, convId } = ctx;
+	const durationMs = Date.now() - startTime;
+	const fullResponse = result.response;
+
+	// Record run in DB
+	const runProviderName = process.env.LLM_PROVIDER || 'anthropic';
+	const runModel = agentConfig.model === 'fast' ? getFastModel() : getStrongModel();
+	const runCaps = getModelCapabilities(runProviderName, runModel);
+	const estimatedCost = calculateCost(result.usage, runCaps);
+	recordAgentRun({
+		agentId: agentConfig.id === '_coordinator' ? null : agentConfig.id,
+		userId: user.id,
+		conversationId: convId,
+		status: 'completed',
+		toolCalls: result.toolCalls.length,
+		tokensUsed: result.usage.inputTokens + result.usage.outputTokens,
+		durationMs,
+		inputTokens: result.usage.inputTokens,
+		outputTokens: result.usage.outputTokens,
+		cacheReadTokens: result.usage.cacheReadTokens,
+		cacheWriteTokens: result.usage.cacheWriteTokens,
+		thinkingTokens: result.usage.thinkingTokens,
+		estimatedCostUsd: estimatedCost.toFixed(6),
+		model: runModel,
+		provider: runProviderName,
+	}).catch((err) => console.warn('[SelfImprove] recordAgentRun failed:', err));
+
+	// Analyze and improve
+	if (result.toolCalls.length > 0 || fullResponse.length > 100) {
+		const transcript = [
+			...chatMessages.slice(-10).map((m) => `${m.role}: ${m.content}`),
+			`assistant: ${fullResponse}`,
+		].join('\n\n');
+		analyzeAndImprove({
+			userId: user.id,
+			agentConfig,
+			toolCalls: result.toolCalls,
+			transcript,
+			duration: durationMs,
+			domain,
+			conversationId: convId,
+		}).catch((err) => console.warn('[SelfImprove] analyzeAndImprove failed:', err));
+
+		// Extract user-specific memories (fire-and-forget)
+		if (domain) {
+			const provider = getProvider();
+			const fastModel = getFastModel();
+			const strongModel = getStrongModel();
+			extractAndSaveUserMemory(user.id, domain, transcript, provider, fastModel, strongModel).catch(
+				(err) => console.warn('[UserMemory] extractAndSaveUserMemory failed:', err),
+			);
+			syncDomainKnowledgeToS3(user.id, domain, transcript, provider, fastModel).catch((err) =>
+				console.warn('[DomainKnowledge] syncDomainKnowledgeToS3 failed:', err),
+			);
+		}
+	}
+
+	// Auto-agent suggestion
+	if (agentConfig.id === '_coordinator' && domain && result.toolCalls.length >= 2) {
+		(async () => {
+			try {
+				const domainConvCount = await db
+					.select({ count: count() })
+					.from(conversations)
+					.where(
+						and(
+							eq(conversations.userId, user.id),
+							sql`${conversations.title} ILIKE ${'%' + domain.split('.')[0] + '%'}`,
+						),
+					);
+				const convCount = domainConvCount[0]?.count ?? 0;
+
+				const existingAgents = await db
+					.select({ id: agents.id })
+					.from(agents)
+					.where(
+						and(
+							eq(agents.userId, user.id),
+							sql`${agents.domains}::text LIKE ${'%' + domain + '%'}`,
+						),
+					)
+					.limit(1);
+
+				if (convCount >= 3 && existingAgents.length === 0) {
+					console.log(
+						`[Chat] Domain "${domain}" used ${convCount}x with no agent — consider auto-creating one`,
+					);
+					const { uploadDomainFile } = await import('../storage/domain-files.js');
+					const agentHint = `## Agent Suggestion\n\nYou've worked on ${domain} ${convCount}+ times. Consider creating a specialized agent for this domain using create_agent. This will enable:\n- Persistent SKILLS.md with learned workflows\n- MEMORY.md with accumulated knowledge\n- Self-improvement after every run\n- Scheduled automation\n\nSuggest this to the user when appropriate.`;
+					await uploadDomainFile(user.id, domain, 'AGENT_HINT.md', agentHint);
+				}
+			} catch {
+				// Non-critical
+			}
+		})();
+	}
+}
+
+/**
+ * POST /api/chat/compact — manually compact a conversation's messages.
+ * Summarizes history via fast model, saves transcript to S3, replaces messages.
+ */
+chatRoutes.post('/compact', async (c) => {
+	const user = c.get('user');
+	const { conversationId } = await c.req.json<{ conversationId: string }>();
+
+	if (!conversationId) return c.json({ error: 'conversationId required' }, 400);
+
+	// Load messages
+	const msgs = await db
+		.select()
+		.from(messages)
+		.where(and(eq(messages.conversationId, conversationId)))
+		.orderBy(asc(messages.createdAt));
+
+	if (msgs.length < 2) {
+		return c.json({ error: 'Not enough messages to compact' }, 400);
+	}
+	console.log(
+		`[Compact] Starting compaction for conversation ${conversationId} (${msgs.length} messages)`,
+	);
+
+	// Verify user owns conversation
+	const [conv] = await db
+		.select()
+		.from(conversations)
+		.where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)));
+	if (!conv) return c.json({ error: 'Conversation not found' }, 404);
+
+	const provider = getProvider();
+	const fastModel = getFastModel();
+
+	const transcript = msgs
+		.map((m) => `${m.role}: ${typeof m.content === 'string' ? m.content : '[structured]'}`)
+		.join('\n\n');
+
+	try {
+		const { collectStream: collect } = await import('../llm/types.js');
+		const { saveCompaction } = await import('../storage/compaction-files.js');
+
+		const summaryStream = provider.chat({
+			model: fastModel,
+			system:
+				'Summarize this conversation concisely. Include: what was accomplished, what is in progress, key facts to continue. 2-3 paragraphs max.',
+			messages: [{ role: 'user', content: transcript.slice(-6000) }],
+			maxTokens: 500,
+		});
+		const summaryResponse = await collect(summaryStream);
+		const summary = summaryResponse.content
+			.filter((b) => b.type === 'text')
+			.map((b) => (b as { text: string }).text)
+			.join('');
+
+		if (!summary) return c.json({ error: 'Failed to generate summary' }, 500);
+
+		// Save full transcript to S3
+		const { path } = await saveCompaction(user.id, conversationId, transcript, summary);
+
+		// Delete old messages and insert compacted summary
+		await db.delete(messages).where(eq(messages.conversationId, conversationId));
+		await db.insert(messages).values({
+			conversationId,
+			role: 'user',
+			content: `[Conversation compacted — ${msgs.length} messages saved to ${path}]\n\nSummary:\n${summary}\n\nContinue from where we left off.`,
+		});
+
+		return c.json({ summary, path, messagesCompacted: msgs.length });
+	} catch (err) {
+		console.error('Manual compaction failed:', err);
+		return c.json({ error: 'Compaction failed' }, 500);
+	}
 });

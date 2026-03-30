@@ -74,27 +74,36 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
 - Never bypass the safety classification system
 
 ### Agent System (Phase 15 — Active)
-- **Agents are files**: each agent is a folder in Supabase Storage with `SOUL.md` (personality/identity), `SKILLS.md` (learned capabilities), `LEARNINGS.md` (corrections/discoveries), `ERRORS.md` (failure patterns). Metadata (slug, name, model, tools, domains, trigger) lives in Postgres `agents` table.
-- **Agent registry**: `apps/api/src/agent/agent-registry.ts` — CRUD, domain-match resolution, hydration (DB row + Storage files). `loadAgentBySlug()` for slug-based lookup.
+- **Agents are files**: each agent is a folder in Supabase Storage with `SOUL.md` (personality/identity), `SKILLS.md` (learned capabilities), `LEARNINGS.md` (corrections/discoveries), `ERRORS.md` (failure patterns), `MEMORY.md` (unified memory index, first 200 lines loaded into prompt). Metadata (slug, name, model, tools, domains, trigger) lives in Postgres `agents` table.
+- **Agent registry**: `apps/api/src/agent/agent-registry.ts` — CRUD, domain-match resolution, hydration (DB row + Storage files including MEMORY.md). `loadAgentBySlug()` for slug-based lookup.
 - **Default agent**: every user gets a `_coordinator` agent (hardcoded, not in DB). Users who never create agents get this automatically. Coordinator does NOT trigger self-improvement.
-- **Agent-to-agent invocation**: `spawn_agent` tool accepts optional `agentSlug` parameter to target a specific agent. Sub-agents inherit the target agent's identity (SOUL.md), model, tool allowlist, and learned files. Max invocation depth: 2 — at depth >= 2, spawn_agent/wait_for_agents are excluded from tool list.
-- **Self-improvement**: after every non-coordinator agent run, `analyzeAndImprove()` calls the fast model to extract new skills/learnings/errors and appends timestamped entries to the agent's files in Supabase Storage. `recordAgentRun()` inserts a row into `agent_runs` for tracking. Both are fire-and-forget (never block the response).
-- **Agent scheduler**: agents with `trigger: { cron, enabled }` run on a 60-second interval. Flow: query scheduled agents → cron match → check active WS connection → cheap LLM check (YES/NO) → full orchestrator run with no-op SSE handler. `startScheduler()` called at server startup, `stopScheduler()` on SIGTERM/SIGINT.
-- **Supabase Storage**: `@supabase/supabase-js` client at `apps/api/src/storage/supabase.ts`. Agent files in `agents` bucket, path: `{userId}/{agentSlug}/{filename}`.
+- **Agent creation**: `create_agent` tool requires user approval (same pattern as plan approval) unless agent is autonomous. Auto-extracts initial SKILLS.md from the agent's purpose via fast model on creation. Agents are born with skills, not cold.
+- **Agent-to-agent invocation**: `spawn_agent` tool accepts optional `agentSlug` parameter to target a specific agent. Sub-agents inherit the target agent's identity (SOUL.md), model, tool allowlist, and learned files. Sub-agents have scratchpad tools (`write_scratchpad`/`read_scratchpad`) for structured data passing. Max invocation depth: 2 — at depth >= 2, spawn_agent/wait_for_agents are excluded from tool list. Tabs close on success, stay open on failure.
+- **Self-improvement**: after every non-coordinator agent run, `analyzeAndImprove()` calls the fast model to extract new skills/learnings/errors and appends timestamped entries to the agent's files in Supabase Storage. Also updates `MEMORY.md` with run summaries (200-line cap with consolidation). `recordAgentRun()` inserts a row into `agent_runs` for tracking. Both are fire-and-forget (never block the response).
+- **Agent scheduler (v2)**: agents with `trigger: { cron, enabled, alertWebhook? }` run on a 60-second interval with: run deduplication (prevents overlapping), retry with exponential backoff (5m→15m→60m, 3 attempts), failure alerts via webhook POST, offline run queue (executes on browser reconnect), jitter (0-30s to prevent thundering herd). Scheduled tabs close on completion.
+- **Supabase Storage**: Single `agents` bucket for all files. Client at `apps/api/src/storage/supabase.ts`. Paths:
+  - Agent files: `{userId}/{agentSlug}/SOUL.md`, `SKILLS.md`, `MEMORY.md`, etc.
+  - Plans: `{userId}/plans/{conversationId}/PLAN.md`
+  - Scratchpad: `{userId}/scratchpad/{conversationId}/{key}.json`
+  - Domain knowledge: `domains/{userId}/{domain}/KNOWLEDGE.md`, `WORKFLOWS.md`, `MEMORY.md`
+  - Run logs: `runs/{userId}/{date}/filename.md`
 
 ### Agent Orchestration
 - Provider-agnostic: all LLM calls go through the provider layer (`apps/api/src/llm/`)
 - Never import a vendor SDK directly outside the provider adapter files
 - Use the strong model for planning and complex reasoning, fast model for data reads and navigation
 - Safety classification happens pre-execution in the orchestrator loop
+- **Agent hooks** (`apps/api/src/agent/hooks.ts`): deterministic lifecycle hooks per agent. `PreToolUse` (rule-based, blocks actions by tool/label/URL pattern), `PostToolUse` (logging, auto-screenshot), `OnComplete` (LLM-driven task verification). Stored in `agents.hooks` JSONB. Hooks run before safety classification (PreToolUse) and before loop exit (OnComplete).
 - Audit logging happens post-execution in the orchestrator loop
 - **Per-agent config**: orchestrator accepts `AgentConfig` — respects agent's model, tool allowlist, safety overrides, max iterations
 - **Parallel tool calling**: safe tools execute in parallel via `Promise.allSettled`, review tools sequential with approval gates, blocked tools rejected immediately
 - **Token budget management**: strips old screenshots, truncates long results, catches context_length_exceeded and retries with aggressive trimming
-- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `save_knowledge`, `read_knowledge`, `list_knowledge`, `spawn_agent`, `wait_for_agents`, `save_to_local`, `create_agent`, `update_agent_files`
+- **Internal tools** (not routed through WS): `save_memory`, `recall_memory`, `save_knowledge`, `read_knowledge`, `list_knowledge`, `spawn_agent`, `wait_for_agents`, `save_to_local`, `read_local_file`, `list_local_files`, `create_agent`, `update_agent_files`, `write_scratchpad`, `read_scratchpad`
+- **Browser tools** (routed through WS): `click_element`, `type_text`, `select_option`, `navigate`, `go_back`, `scroll`, `screenshot`, `get_page_state`, `refresh_page_state`, `read_text`, `read_table`, `wait_for_element`, `export_data`, `wait_for_download`, `clipboard_write`, `clipboard_read`
 - **Agent-driven knowledge**: agents persist domain knowledge during execution via `save_knowledge` (writes to S3), `read_knowledge` (reads from S3), and `list_knowledge` (lists S3 files). No background extraction — the agent decides what to save.
-- **Agent creation from chat**: `create_agent` tool lets the LLM create agents mid-conversation when it detects repeatable workflows, scheduled tasks, or explicit user requests. `update_agent_files` writes SOUL.md/SKILLS.md for the new agent. Agents emerge from usage — users don't need to visit the dashboard.
-- **Multi-agent swarm**: coordinator spawns sub-agents (with target agent identity) in separate browser tabs via `open_tab` WS action. Max 3 concurrent, 10 iterations each, 2min timeout. Sub-agents use the target agent's model, tool allowlist, and SOUL.md. Tabs persist after completion (user can inspect). `recordAgentRun()` called for non-coordinator sub-agents.
+- **Agent creation from chat**: `create_agent` tool requires user approval (approval_inline event), then creates agent + SOUL.md + auto-extracts SKILLS.md from purpose via fast model. Agents emerge from usage with skills from day one.
+- **Inter-agent data passing**: `write_scratchpad`/`read_scratchpad` tools enable coordinators and sub-agents to share structured data within a conversation. Ephemeral S3 storage at `agents/{userId}/scratchpad/{conversationId}/{key}.json`.
+- **Multi-agent swarm**: coordinator spawns sub-agents (with target agent identity) in separate browser tabs via `open_tab` WS action. Max 3 concurrent, 10 iterations each, 2min timeout. Sub-agents use the target agent's model, tool allowlist, SOUL.md, and have scratchpad tools. Tabs close on success, stay open on failure for debugging. `recordAgentRun()` called for non-coordinator sub-agents.
 - **Auto page state refresh**: after `click_element`, `navigate`, `type_text`, `select_option` — orchestrator auto-calls `get_page_state` and merges updated DOM into the tool result (500ms delay for SPA transitions)
 - **Structured tool call history**: assistant messages stored with `toolData` jsonb (tool names, args, results, success). On conversation resume, tool summaries appended to history for multi-turn action context
 - **Site identity detection**: extension indexer detects logged-in user via avatar alt text, profile elements, aria-labels, meta tags. Injected into system prompt as "Logged-in user"
@@ -161,6 +170,19 @@ Chrome extension (thin client) handles UI, DOM indexing, element selection, scre
   - `page.tsx` — agent list page, state management, API calls
   - `agent-card.tsx` — expandable agent detail card with file editor
   - `agent-form.tsx` — agent creation form
+
+### Data Fetching & State Management (Dashboard)
+- **TanStack Query** (`@tanstack/react-query`) for all API data fetching in `apps/web/` — replaces raw `useState`/`useEffect`/`apiFetch` patterns
+- **TanStack Table** (`@tanstack/react-table`) for tabular data (audit logs, etc.)
+- Query client configured in `apps/web/lib/query-client.ts` (30s stale time, 5min GC)
+- Provider wrapper in `apps/web/app/providers.tsx`, wraps layout in `apps/web/app/layout.tsx`
+- **Query hooks** live in `apps/web/lib/queries/` — one file per domain: `use-stats.ts`, `use-conversations.ts`, `use-agents.ts`, `use-audit.ts`, `use-memory.ts`, `use-sites.ts`, `use-storage.ts`, `use-settings.ts`, `use-org.ts`
+- **Query key convention**: `['resource']` for lists, `['resource', id]` for singles, `['resource', { limit, offset, ...filters }]` for paginated
+- **Cache invalidation**: mutations call `queryClient.invalidateQueries({ queryKey: ['resource'] })` on success. Cross-resource invalidation where needed (e.g., deleting an agent invalidates both `agents` and `stats`)
+- **Pagination**: all list endpoints support `?limit=N&offset=N` and return `{ data, total }`. Backend helper: `apps/api/src/utils/pagination.ts` (`parsePagination`, `paginateArray`). Frontend component: `apps/web/components/ui/pagination.tsx`
+- **DataTable component**: `apps/web/components/ui/data-table.tsx` — reusable TanStack Table wrapper with server-side pagination
+- `apiFetch` (`apps/web/lib/api.ts`) is still used as the transport inside `queryFn` and for auth/SSE streaming — it's the low-level fetch wrapper, TanStack Query is the caching layer on top
+- Never add Redux, Zustand, or other state management libraries — TanStack Query handles server state, React state handles UI state
 
 ### Don't
 - Don't add Cloudflare Workers, Vercel, or serverless runtimes — we use Docker

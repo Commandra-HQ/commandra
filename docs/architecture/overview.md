@@ -71,11 +71,12 @@
 │  │  Coordinator (strong model, main tab)                     │    │
 │  │    ├── spawn_agent → sub-agent (fast model, bg tab)       │    │
 │  │    ├── spawn_agent → sub-agent (fast model, bg tab)       │    │
+│  │    ├── write_scratchpad / read_scratchpad (shared data)   │    │
 │  │    └── wait_for_agents → collect results                  │    │
 │  │                                                          │    │
-│  │  Max 3 concurrent sub-agents, 5 iters each, 60s timeout  │    │
-│  │  Each sub-agent gets dedicated tab via open_tab WS action │    │
-│  │  Tab cleanup: close_tab on complete/fail/timeout          │    │
+│  │  Max 3 concurrent, 10 iters each, 2min timeout           │    │
+│  │  Per-agent tool restrictions (agentConfig.tools)          │    │
+│  │  Tabs close on success, stay open on failure              │    │
 │  └──────────────────────────────────────────────────────────┘    │
 │                     │                                             │
 │  ┌──────────────────▼───────────────────────────────────────┐    │
@@ -93,12 +94,13 @@
 │  └──────────────────────────────────────────────────────────┘    │
 │                                                                   │
 │  ┌──────────────────────────────────────────────────────────┐    │
-│  │               AGENT REGISTRY + SCHEDULER                 │    │
+│  │               AGENT REGISTRY + SCHEDULER v2               │    │
 │  │                                                          │    │
-│  │  loadAgent(slug) → reads AGENT.yaml + SOUL.md + SKILLS   │    │
-│  │  resolveAgent(task) → domain match                        │    │
-│  │  scheduler → cron eval → spawn agent runs                 │    │
-│  │  self-improve → writes SKILLS/LEARNINGS/ERRORS post-run   │    │
+│  │  loadAgent(slug) → DB + SOUL/SKILLS/MEMORY.md from S3    │    │
+│  │  resolveAgent(task) → domain match, tool allowlist        │    │
+│  │  create_agent → approval gate → auto SKILLS.md extraction │    │
+│  │  scheduler v2 → dedup, retry 3x, alerts, offline queue   │    │
+│  │  self-improve → SKILLS/LEARNINGS/ERRORS/MEMORY.md         │    │
 │  └──────────────────────────────────────────────────────────┘    │
 │                                                                   │
 │  ┌──────────────────┐  ┌───────────────────────────────────┐     │

@@ -4,6 +4,7 @@
  */
 
 export type SSEEvent =
+	| { type: 'conversation_id'; conversationId: string }
 	| { type: 'text_delta'; text: string }
 	| { type: 'thinking' }
 	| { type: 'thinking_delta'; text: string }
@@ -40,8 +41,16 @@ export type SSEEvent =
 			action: string;
 			label?: string;
 			reason: string;
-			approvalType: 'tool' | 'plan';
+			approvalType: 'tool' | 'plan' | 'agent';
 			planSteps?: string[];
+			agentPreview?: {
+				slug: string;
+				name: string;
+				description: string;
+				soul: string;
+				domains?: string[];
+				cron?: string;
+			};
 	  }
 	| {
 			type: 'plan_state';
@@ -50,6 +59,10 @@ export type SSEEvent =
 				steps: { label: string; status: string }[];
 			} | null;
 	  }
+	| { type: 'usage_total'; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; thinkingTokens: number; estimatedCostUsd: number }
+	| { type: 'title_updated'; title: string }
+	| { type: 'paused'; reason: string }
+	| { type: 'resumed' }
 	| { type: 'done'; conversationId: string }
 	| { type: 'error'; message: string }
 	| { type: 'sub_agent_start'; agentId: string; task: string; targetUrl: string }

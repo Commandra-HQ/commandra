@@ -93,12 +93,19 @@ describe('buildSystemPrompt', () => {
 		expect(prompt).toContain('#btn2');
 	});
 
-	it('includes domain memory when provided', () => {
+	it('includes domain knowledge when provided', () => {
 		const pageIndex = { url: 'https://example.com', title: 'Test' };
-		const memory = 'This app uses React. The settings page is at /admin/settings.';
+		const knowledge = 'This app uses React. The settings page is at /admin/settings.';
 
-		const prompt = buildSystemPrompt(pageIndex, undefined, memory);
-		expect(prompt).toContain('What You Know About This App');
+		const prompt = buildSystemPrompt(
+			pageIndex,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			knowledge,
+		);
+		expect(prompt).toContain('Domain Knowledge (CRITICAL — from past sessions)');
 		expect(prompt).toContain('React');
 		expect(prompt).toContain('/admin/settings');
 	});
@@ -112,7 +119,7 @@ describe('buildSystemPrompt', () => {
 		const pageIndex = { url: 'https://example.com', title: 'Test', elements };
 
 		const prompt = buildSystemPrompt(pageIndex);
-		expect(prompt).toContain('...and 10 more');
+		expect(prompt).toContain('...and 20 more');
 	});
 
 	it('handles empty elements array', () => {

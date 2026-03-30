@@ -10,8 +10,11 @@ const BUCKET = 'agents';
 
 export interface StoredPlan {
 	description: string;
+	context?: string;
+	references?: string[];
 	steps: {
 		label: string;
+		instructions?: string;
 		status: 'pending' | 'in_progress' | 'completed' | 'failed';
 		error?: string;
 	}[];
@@ -26,6 +29,16 @@ function planToMarkdown(plan: StoredPlan): string {
 	if (plan.description) {
 		lines.push(plan.description, '');
 	}
+	if (plan.context) {
+		lines.push('## Context', '', plan.context, '');
+	}
+	if (plan.references?.length) {
+		lines.push('## References', '');
+		for (const ref of plan.references) {
+			lines.push(`- ${ref}`);
+		}
+		lines.push('');
+	}
 	lines.push('## Steps', '');
 	for (const step of plan.steps) {
 		const icon =
@@ -38,6 +51,9 @@ function planToMarkdown(plan: StoredPlan): string {
 						: '[ ]';
 		const suffix = step.error ? ` — ${step.error}` : '';
 		lines.push(`- ${icon} ${step.label}${suffix}`);
+		if (step.instructions) {
+			lines.push(`  > ${step.instructions}`);
+		}
 	}
 	lines.push('', `<!-- data:${JSON.stringify(plan)} -->`);
 	return lines.join('\n');

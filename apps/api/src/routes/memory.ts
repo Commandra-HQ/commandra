@@ -17,23 +17,25 @@ export const memoryRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
 memoryRoutes.use('*', requireAuth);
 
-// List all memories (optionally filtered by domain)
+// List all memories (optionally filtered by domain/category, paginated)
 memoryRoutes.get('/', async (c) => {
 	const user = c.get('user');
 	const domain = c.req.query('domain');
-	const entries = await listUserMemories(user.id, domain || undefined);
+	const category = c.req.query('category');
+	const limitParam = Math.min(Math.max(Number.parseInt(c.req.query('limit') || '30', 10), 1), 100);
+	const offsetParam = Math.max(Number.parseInt(c.req.query('offset') || '0', 10), 0);
 
-	// Group by domain for the response
-	const byDomain: Record<string, typeof entries> = {};
-	for (const entry of entries) {
-		// We need the domain from the DB — extend query if needed
-		// For now, if domain filter is set, use it; otherwise group won't have domain
-		const key = domain || 'all';
-		if (!byDomain[key]) byDomain[key] = [];
-		byDomain[key].push(entry);
+	let entries = await listUserMemories(user.id, domain || undefined);
+
+	// Server-side category filter
+	if (category) {
+		entries = entries.filter((e) => e.category === category);
 	}
 
-	return c.json({ memories: entries });
+	const total = entries.length;
+	const paginated = entries.slice(offsetParam, offsetParam + limitParam);
+
+	return c.json({ memories: paginated, total });
 });
 
 // Add a memory explicitly

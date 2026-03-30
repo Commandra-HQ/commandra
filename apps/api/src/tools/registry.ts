@@ -15,6 +15,8 @@ import { scroll } from './browser/scroll.js';
 import { selectOption } from './browser/select.js';
 import { typeText } from './browser/type.js';
 import { waitForElement } from './browser/wait.js';
+import { waitForDownload } from './browser/download.js';
+import { clipboardWrite, clipboardRead } from './browser/clipboard.js';
 import { exportData } from './export.js';
 import type { ExecutableTool, ToolContext, ToolResult } from './types.js';
 
@@ -38,6 +40,9 @@ register(waitForElement);
 register(readText);
 register(readTable);
 register(exportData);
+register(waitForDownload);
+register(clipboardWrite);
+register(clipboardRead);
 
 /**
  * Get tool definitions (for passing to the LLM).

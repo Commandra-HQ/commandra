@@ -11,6 +11,7 @@ import type {
   ContentBlock,
   LLMProvider,
   Message,
+  ModelCapabilities,
   StreamEvent,
   Tool,
 } from '../types.js';
@@ -35,6 +36,59 @@ const MODEL_MAP: Record<string, string> = {
 function resolveModel(model: string): string {
   return MODEL_MAP[model] || model;
 }
+
+export const OPENAI_MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
+  'gpt-4o-mini': {
+    contextWindow: 128_000, maxOutputTokens: 16_384,
+    defaultOutputBudget: 2_000, supportsThinking: false, defaultThinkingBudget: 0,
+    costPer1kInput: 0.00015, costPer1kOutput: 0.0006, charsPerToken: 3.5,
+  },
+  'gpt-4o': {
+    contextWindow: 128_000, maxOutputTokens: 16_384,
+    defaultOutputBudget: 8_000, supportsThinking: false, defaultThinkingBudget: 0,
+    costPer1kInput: 0.0025, costPer1kOutput: 0.01, charsPerToken: 3.5,
+  },
+  'gpt-4.1': {
+    contextWindow: 1_000_000, maxOutputTokens: 32_768,
+    defaultOutputBudget: 8_000, supportsThinking: false, defaultThinkingBudget: 0,
+    costPer1kInput: 0.002, costPer1kOutput: 0.008, charsPerToken: 3.5,
+  },
+  'gpt-4.1-mini': {
+    contextWindow: 1_000_000, maxOutputTokens: 32_768,
+    defaultOutputBudget: 4_000, supportsThinking: false, defaultThinkingBudget: 0,
+    costPer1kInput: 0.0004, costPer1kOutput: 0.0016, charsPerToken: 3.5,
+  },
+  'gpt-4.1-nano': {
+    contextWindow: 1_000_000, maxOutputTokens: 32_768,
+    defaultOutputBudget: 2_000, supportsThinking: false, defaultThinkingBudget: 0,
+    costPer1kInput: 0.0001, costPer1kOutput: 0.0004, charsPerToken: 3.5,
+  },
+  'gpt-5': {
+    contextWindow: 1_000_000, maxOutputTokens: 64_000,
+    defaultOutputBudget: 16_000, supportsThinking: true, defaultThinkingBudget: 10_000,
+    costPer1kInput: 0.01, costPer1kOutput: 0.03, charsPerToken: 3.5,
+  },
+  'gpt-5-mini': {
+    contextWindow: 1_000_000, maxOutputTokens: 64_000,
+    defaultOutputBudget: 8_000, supportsThinking: true, defaultThinkingBudget: 4_000,
+    costPer1kInput: 0.003, costPer1kOutput: 0.012, charsPerToken: 3.5,
+  },
+  o3: {
+    contextWindow: 200_000, maxOutputTokens: 100_000,
+    defaultOutputBudget: 16_000, supportsThinking: true, defaultThinkingBudget: 10_000,
+    costPer1kInput: 0.01, costPer1kOutput: 0.04, charsPerToken: 3.5,
+  },
+  'o3-mini': {
+    contextWindow: 200_000, maxOutputTokens: 65_536,
+    defaultOutputBudget: 8_000, supportsThinking: true, defaultThinkingBudget: 4_000,
+    costPer1kInput: 0.0011, costPer1kOutput: 0.0044, charsPerToken: 3.5,
+  },
+  'o4-mini': {
+    contextWindow: 200_000, maxOutputTokens: 100_000,
+    defaultOutputBudget: 8_000, supportsThinking: true, defaultThinkingBudget: 4_000,
+    costPer1kInput: 0.0011, costPer1kOutput: 0.0044, charsPerToken: 3.5,
+  },
+};
 
 export class OpenAIProvider implements LLMProvider {
   id = 'openai';
@@ -147,7 +201,7 @@ export class OpenAIProvider implements LLMProvider {
           break;
         }
 
-        // Response completed — determine stop reason
+        // Response completed — determine stop reason + emit usage
         case 'response.completed': {
           const resp = event.response;
           const hasToolCalls = resp.output.some(
@@ -162,6 +216,21 @@ export class OpenAIProvider implements LLMProvider {
                 ? 'max_tokens'
                 : 'end_turn',
           };
+          // Emit real usage data from response
+          const respUsage = (resp as unknown as { usage?: Record<string, unknown> }).usage;
+          if (respUsage) {
+            const inputDetails = respUsage.input_tokens_details as Record<string, number> | undefined;
+            yield {
+              type: 'usage',
+              usage: {
+                inputTokens: (respUsage.input_tokens as number) ?? 0,
+                outputTokens: (respUsage.output_tokens as number) ?? 0,
+                cacheReadTokens: inputDetails?.cached_tokens ?? 0,
+                cacheWriteTokens: 0,
+                thinkingTokens: 0,
+              },
+            };
+          }
           break;
         }
 
@@ -231,15 +300,47 @@ function toResponsesInput(
         );
 
         // Tool results → function_call_output items
+        // For array content (e.g. screenshot results with [TextBlock, ImageBlock]),
+        // extract text for the output string and images for a follow-up user message.
+        const toolResultImages: Array<{ type: 'input_image'; image_url: string; detail: 'low' }> = [];
         for (const tr of toolResults) {
           const toolResult = tr as {
             toolUseId: string;
             content: string | unknown[];
           };
-          const output =
-            typeof toolResult.content === 'string'
-              ? toolResult.content
-              : JSON.stringify(toolResult.content);
+          let output: string;
+          if (typeof toolResult.content === 'string') {
+            output = toolResult.content;
+          } else if (Array.isArray(toolResult.content)) {
+            // Extract text parts for function output, images separately
+            const textParts: string[] = [];
+            for (const sub of toolResult.content) {
+              const subBlock = sub as { type: string; text?: string; data?: string; mediaType?: string; url?: string };
+              if (subBlock.type === 'text' && subBlock.text) {
+                textParts.push(subBlock.text);
+              } else if (subBlock.type === 'image') {
+                const imgBlock = subBlock as { fileId?: string; data?: string; mediaType?: string; url?: string };
+                if (imgBlock.fileId) {
+                  // Best: file_id on input_image — uploaded once, no base64 in context
+                  toolResultImages.push({
+                    type: 'input_image',
+                    file_id: imgBlock.fileId,
+                    detail: 'low',
+                  } as unknown as typeof toolResultImages[number]);
+                } else if (imgBlock.data) {
+                  // Fallback: base64 data URL
+                  toolResultImages.push({
+                    type: 'input_image',
+                    image_url: `data:${imgBlock.mediaType || 'image/jpeg'};base64,${imgBlock.data}`,
+                    detail: 'low',
+                  });
+                }
+              }
+            }
+            output = textParts.join('\n') || JSON.stringify(toolResult.content);
+          } else {
+            output = JSON.stringify(toolResult.content);
+          }
           result.push({
             type: 'function_call_output',
             call_id: toolResult.toolUseId,
@@ -247,20 +348,41 @@ function toResponsesInput(
           } as Responses.ResponseInputItem.FunctionCallOutput);
         }
 
+        // Images extracted from tool results → user message so the model can see them
+        if (toolResultImages.length > 0) {
+          result.push({
+            role: 'user',
+            content: [
+              { type: 'input_text', text: 'Screenshot from the tool result above:' },
+              ...toolResultImages,
+            ] as Responses.ResponseInputMessageContentList,
+            type: 'message',
+          });
+        }
+
         // Text + image blocks → user message
         const contentParts: Array<
           | { type: 'input_text'; text: string }
-          | { type: 'input_image'; image_url: string; detail: 'auto' }
+          | { type: 'input_image'; image_url: string; detail: 'low' }
         > = [];
         for (const block of otherBlocks) {
           if (block.type === 'text') {
             contentParts.push({ type: 'input_text', text: block.text });
           } else if (block.type === 'image') {
-            contentParts.push({
-              type: 'input_image',
-              image_url: `data:${block.mediaType};base64,${block.data}`,
-              detail: 'auto',
-            });
+            const imgBlock = block as { fileId?: string; data?: string; mediaType?: string; url?: string };
+            if (imgBlock.fileId) {
+              contentParts.push({
+                type: 'input_image',
+                file_id: imgBlock.fileId,
+                detail: 'low',
+              } as unknown as typeof contentParts[number]);
+            } else if (imgBlock.data) {
+              contentParts.push({
+                type: 'input_image',
+                image_url: `data:${imgBlock.mediaType || 'image/jpeg'};base64,${imgBlock.data}`,
+                detail: 'low',
+              });
+            }
           }
         }
         if (contentParts.length > 0) {

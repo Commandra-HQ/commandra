@@ -8,6 +8,8 @@ export interface LLMProvider {
 	chat(params: ChatParams): AsyncIterable<StreamEvent>;
 	supportsVision: boolean;
 	supportsToolUse: boolean;
+	/** Free token counting endpoint (Anthropic only). Returns input token count. */
+	countTokens?(params: { model: string; system: string; messages: Message[]; tools?: Tool[] }): Promise<number>;
 }
 
 export interface ChatParams {
@@ -44,8 +46,11 @@ export interface TextBlock {
 
 export interface ImageBlock {
 	type: 'image';
-	data: string; // base64
+	data: string; // base64 — kept for S3 upload and fallback only, NOT sent to LLM
 	mediaType: 'image/jpeg' | 'image/png' | 'image/webp';
+	url?: string; // S3 signed URL
+	/** Provider file ID — preferred over base64/URL. Upload once, reference by ID. */
+	fileId?: string;
 }
 
 export interface ToolUseBlock {
@@ -83,6 +88,44 @@ export interface JsonSchema {
 	required?: string[];
 }
 
+// --- Token Usage ---
+
+export interface TokenUsage {
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
+	thinkingTokens: number;
+}
+
+export function emptyTokenUsage(): TokenUsage {
+	return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, thinkingTokens: 0 };
+}
+
+// --- Model Capabilities ---
+
+export interface ModelCapabilities {
+	contextWindow: number;
+	maxOutputTokens: number;
+	defaultOutputBudget: number;
+	supportsThinking: boolean;
+	defaultThinkingBudget: number;
+	costPer1kInput: number;
+	costPer1kOutput: number;
+	charsPerToken: number;
+}
+
+export const DEFAULT_CAPABILITIES: ModelCapabilities = {
+	contextWindow: 200_000,
+	maxOutputTokens: 8_192,
+	defaultOutputBudget: 4_000,
+	supportsThinking: false,
+	defaultThinkingBudget: 0,
+	costPer1kInput: 0.003,
+	costPer1kOutput: 0.015,
+	charsPerToken: 4,
+};
+
 // --- Streaming ---
 
 export type StreamEvent =
@@ -92,13 +135,15 @@ export type StreamEvent =
 	| { type: 'tool_use_start'; id: string; name: string }
 	| { type: 'tool_use_delta'; id: string; partialJson: string }
 	| { type: 'tool_use_end'; id: string; name: string; input: Record<string, unknown> }
-	| { type: 'message_end'; stopReason: 'end_turn' | 'tool_use' | 'max_tokens' };
+	| { type: 'message_end'; stopReason: 'end_turn' | 'tool_use' | 'max_tokens' }
+	| { type: 'usage'; usage: TokenUsage };
 
 // --- Response (non-streaming convenience) ---
 
 export interface ChatResponse {
 	content: ContentBlock[];
 	stopReason: 'end_turn' | 'tool_use' | 'max_tokens';
+	usage?: TokenUsage;
 }
 
 /**
@@ -108,6 +153,7 @@ export async function collectStream(stream: AsyncIterable<StreamEvent>): Promise
 	const content: ContentBlock[] = [];
 	let currentToolUse: { id: string; name: string; json: string } | null = null;
 	let stopReason: ChatResponse['stopReason'] = 'end_turn';
+	let usage: TokenUsage | undefined;
 
 	for await (const event of stream) {
 		switch (event.type) {
@@ -146,8 +192,11 @@ export async function collectStream(stream: AsyncIterable<StreamEvent>): Promise
 			case 'message_end':
 				stopReason = event.stopReason;
 				break;
+			case 'usage':
+				usage = event.usage;
+				break;
 		}
 	}
 
-	return { content, stopReason };
+	return { content, stopReason, usage };
 }

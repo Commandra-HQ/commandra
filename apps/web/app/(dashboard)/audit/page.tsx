@@ -2,18 +2,11 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { apiFetch } from '@/lib/api';
+import { DataTable } from '@/components/ui/data-table';
+import { type AuditLog, useAuditLogsQuery } from '@/lib/queries/use-audit';
+import type { ColumnDef } from '@tanstack/react-table';
 import { Shield } from 'lucide-react';
-import { useEffect, useState } from 'react';
-
-interface AuditLog {
-	id: string;
-	action: string;
-	safetyLevel: 'safe' | 'review' | 'blocked';
-	approved: boolean;
-	metadata: Record<string, unknown>;
-	createdAt: string;
-}
+import { useState } from 'react';
 
 const SAFETY_VARIANT: Record<string, 'success' | 'warning' | 'destructive'> = {
 	safe: 'success',
@@ -21,54 +14,91 @@ const SAFETY_VARIANT: Record<string, 'success' | 'warning' | 'destructive'> = {
 	blocked: 'destructive',
 };
 
+const columns: ColumnDef<AuditLog, unknown>[] = [
+	{
+		accessorKey: 'createdAt',
+		header: 'Time',
+		cell: ({ row }) => (
+			<span className="text-xs text-muted-foreground whitespace-nowrap font-mono">
+				{new Date(row.original.createdAt).toLocaleString()}
+			</span>
+		),
+	},
+	{
+		accessorKey: 'action',
+		header: 'Action',
+		cell: ({ row }) => <span className="font-mono text-xs">{row.original.action}</span>,
+	},
+	{
+		accessorKey: 'safetyLevel',
+		header: 'Safety',
+		cell: ({ row }) => (
+			<Badge variant={SAFETY_VARIANT[row.original.safetyLevel] || 'secondary'}>
+				{row.original.safetyLevel}
+			</Badge>
+		),
+	},
+	{
+		accessorKey: 'approved',
+		header: 'Approved',
+		cell: ({ row }) =>
+			row.original.approved ? (
+				<span className="text-xs text-success font-mono">Yes</span>
+			) : (
+				<span className="text-xs text-error font-mono">No</span>
+			),
+	},
+	{
+		id: 'details',
+		header: 'Details',
+		cell: ({ row }) => (
+			<span className="text-xs text-muted-foreground max-w-[200px] truncate block font-mono">
+				{row.original.metadata?.args
+					? JSON.stringify(row.original.metadata.args)
+					: '—'}
+			</span>
+		),
+	},
+];
+
 export default function AuditPage() {
-	const [logs, setLogs] = useState<AuditLog[]>([]);
-	const [loading, setLoading] = useState(true);
 	const [filter, setFilter] = useState<string>('all');
+	const [offset, setOffset] = useState(0);
+	const limit = 50;
 
-	useEffect(() => {
-		fetchLogs();
-	}, []);
+	const { data, isLoading } = useAuditLogsQuery({
+		limit,
+		offset,
+		safetyLevel: filter === 'all' ? undefined : filter,
+	});
 
-	async function fetchLogs() {
-		try {
-			const res = await apiFetch('/api/audit');
-			if (res.ok) {
-				const data = await res.json();
-				setLogs(data.logs || []);
-			}
-		} catch (err) {
-			console.error('Failed to fetch audit logs:', err);
-		} finally {
-			setLoading(false);
-		}
+	const logs = data?.logs ?? [];
+	const total = data?.total ?? 0;
+
+	// Reset offset when filter changes
+	function handleFilterChange(f: string) {
+		setFilter(f);
+		setOffset(0);
 	}
 
-	const filtered = filter === 'all' ? logs : logs.filter((l) => l.safetyLevel === filter);
-
-	if (loading) {
+	if (isLoading && offset === 0) {
 		return (
-			<div className="space-y-4">
-				<h1 className="text-2xl font-bold tracking-tight">Audit Log</h1>
-				<p className="text-muted-foreground">Loading...</p>
+			<div className="flex items-center gap-2 py-8">
+				<div className="status-pixel bg-muted-foreground animate-pulse" />
+				<p className="text-sm font-mono text-muted-foreground">Loading...</p>
 			</div>
 		);
 	}
 
 	return (
-		<div className="space-y-6">
-			<div>
-				<h1 className="text-2xl font-bold tracking-tight">Audit Log</h1>
-				<p className="text-muted-foreground mt-1">Every action the agent has taken.</p>
-			</div>
-
-			{/* Filters */}
-			<div className="flex gap-2">
+		<div className="flex flex-col flex-1 min-h-0">
+			{/* Filters — sticky top */}
+			<div className="flex gap-1 flex-shrink-0 pb-3">
 				{['all', 'safe', 'review', 'blocked'].map((f) => (
 					<button
 						key={f}
-						onClick={() => setFilter(f)}
-						className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+						onClick={() => handleFilterChange(f)}
+						className={`px-3 py-1.5 text-xs font-mono font-medium border transition-colors ${
 							filter === f
 								? 'bg-primary text-primary-foreground border-primary'
 								: 'bg-background text-foreground border-border hover:bg-muted'
@@ -79,54 +109,24 @@ export default function AuditPage() {
 				))}
 			</div>
 
-			{filtered.length === 0 ? (
+			{logs.length === 0 && offset === 0 ? (
 				<Card>
 					<CardContent className="py-12 text-center">
 						<Shield size={32} className="mx-auto text-muted-foreground mb-3" />
-						<p className="text-sm text-muted-foreground">No audit logs yet.</p>
+						<p className="text-sm text-muted-foreground font-mono">No audit logs yet.</p>
 					</CardContent>
 				</Card>
 			) : (
-				<Card>
-					<div className="overflow-x-auto">
-						<table className="w-full text-sm">
-							<thead>
-								<tr className="border-b">
-									<th className="text-left p-3 font-medium text-muted-foreground">Time</th>
-									<th className="text-left p-3 font-medium text-muted-foreground">Action</th>
-									<th className="text-left p-3 font-medium text-muted-foreground">Safety</th>
-									<th className="text-left p-3 font-medium text-muted-foreground">Approved</th>
-									<th className="text-left p-3 font-medium text-muted-foreground">Details</th>
-								</tr>
-							</thead>
-							<tbody>
-								{filtered.map((log) => (
-									<tr key={log.id} className="border-b last:border-0 hover:bg-muted/30">
-										<td className="p-3 text-xs text-muted-foreground whitespace-nowrap">
-											{new Date(log.createdAt).toLocaleString()}
-										</td>
-										<td className="p-3 font-mono text-xs">{log.action}</td>
-										<td className="p-3">
-											<Badge variant={SAFETY_VARIANT[log.safetyLevel] || 'secondary'}>
-												{log.safetyLevel}
-											</Badge>
-										</td>
-										<td className="p-3 text-xs">
-											{log.approved ? (
-												<span className="text-green-600">Yes</span>
-											) : (
-												<span className="text-red-600">No</span>
-											)}
-										</td>
-										<td className="p-3 text-xs text-muted-foreground max-w-[200px] truncate">
-											{log.metadata?.args ? JSON.stringify(log.metadata.args) : '—'}
-										</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
-				</Card>
+				<DataTable
+					columns={columns}
+					data={logs}
+					total={total}
+					offset={offset}
+					limit={limit}
+					onPageChange={setOffset}
+					emptyMessage="No audit logs found."
+					fillHeight
+				/>
 			)}
 		</div>
 	);

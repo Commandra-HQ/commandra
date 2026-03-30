@@ -2,7 +2,7 @@
  * Agent CRUD routes — manage agents and their files.
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import {
 	createAgent,
@@ -11,21 +11,25 @@ import {
 	loadAgent,
 	updateAgent,
 } from '../agent/agent-registry.js';
+import { runAgentNow } from '../agent/scheduler.js';
 import { db } from '../db/index.js';
-import { agentRuns } from '../db/schema.js';
+import { agentRuns, agents, scheduledTasks } from '../db/schema.js';
 import { type AuthUser, requireAuth } from '../middleware/auth.js';
 import { downloadAgentFile, listAgentFiles, uploadAgentFile } from '../storage/agent-files.js';
 import { downloadRunLog, listRunLogs } from '../storage/run-files.js';
+import { paginateArray, parsePagination } from '../utils/pagination.js';
 
 export const agentRoutes = new Hono<{ Variables: { user: AuthUser } }>();
 
 agentRoutes.use('*', requireAuth);
 
-// List all agents
+// List all agents (paginated)
 agentRoutes.get('/', async (c) => {
 	const user = c.get('user');
-	const agents = await listAgents(user.id);
-	return c.json({ agents });
+	const pagination = parsePagination(c);
+	const allAgents = await listAgents(user.id);
+	const { data, total } = paginateArray(allAgents, pagination);
+	return c.json({ agents: data, total });
 });
 
 // Create agent
@@ -100,6 +104,50 @@ agentRoutes.get('/runs/:date/:filename', async (c) => {
 // --- Agent CRUD routes ---
 
 // Get agent (hydrated with files)
+// List all scheduled agents with their latest run
+// NOTE: Must be before /:id to prevent "scheduled" matching as a UUID
+agentRoutes.get('/scheduled', async (c) => {
+	const user = c.get('user');
+	const allAgents = await listAgents(user.id);
+	const scheduled = allAgents.filter(
+		(a) => (a.trigger as { cron?: string } | null)?.cron,
+	);
+
+	// Get latest run for each scheduled agent
+	const result = await Promise.all(
+		scheduled.map(async (agent) => {
+			const [latestRun] = await db
+				.select()
+				.from(agentRuns)
+				.where(eq(agentRuns.agentId, agent.id))
+				.orderBy(desc(agentRuns.createdAt))
+				.limit(1);
+			return { ...agent, latestRun: latestRun ?? null };
+		}),
+	);
+
+	// Also get one-time scheduled tasks with agent names
+	const tasks = await db
+		.select({
+			id: scheduledTasks.id,
+			agentId: scheduledTasks.agentId,
+			agentName: agents.name,
+			agentSlug: agents.slug,
+			task: scheduledTasks.task,
+			runAt: scheduledTasks.runAt,
+			status: scheduledTasks.status,
+			error: scheduledTasks.error,
+			createdAt: scheduledTasks.createdAt,
+		})
+		.from(scheduledTasks)
+		.leftJoin(agents, eq(scheduledTasks.agentId, agents.id))
+		.where(eq(scheduledTasks.userId, user.id))
+		.orderBy(desc(scheduledTasks.runAt))
+		.limit(20);
+
+	return c.json({ data: result, tasks });
+});
+
 agentRoutes.get('/:id', async (c) => {
 	const user = c.get('user');
 	const agentId = c.req.param('id');
@@ -197,16 +245,29 @@ agentRoutes.get('/:id/files', async (c) => {
 agentRoutes.get('/:id/runs', async (c) => {
 	const user = c.get('user');
 	const agentId = c.req.param('id');
-	const limit = Math.min(Number.parseInt(c.req.query('limit') || '20', 10), 100);
-	const offset = Number.parseInt(c.req.query('offset') || '0', 10);
+	const { limit, offset } = parsePagination(c, { limit: 20 });
+
+	const where = and(eq(agentRuns.agentId, agentId), eq(agentRuns.userId, user.id));
+
+	const [totalResult] = await db.select({ count: count() }).from(agentRuns).where(where);
 
 	const runs = await db
 		.select()
 		.from(agentRuns)
-		.where(and(eq(agentRuns.agentId, agentId), eq(agentRuns.userId, user.id)))
+		.where(where)
 		.orderBy(desc(agentRuns.createdAt))
 		.limit(limit)
 		.offset(offset);
 
-	return c.json({ runs });
+	return c.json({ runs, total: totalResult?.count ?? 0 });
 });
+
+// Run agent now (manual trigger)
+agentRoutes.post('/:id/run-now', async (c) => {
+	const user = c.get('user');
+	const agentId = c.req.param('id');
+	const result = await runAgentNow(agentId, user.id);
+	if ('error' in result) return c.json(result, 400);
+	return c.json(result);
+});
+

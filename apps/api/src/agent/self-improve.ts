@@ -8,6 +8,7 @@
  */
 
 import type { AgentConfig } from '@afe/shared';
+import type { ModelCapabilities, TokenUsage } from '../llm/types.js';
 import { db } from '../db/index.js';
 import { agentRuns } from '../db/schema.js';
 import { getFastModel, getProvider } from '../llm/index.js';
@@ -15,17 +16,31 @@ import { collectStream } from '../llm/types.js';
 import { downloadAgentFile, uploadAgentFile } from '../storage/agent-files.js';
 import { downloadDomainFile, uploadDomainFile } from '../storage/domain-files.js';
 import { writeRunLog } from '../storage/run-files.js';
+import { normalizeEntry, similarity } from '../utils/text-similarity.js';
 import type { ToolCallRecord } from './orchestrator.js';
 
-const SOFT_CAP = 40; // Trigger consolidation
-const HARD_CAP = 60; // Force-trim oldest before append
-const TARGET = 30; // Post-consolidation target
+/**
+ * Calculate estimated cost in USD from token usage and model capabilities.
+ */
+export function calculateCost(usage: TokenUsage, caps: ModelCapabilities): number {
+	const inputCost = (usage.inputTokens / 1000) * caps.costPer1kInput;
+	// Anthropic: cached reads are 10% of input cost, cache writes are 125%
+	const cacheReadCost = (usage.cacheReadTokens / 1000) * caps.costPer1kInput * 0.1;
+	const cacheWriteCost = (usage.cacheWriteTokens / 1000) * caps.costPer1kInput * 1.25;
+	const outputCost = (usage.outputTokens / 1000) * caps.costPer1kOutput;
+	return inputCost + cacheReadCost + cacheWriteCost + outputCost;
+}
+
+// Defaults — overrideable per agent via agentConfig.limits.selfImproveCap
+const DEFAULT_SOFT_CAP = 40; // Trigger consolidation
+const DEFAULT_HARD_CAP = 60; // Force-trim oldest before append
+const DEFAULT_TARGET = 30; // Post-consolidation target
 
 /**
  * Insert a row into the agent_runs table.
  */
 export async function recordAgentRun(params: {
-	agentId: string;
+	agentId?: string | null;
 	userId: string;
 	conversationId?: string;
 	status: 'running' | 'completed' | 'failed';
@@ -33,10 +48,19 @@ export async function recordAgentRun(params: {
 	tokensUsed?: number;
 	durationMs?: number;
 	error?: string;
+	// Detailed token breakdown (26a)
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheReadTokens?: number;
+	cacheWriteTokens?: number;
+	thinkingTokens?: number;
+	estimatedCostUsd?: string;
+	model?: string;
+	provider?: string;
 }): Promise<void> {
 	try {
 		await db.insert(agentRuns).values({
-			agentId: params.agentId,
+			agentId: params.agentId || null,
 			userId: params.userId,
 			conversationId: params.conversationId,
 			status: params.status,
@@ -44,55 +68,18 @@ export async function recordAgentRun(params: {
 			tokensUsed: params.tokensUsed ?? 0,
 			durationMs: params.durationMs,
 			error: params.error,
+			inputTokens: params.inputTokens ?? 0,
+			outputTokens: params.outputTokens ?? 0,
+			cacheReadTokens: params.cacheReadTokens ?? 0,
+			cacheWriteTokens: params.cacheWriteTokens ?? 0,
+			thinkingTokens: params.thinkingTokens ?? 0,
+			estimatedCostUsd: params.estimatedCostUsd ?? '0',
+			model: params.model,
+			provider: params.provider,
 		});
 	} catch (err) {
 		console.warn('[SelfImprove] Failed to record agent run:', err);
 	}
-}
-
-/**
- * Strip date prefix, lowercase, normalize whitespace for comparison.
- */
-function normalizeEntry(line: string): string {
-	return line
-		.replace(/^- \[\d{4}-\d{2}-\d{2}\]\s*/, '')
-		.replace(/^- /, '')
-		.toLowerCase()
-		.replace(/\s+/g, ' ')
-		.trim();
-}
-
-/**
- * Levenshtein distance between two strings.
- */
-function levenshteinDistance(a: string, b: string): number {
-	if (a.length === 0) return b.length;
-	if (b.length === 0) return a.length;
-
-	const matrix: number[][] = [];
-	for (let i = 0; i <= a.length; i++) matrix[i] = [i];
-	for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
-
-	for (let i = 1; i <= a.length; i++) {
-		for (let j = 1; j <= b.length; j++) {
-			const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-			matrix[i][j] = Math.min(
-				matrix[i - 1][j] + 1,
-				matrix[i][j - 1] + 1,
-				matrix[i - 1][j - 1] + cost,
-			);
-		}
-	}
-	return matrix[a.length][b.length];
-}
-
-/**
- * Normalized similarity (0-1) between two strings.
- */
-function similarity(a: string, b: string): number {
-	const maxLen = Math.max(a.length, b.length);
-	if (maxLen === 0) return 1;
-	return 1 - levenshteinDistance(a, b) / maxLen;
 }
 
 /**
@@ -115,7 +102,7 @@ async function consolidateFile(
 			messages: [
 				{
 					role: 'user',
-					content: `Merge these ${entries.length} entries into the ${TARGET} most valuable. Remove duplicates, merge overlapping entries, drop outdated ones. Keep the most specific and actionable entries.\n\nEntries:\n${entries.join('\n')}`,
+					content: `Merge these ${entries.length} entries into the ${DEFAULT_TARGET} most valuable. Remove duplicates, merge overlapping entries, drop outdated ones. Keep the most specific and actionable entries.\n\nEntries:\n${entries.join('\n')}`,
 				},
 			],
 			maxTokens: 2000,
@@ -130,7 +117,7 @@ async function consolidateFile(
 		const consolidated = text
 			.split('\n')
 			.filter((l) => l.trim().startsWith('- '))
-			.slice(0, TARGET);
+			.slice(0, DEFAULT_TARGET);
 
 		if (consolidated.length === 0) return;
 
@@ -254,6 +241,16 @@ Respond ONLY with valid JSON, no markdown fencing.`;
 			(analysis.learnings?.length ?? 0) +
 			(analysis.errors?.length ?? 0);
 
+		// Update MEMORY.md with a concise run summary (agent's own notes)
+		if (analysis.summary && insightCount > 0) {
+			await appendToAgentFile(
+				userId,
+				agentConfig.slug,
+				'MEMORY.md',
+				[`- [${today}] ${analysis.summary}`],
+			);
+		}
+
 		console.log(
 			`[SelfImprove] Agent "${agentConfig.slug}": +${analysis.skills?.length ?? 0} skills, +${analysis.learnings?.length ?? 0} learnings, +${analysis.errors?.length ?? 0} errors`,
 		);
@@ -339,14 +336,14 @@ async function appendToAgentFile(
 	const allEntries = [...existingEntries, ...dedupedNewLines];
 
 	// Check if consolidation is needed
-	if (allEntries.length > SOFT_CAP) {
+	if (allEntries.length > DEFAULT_SOFT_CAP) {
 		await consolidateFile(userId, agentSlug, filename, allEntries);
 		return;
 	}
 
 	// Hard cap: drop oldest entries if too many
 	const trimmedEntries =
-		allEntries.length > HARD_CAP ? allEntries.slice(allEntries.length - HARD_CAP) : allEntries;
+		allEntries.length > DEFAULT_HARD_CAP ? allEntries.slice(allEntries.length - DEFAULT_HARD_CAP) : allEntries;
 
 	const header = `# ${filename.replace('.md', '')}`;
 	const updated = `${header}\n\n${trimmedEntries.join('\n')}\n`;

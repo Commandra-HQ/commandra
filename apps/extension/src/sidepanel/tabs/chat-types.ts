@@ -131,6 +131,8 @@ export const TOOL_LABELS: Record<string, string> = {
 	read_text: 'Reading text',
 	read_table: 'Reading table',
 	export_data: 'Exporting data',
+	list_tabs: 'Listing tabs',
+	switch_tab: 'Switching tab',
 };
 
 export const TOOL_ICON_COMPONENTS: Record<

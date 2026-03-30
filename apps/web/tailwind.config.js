@@ -4,6 +4,10 @@ module.exports = {
 	content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}'],
 	theme: {
 		extend: {
+			fontFamily: {
+				sans: ['Instrument Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+				mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+			},
 			colors: {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
@@ -41,11 +45,21 @@ module.exports = {
 					accent: 'hsl(var(--sidebar-accent))',
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 				},
+				success: 'hsl(var(--success))',
+				warning: 'hsl(var(--warning))',
+				error: 'hsl(var(--error))',
+				surface: 'hsl(var(--surface))',
+				elevated: 'hsl(var(--elevated))',
+				outline: {
+					DEFAULT: 'hsl(var(--outline))',
+					hover: 'hsl(var(--outline-hover))',
+				},
+				dim: 'hsl(var(--dim))',
 			},
 			borderRadius: {
 				lg: 'var(--radius)',
-				md: 'calc(var(--radius) - 2px)',
-				sm: 'calc(var(--radius) - 4px)',
+				md: 'var(--radius)',
+				sm: 'var(--radius)',
 			},
 		},
 	},

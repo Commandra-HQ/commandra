@@ -2,7 +2,7 @@
 
 Each phase is self-contained and shippable. Complete one before starting the next.
 
-## Foundation (Done)
+## Foundation
 
 | Phase | Name             | What Shipped                                                                                                         | Status  |
 | ----- | ---------------- | -------------------------------------------------------------------------------------------------------------------- | ------- |
@@ -13,42 +13,79 @@ Each phase is self-contained and shippable. Complete one before starting the nex
 | 5     | Safety Layer     | Three-tier classification (safe/review/blocked), approval gates, kill switch, audit logging                          | ✅ Done |
 | 6     | Element Selector | DevTools-style hover highlight, click-to-select, drag-to-select area, element chips in chat                          | ✅ Done |
 
-## Intelligence (Next)
+## Intelligence
 
-| Phase | Name                    | What Ships                                                                                | Status   |
-| ----- | ----------------------- | ----------------------------------------------------------------------------------------- | -------- |
-| 7     | **Agent Core + Vision** | Agent SDK, MCP browser-bridge, screenshot tool, planning, memory, sessions, model routing | ✅ Done  |
-| 8     | Data Tools              | scroll, wait, read_text, read_table tools. export_data (CSV/JSON). Block-based chat UI    | ✅ ,Done |
-| 9     | Dashboard               | shadcn dashboard shell, conversation history, audit log, site management, LLM settings    | ✅ Done  |
+| Phase | Name                    | What Shipped                                                                              | Status  |
+| ----- | ----------------------- | ----------------------------------------------------------------------------------------- | ------- |
+| 7     | **Agent Core + Vision** | Agent SDK, MCP browser-bridge, screenshot tool, planning, memory, sessions, model routing | ✅ Done |
+| 8     | Data Tools              | scroll, wait, read_text, read_table tools. export_data (CSV/JSON). Block-based chat UI    | ✅ Done |
+| 9     | Dashboard               | shadcn dashboard shell, conversation history, audit log, site management, LLM settings    | ✅ Done |
 
 ## Automation
 
-| Phase | Name                      | What Ships                                                                                            | Status  |
+| Phase | Name                      | What Shipped                                                                                          | Status  |
 | ----- | ------------------------- | ----------------------------------------------------------------------------------------------------- | ------- |
-| 10    | [Removed]                 | Previously Flows & Teach Mode — project pivoted to agentic chat + autonomous agents                   |         |
+| 10    | [Removed]                 | Previously Flows & Teach Mode — project pivoted to agentic chat + autonomous agents                   | Removed |
+| 10c   | Adaptive Memory           | Per-user learning from corrections/preferences, memory management UI, save_memory tool                | ✅ Done |
 | 12    | Backend Indexing + Search | Kill IndexedDB, sync pages to Postgres, selector resilience, incremental re-indexing                  | ✅ Done |
 | 12b   | ~~Vector Embeddings~~     | Removed — embedding pipeline replaced by S3 domain knowledge (KNOWLEDGE.md, WORKFLOWS.md) in Phase 16 | Removed |
-| 10c   | Adaptive Memory           | Per-user learning from corrections/preferences, memory management UI, save_memory tool                | ✅ Done |
 
 ## Scale
 
-| Phase | Name                    | What Ships                                                                                        | Status  |
+| Phase | Name                    | What Shipped                                                                                      | Status  |
 | ----- | ----------------------- | ------------------------------------------------------------------------------------------------- | ------- |
 | 13    | Agentic System Overhaul | Parallel tool calling, intelligent memory, multi-agent swarm, learning loops, speed optimizations | ✅ Done |
 | 14    | Teams + Sharing         | Org schema + API, member management, org-scoped data, data scoping helper                         | ✅ Done |
 
 ## Autonomous Agents
 
-| Phase | Name                                               | What Ships                                                                                                                    | Status  |
-| ----- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------- |
-| 15    | [Autonomous Agent System](15-autonomous-agents.md) | Agents as persistent entities in Supabase Storage (SOUL.md, SKILLS.md).                                                       | ✅ Done |
-|       |                                                    | Agent registry with domain-based resolution. Agent-to-agent invocation. Self-improvement loop. Agent scheduler. Dashboard UI. |         |
-| 16    | [Self-Learning + Autonomy](16-self-learning.md)    | Domain knowledge S3 layer, self-improvement dedup/pruning, agent autonomy levels (supervised/trusted/autonomous),             |         |
-|       |                                                    | run logging to S3, date context in prompts, domain workflows extraction, embedding removal.                                   |         |
-| 17    | [Chat UX Overhaul](17-chat-ux-overhaul.md)         | Real-time context window indicator, conversation compaction to MD, single plan per chat,                                      |         |
-|       |                                                    | plan always visible as checklist, inline HITL approval in messages.                                                           |         |
-| 18    | [Tab-Pinned Conversations](18-tab-pinned-conversations.md) | Conversations bound to tabs not domains, background task execution,                                                    |         |
-|       |                                                    | tab-aware tool dispatch, multi-conversation support, swarm tab management.                                                    |         |
+| Phase | Name                                                                | What Shipped                                                                                                                  | Status  |
+| ----- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------- |
+| 15    | [Autonomous Agent System](15-autonomous-agents.md)                  | Agents as persistent entities in Supabase Storage (SOUL.md, SKILLS.md).                                                       | ✅ Done |
+|       |                                                                     | Agent registry with domain-based resolution. Agent-to-agent invocation. Self-improvement loop. Agent scheduler. Dashboard UI. |         |
+| 16    | [Self-Learning + Autonomy](16-self-learning.md)                     | Domain knowledge S3 layer, self-improvement dedup/pruning, agent autonomy levels (supervised/trusted/autonomous),             | ✅ Done |
+|       |                                                                     | run logging to S3, date context in prompts, domain workflows extraction, embedding removal.                                   |         |
+| 17    | [Chat UX Overhaul](17-chat-ux-overhaul.md)                          | Real-time context window indicator, conversation compaction to MD, single plan per chat,                                      | ✅ Done |
+|       |                                                                     | plan always visible as checklist, inline HITL approval in messages.                                                           |         |
+| 18    | [Tab-Pinned Conversations](18-tab-pinned-conversations.md)          | Conversations bound to tabs not domains, background task execution,                                                           | ✅ Done |
+|       |                                                                     | tab-aware tool dispatch, multi-conversation support, swarm tab management.                                                    |         |
+| 19    | [Reliability Improvements](19-reliability-improvements.md)          | Screenshot tab targeting fix, plan continuity across messages, OpenAI vision for tool results,                                | ✅ Done |
+|       |                                                                     | codebase modularization (15 new modules), storage bucket cleanup, plan UI redesign.                                           |         |
+| 20    | [Agent Runtime Hardening](20-agent-runtime-hardening.md)            | Swarm v2 (tab lifecycle, inter-agent data, named invocation), scheduler v2 (retry, alerts,                                    | ✅ Done |
+|       |                                                                     | offline queue, jitter), agent lifecycle (auto-capture skills, approval gates, edit from chat),                                |         |
+|       |                                                                     | file I/O tools (download interception, read local files, clipboard).                                                          |         |
+| 21    | [Agent Intelligence Hardening](21-agent-intelligence-hardening.md)  | Sub-agent scratchpad for data passing, approval gate on agent creation,                                                       | ✅ Done |
+|       |                                                                     | auto-extract SKILLS.md, unified agent MEMORY.md (200-line index), run dashboard in web UI.                                    |         |
+| 22    | [Hooks System](22-hooks-system.md)                                  | Deterministic lifecycle hooks for browser agents: PreToolUse (block dangerous actions),                                       | ✅ Done |
+|       |                                                                     | PostToolUse (auto-screenshot, logging), OnComplete (LLM-driven task verification).                                            |         |
+| 23    | [Agentic Storage Pipeline](23-agentic-storage-pipeline.md)          | Enable self-improvement for ALL conversations (remove coordinator gate),                                                      | ✅ Done |
+|       |                                                                     | screenshots to S3 with signed URLs, auto-create domain agents, S3 browsing tool, file_url support.                            |         |
+| 24    | [Agent Quality & Context](24-agent-quality-context-intelligence.md) | save_knowledge with append/merge/rewrite modes, similarity-based memory dedup,                                                | ✅ Done |
+|       |                                                                     | sub-agent learning pipeline wired, swarm reliability fixes (maxIter, scratchpad scope,                                        |         |
+|       |                                                                     | auto page-state refresh), 6-phase context trimming, error detection fix.                                                      |         |
+| 25    | [Unified Memory Architecture](25-unified-memory-architecture.md)    | All memory → S3 markdown files. user.ts fully rewritten for S3, domain_memory deprecated,                                     | ✅ Done |
+|       |                                                                     | vector-search.ts rewritten for S3 keyword search, dead code removed from conversations.ts,                                    |         |
+|       |                                                                     | domain sanitization fix, post-conversation sync wired.                                                                        |         |
+| 26    | [Provider Files API](26-token-system-management.md)                 | Provider Files API for screenshots (Anthropic file_id, OpenAI input_image file_id),                                           | ✅ Done |
+|       |                                                                     | OpenAI detail:'low' (85 tokens/image), context error detection fix,                                                           |         |
+|       |                                                                     | approval_inline SSE handler fix, base64 removed from LLM context.                                                             |         |
+| 27    | [Fluid Tab Context](27-fluid-tab-context.md)                        | list_tabs + switch_tab agent tools, passive tab registry (Chrome events),                                                     | ✅ Done |
+|       |                                                                     | originTabId pinning removed, @tab mention picker (Tiptap + mention extension),                                                |         |
+|       |                                                                     | mention chips in message bubbles, tab context in system prompt.                                                               |         |
+| 28    | [Token System Management](28-token-system-management.md)            | Real token tracking from Anthropic/OpenAI streams, per-model output budgets                                                   | ✅ Done |
+|       |                                                                     | (ModelCapabilities), cost tracking with usage dashboard, compaction safety,                                                   |         |
+|       |                                                                     | importance-weighted trimming, pre-flight token counting, live context                                                         |         |
+|       |                                                                     | indicator (ContextSquare), manual compaction, coordinator usage tracking.                                                     |         |
+| 29    | [Scheduled Jobs Dashboard](29-scheduled-jobs-dashboard.md)          | Dedicated schedules page with all cron agents, run/pause/run-now controls,                                                    | ✅ Done |
+|       |                                                                     | latest run status, `POST /agents/:id/run-now` endpoint, `GET /agents/scheduled` endpoint.                                     |         |
+
+## Navigation Intelligence
+
+| Phase | Name                                                 | What Shipped                                                                           | Status  |
+| ----- | ---------------------------------------------------- | -------------------------------------------------------------------------------------- | ------- |
+| 31    | [Site Navigation Graph](31-site-navigation-graph.md) | SITEMAP.yaml in S3 — passive graph built from browsing. Smart dynamic route detection. | Planned |
+|       |                                                      | Tree-formatted graph in agent prompt replacing flat page list.                         |         |
+|       |                                                      | Interactive reactflow graph visualization in dashboard. Fast-model node descriptions.  |         |
 
 ---
 

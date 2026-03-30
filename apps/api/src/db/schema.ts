@@ -1,4 +1,14 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+	boolean,
+	integer,
+	jsonb,
+	numeric,
+	pgTable,
+	text,
+	timestamp,
+	uniqueIndex,
+	uuid,
+} from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
 	id: uuid('id').primaryKey().defaultRandom(),
@@ -16,17 +26,21 @@ export const organizations = pgTable('organizations', {
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
-export const orgMembers = pgTable('org_members', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	orgId: uuid('org_id')
-		.references(() => organizations.id)
-		.notNull(),
-	userId: uuid('user_id')
-		.references(() => users.id)
-		.notNull(),
-	role: text('role').notNull().default('member'), // 'admin' | 'member' | 'viewer'
-	createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+export const orgMembers = pgTable(
+	'org_members',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		orgId: uuid('org_id')
+			.references(() => organizations.id)
+			.notNull(),
+		userId: uuid('user_id')
+			.references(() => users.id)
+			.notNull(),
+		role: text('role').notNull().default('member'), // 'admin' | 'member'
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(table) => [uniqueIndex('org_members_org_user_idx').on(table.orgId, table.userId)],
+);
 
 export const sites = pgTable('sites', {
 	id: uuid('id').primaryKey().defaultRandom(),
@@ -66,6 +80,7 @@ export const conversations = pgTable('conversations', {
 	agentId: uuid('agent_id').references(() => agents.id),
 	title: text('title'),
 	outcome: text('outcome'), // 'success' | 'failure' | 'partial' | null
+	status: text('status').notNull().default('idle'), // 'idle' | 'running' | 'paused' | 'completed' | 'failed'
 	planStatus: jsonb('plan_status').$type<{
 		totalSteps: number;
 		completedSteps: number;
@@ -84,7 +99,8 @@ export const messages = pgTable('messages', {
 	content: text('content').notNull(),
 	/** Structured tool call data (tool names, args, results) for multi-turn context */
 	toolData: jsonb('tool_data').$type<{
-		tools: { name: string; args: unknown; result: unknown; success: boolean }[];
+		tools?: { name: string; args: unknown; result: unknown; success: boolean }[];
+		streamBlocks?: { type: string; content?: string; toolName?: string; ts: number }[];
 	}>(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
@@ -142,17 +158,35 @@ export const agents = pgTable('agents', {
 	maxIterations: integer('max_iterations'),
 	tools: jsonb('tools').$type<string[]>(),
 	domains: jsonb('domains').$type<string[]>(),
-	trigger: jsonb('trigger').$type<{ cron?: string; enabled?: boolean }>(),
+	trigger: jsonb('trigger').$type<{ cron?: string; enabled?: boolean; alertWebhook?: string }>(),
+	hooks: jsonb('hooks').$type<import('@afe/shared').AgentHooks>(),
+	llmConfig: jsonb('llm_config').$type<import('@afe/shared').AgentLLMConfig>(),
+	limits: jsonb('limits').$type<import('@afe/shared').AgentLimits>(),
+	domainAutonomy: jsonb('domain_autonomy').$type<Record<string, import('@afe/shared').AgentAutonomy>>(),
 	autonomy: text('autonomy').default('supervised'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const scheduledTasks = pgTable('scheduled_tasks', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	userId: uuid('user_id')
+		.references(() => users.id)
+		.notNull(),
+	agentId: uuid('agent_id')
+		.references(() => agents.id, { onDelete: 'cascade' }),
+	task: text('task').notNull(),
+	runAt: timestamp('run_at').notNull(),
+	status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'completed' | 'failed'
+	conversationId: uuid('conversation_id'),
+	error: text('error'),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const agentRuns = pgTable('agent_runs', {
 	id: uuid('id').primaryKey().defaultRandom(),
 	agentId: uuid('agent_id')
-		.references(() => agents.id, { onDelete: 'cascade' })
-		.notNull(),
+		.references(() => agents.id, { onDelete: 'cascade' }),
 	conversationId: uuid('conversation_id').references(() => conversations.id),
 	userId: uuid('user_id')
 		.references(() => users.id)
@@ -162,6 +196,15 @@ export const agentRuns = pgTable('agent_runs', {
 	tokensUsed: integer('tokens_used').default(0),
 	durationMs: integer('duration_ms'),
 	error: text('error'),
+	// Detailed token breakdown (Phase 26)
+	inputTokens: integer('input_tokens').default(0),
+	outputTokens: integer('output_tokens').default(0),
+	cacheReadTokens: integer('cache_read_tokens').default(0),
+	cacheWriteTokens: integer('cache_write_tokens').default(0),
+	thinkingTokens: integer('thinking_tokens').default(0),
+	estimatedCostUsd: numeric('estimated_cost_usd', { precision: 10, scale: 6 }).default('0'),
+	model: text('model'),
+	provider: text('provider'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

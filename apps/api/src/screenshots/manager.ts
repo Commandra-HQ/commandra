@@ -20,6 +20,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveLocalFile } from '../storage/local.js';
+import { getSupabase } from '../storage/supabase.js';
 
 const SCREENSHOTS_DIR = join(tmpdir(), 'commandra-screenshots');
 const MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
@@ -150,3 +151,46 @@ export function cleanupOldScreenshots(): number {
 
 // Run cleanup every 15 minutes
 setInterval(cleanupOldScreenshots, 15 * 60 * 1000);
+
+/**
+ * Upload a screenshot to S3 and return a signed URL (valid for 1 hour).
+ * Screenshots are stored at: agents/{userId}/screenshots/{id}.jpg
+ */
+export async function uploadScreenshotToS3(
+	base64Data: string,
+	userId: string,
+	metadata?: { domain?: string; conversationId?: string },
+): Promise<{ id: string; url: string; sizeBytes: number }> {
+	const supabase = getSupabase();
+	const id = randomUUID();
+	const buffer = Buffer.from(base64Data, 'base64');
+	const path = `${userId}/screenshots/${id}.jpg`;
+
+	const { error } = await supabase.storage
+		.from('agents')
+		.upload(path, buffer, {
+			contentType: 'image/jpeg',
+			upsert: false,
+		});
+
+	if (error) throw new Error(`Failed to upload screenshot to S3: ${error.message}`);
+
+	// Generate signed URL valid for 1 hour
+	const { data: urlData, error: urlError } = await supabase.storage
+		.from('agents')
+		.createSignedUrl(path, 3600); // 1 hour
+
+	if (urlError || !urlData?.signedUrl) {
+		throw new Error(`Failed to generate signed URL: ${urlError?.message || 'No URL returned'}`);
+	}
+
+	console.log(
+		`[Screenshots] Uploaded to S3: ${id} (${Math.round(buffer.length / 1024)}KB)${metadata?.domain ? ` [${metadata.domain}]` : ''}`,
+	);
+
+	return {
+		id,
+		url: urlData.signedUrl,
+		sizeBytes: buffer.length,
+	};
+}

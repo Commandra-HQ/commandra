@@ -1,5 +1,13 @@
 /**
  * Token budget management — estimation and trimming for context windows.
+ *
+ * Trimming pipeline (runs every iteration):
+ *   Phase 0: Expire "seen" screenshots (assistant already responded to them)
+ *   Phase 1: Strip old screenshots — keep only the most recent image
+ *   Phase 1.5: Trim thinking blocks in older messages
+ *   Phase 2: Truncate long tool results (aggressive for older messages)
+ *   Phase 2.5: Collapse old page-state results to summaries
+ *   Phase 3: Drop oldest message pairs as a last resort
  */
 
 import type {
@@ -12,9 +20,23 @@ import type {
   ToolUseBlock,
 } from '../llm/types.js';
 
-// Rough token estimate: ~4 chars per token for English text, base64 images are ~3 chars per token
-export const MAX_INPUT_TOKENS = 200_000;
-export const CHARS_PER_TOKEN = 4;
+// Rough token estimate: ~4 chars per token for English text
+// Images are counted by pixel dimensions, NOT by base64 string length
+// Anthropic: ~1,600 tokens per 1280x720 image. OpenAI: ~1,100 tokens for high detail.
+// We use a flat 2,000 tokens per image as a safe estimate.
+export const IMAGE_TOKEN_ESTIMATE = 2_000;
+export let CHARS_PER_TOKEN = 4;
+
+export function setCharsPerToken(value: number): void {
+	CHARS_PER_TOKEN = value;
+}
+
+// Default context limit — overridden per provider/model in the orchestrator
+export let MAX_INPUT_TOKENS = 200_000;
+
+export function setMaxInputTokens(tokens: number): void {
+	MAX_INPUT_TOKENS = tokens;
+}
 
 /**
  * Estimate total character count across all messages (including content blocks).
@@ -27,15 +49,15 @@ export function estimateMessageChars(messages: Message[]): number {
     } else if (Array.isArray(m.content)) {
       for (const block of m.content) {
         if (block.type === 'text') total += (block as TextBlock).text.length;
-        else if (block.type === 'image')
-          total += (block as ImageBlock).data.length;
-        else if (block.type === 'tool_result') {
+        else if (block.type === 'image') {
+          total += IMAGE_TOKEN_ESTIMATE * CHARS_PER_TOKEN;
+        } else if (block.type === 'tool_result') {
           const tr = block as ToolResultBlock;
           if (typeof tr.content === 'string') total += tr.content.length;
           else if (Array.isArray(tr.content)) {
             for (const sub of tr.content) {
               if (sub.type === 'text') total += sub.text.length;
-              else if (sub.type === 'image') total += sub.data.length;
+              else if (sub.type === 'image') total += IMAGE_TOKEN_ESTIMATE * CHARS_PER_TOKEN;
             }
           }
         } else if (block.type === 'tool_use') {
@@ -50,65 +72,171 @@ export function estimateMessageChars(messages: Message[]): number {
 }
 
 /**
- * Trim messages to stay within token budget.
- * Strategy:
- * 1. Strip base64 image data from all but the most recent screenshot
- * 2. If still over budget, summarize old tool results to just success/error
- * 3. If still over budget, drop the oldest message pairs
+ * Check if a message contains an image block (top-level or inside tool_result).
  */
-export function trimMessagesForTokenBudget(messages: Message[]): Message[] {
-  const maxChars = MAX_INPUT_TOKENS * CHARS_PER_TOKEN;
-  let result = [...messages];
-
-  // Phase 1: Strip old screenshots — keep only the last image block
-  let lastImageIdx = -1;
-  for (let i = result.length - 1; i >= 0; i--) {
-    const content = result[i].content;
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block.type === 'image') {
-          lastImageIdx = i;
-          break;
-        }
-        if (block.type === 'tool_result') {
-          const tr = block as ToolResultBlock;
-          if (Array.isArray(tr.content)) {
-            for (const sub of tr.content) {
-              if (sub.type === 'image') {
-                lastImageIdx = i;
-                break;
-              }
-            }
-          }
-        }
+function messageHasImage(m: Message): boolean {
+  if (!Array.isArray(m.content)) return false;
+  for (const block of m.content as ContentBlock[]) {
+    if (block.type === 'image') return true;
+    if (block.type === 'tool_result') {
+      const tr = block as ToolResultBlock;
+      if (Array.isArray(tr.content)) {
+        if (tr.content.some((sub) => sub.type === 'image')) return true;
       }
-      if (lastImageIdx >= 0) break;
+    }
+  }
+  return false;
+}
+
+/**
+ * Replace image blocks in a message with a text placeholder.
+ */
+function replaceImagesWithPlaceholder(m: Message, placeholder: string): Message {
+  if (!Array.isArray(m.content)) return m;
+  const cleaned = (m.content as ContentBlock[]).map((block) => {
+    if (block.type === 'image') {
+      return { type: 'text' as const, text: placeholder };
+    }
+    if (block.type === 'tool_result') {
+      const tr = block as ToolResultBlock;
+      if (Array.isArray(tr.content) && tr.content.some((sub) => sub.type === 'image')) {
+        return {
+          ...tr,
+          content: tr.content.map((sub) =>
+            sub.type === 'image' ? { type: 'text' as const, text: placeholder } : sub,
+          ),
+        } as ToolResultBlock;
+      }
+    }
+    return block;
+  });
+  return { ...m, content: cleaned };
+}
+
+/**
+ * Phase 0: Expire screenshots the agent has already "seen" and responded to.
+ * If an assistant message with text follows a message containing an image,
+ * that image has been consumed and can be replaced with a placeholder.
+ */
+function expireSeenScreenshots(messages: Message[]): Message[] {
+  const result = [...messages];
+  let lastImageMsgIdx = -1;
+
+  for (let i = 0; i < result.length; i++) {
+    if (messageHasImage(result[i])) {
+      // If there was a PREVIOUS image that was followed by an assistant response,
+      // expire it now — the agent already saw it
+      if (lastImageMsgIdx >= 0 && lastImageMsgIdx < i) {
+        result[lastImageMsgIdx] = replaceImagesWithPlaceholder(
+          result[lastImageMsgIdx],
+          '[screenshot: already processed]',
+        );
+      }
+      lastImageMsgIdx = i;
+    } else if (result[i].role === 'assistant' && lastImageMsgIdx >= 0) {
+      // Assistant responded after seeing the image — but don't expire yet,
+      // wait until the NEXT image or end of messages
+      const hasText = typeof result[i].content === 'string'
+        ? result[i].content.length > 0
+        : Array.isArray(result[i].content) &&
+          (result[i].content as ContentBlock[]).some(
+            (b) => b.type === 'text' && (b as TextBlock).text.length > 10,
+          );
+      if (hasText && lastImageMsgIdx >= 0 && i < result.length - 1) {
+        // Mark for expiry — will be expired when we find the next image or at the end
+      }
     }
   }
 
-  // Replace older image blocks with a placeholder
-  result = result.map((m, idx) => {
-    if (idx >= lastImageIdx || !Array.isArray(m.content)) return m;
-    const cleaned = (m.content as ContentBlock[]).map(block => {
-      if (block.type === 'image') {
-        return {
-          type: 'text' as const,
-          text: '[screenshot removed to save context]',
-        };
+  // Expire the last tracked image ONLY if it's not in the last 2 messages
+  // (the agent may still need it for the current turn)
+  if (lastImageMsgIdx >= 0 && lastImageMsgIdx < result.length - 2) {
+    // Check if an assistant message followed it
+    const hasAssistantAfter = result
+      .slice(lastImageMsgIdx + 1)
+      .some((m) => m.role === 'assistant');
+    if (hasAssistantAfter) {
+      result[lastImageMsgIdx] = replaceImagesWithPlaceholder(
+        result[lastImageMsgIdx],
+        '[screenshot: already processed]',
+      );
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Phase 1.5: Trim thinking blocks in older messages.
+ * Extended thinking tokens accumulate fast and have diminishing value
+ * for past iterations. Keep only a summary for older messages.
+ */
+function trimThinkingBlocks(messages: Message[]): Message[] {
+  const KEEP_RECENT = 2; // Keep full thinking for last N messages
+  return messages.map((m, idx) => {
+    if (idx >= messages.length - KEEP_RECENT) return m;
+    if (!Array.isArray(m.content)) return m;
+
+    const cleaned = (m.content as ContentBlock[]).map((block) => {
+      if (block.type === 'thinking') {
+        const tb = block as ThinkingContentBlock;
+        if (tb.thinking && tb.thinking.length > 500) {
+          return {
+            ...tb,
+            thinking: '...' + tb.thinking.slice(-500),
+          };
+        }
       }
+      return block;
+    });
+    return { ...m, content: cleaned };
+  });
+}
+
+/**
+ * Phase 2.5: Collapse old page-state tool results to compact summaries.
+ * get_page_state / refresh_page_state results include full element lists
+ * that are only useful for the most recent occurrence.
+ */
+function collapseOldPageState(messages: Message[]): Message[] {
+  // Find the index of the last page-state result
+  let lastPageStateIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (!Array.isArray(messages[i].content)) continue;
+    for (const block of messages[i].content as ContentBlock[]) {
       if (block.type === 'tool_result') {
         const tr = block as ToolResultBlock;
-        if (Array.isArray(tr.content)) {
-          const hasImage = tr.content.some(sub => sub.type === 'image');
-          if (hasImage) {
+        if (typeof tr.content === 'string' && tr.content.includes('"elements"')) {
+          lastPageStateIdx = i;
+          break;
+        }
+      }
+    }
+    if (lastPageStateIdx >= 0) break;
+  }
+
+  return messages.map((m, idx) => {
+    if (idx >= lastPageStateIdx || !Array.isArray(m.content)) return m;
+    const cleaned = (m.content as ContentBlock[]).map((block) => {
+      if (block.type === 'tool_result') {
+        const tr = block as ToolResultBlock;
+        if (typeof tr.content === 'string' && tr.content.includes('"elements"') && tr.content.length > 500) {
+          // Collapse to a compact summary
+          try {
+            const parsed = JSON.parse(tr.content);
+            const elementCount = parsed.data?.elements?.length ?? parsed.elements?.length ?? '?';
+            const url = parsed.data?.url ?? parsed.url ?? '';
             return {
               ...tr,
-              content: tr.content.map(sub =>
-                sub.type === 'image'
-                  ? { type: 'text' as const, text: '[screenshot removed]' }
-                  : sub,
-              ),
-            } as ToolResultBlock;
+              content: JSON.stringify({
+                success: true,
+                summary: `Page state: ${elementCount} elements`,
+                url,
+                note: 'Full element list trimmed — use refresh_page_state to get current elements',
+              }),
+            };
+          } catch {
+            return { ...tr, content: tr.content.slice(0, 300) + '...[page state trimmed]' };
           }
         }
       }
@@ -116,18 +244,59 @@ export function trimMessagesForTokenBudget(messages: Message[]): Message[] {
     });
     return { ...m, content: cleaned };
   });
+}
 
-  // Phase 2: If still over budget, truncate long tool result strings
+/**
+ * Trim messages to stay within token budget.
+ *
+ * Pipeline:
+ *   Phase 0: Expire screenshots the agent already responded to
+ *   Phase 1: Keep only the most recent screenshot, replace older ones
+ *   Phase 1.5: Trim thinking blocks in older messages
+ *   Phase 2: Truncate long tool results
+ *   Phase 2.5: Collapse old page-state results
+ *   Phase 3: Drop oldest message pairs as last resort
+ */
+export function trimMessagesForTokenBudget(messages: Message[]): Message[] {
+  const maxChars = MAX_INPUT_TOKENS * CHARS_PER_TOKEN;
+  let result = [...messages];
+
+  // Phase 0: Expire screenshots the agent has already seen and responded to
+  result = expireSeenScreenshots(result);
+
+  // Phase 1: Strip old screenshots — keep only the last image block
+  let lastImageIdx = -1;
+  for (let i = result.length - 1; i >= 0; i--) {
+    if (messageHasImage(result[i])) {
+      lastImageIdx = i;
+      break;
+    }
+  }
+
+  if (lastImageIdx >= 0) {
+    result = result.map((m, idx) => {
+      if (idx >= lastImageIdx) return m;
+      return replaceImagesWithPlaceholder(m, '[screenshot removed to save context]');
+    });
+  }
+
+  // Phase 1.5: Trim thinking blocks in older messages
+  result = trimThinkingBlocks(result);
+
+  // Phase 2: Truncate long tool result strings
   if (estimateMessageChars(result) > maxChars) {
-    result = result.map(m => {
+    const RECENT_THRESHOLD = 4;
+    result = result.map((m, idx) => {
       if (!Array.isArray(m.content)) return m;
-      const cleaned = (m.content as ContentBlock[]).map(block => {
+      // More aggressive truncation for older messages
+      const maxLen = idx >= result.length - RECENT_THRESHOLD ? 2000 : 1000;
+      const cleaned = (m.content as ContentBlock[]).map((block) => {
         if (block.type === 'tool_result') {
           const tr = block as ToolResultBlock;
-          if (typeof tr.content === 'string' && tr.content.length > 2000) {
+          if (typeof tr.content === 'string' && tr.content.length > maxLen) {
             return {
               ...tr,
-              content: tr.content.slice(0, 2000) + '...[truncated]',
+              content: tr.content.slice(0, maxLen) + '...[truncated]',
             };
           }
         }
@@ -137,15 +306,99 @@ export function trimMessagesForTokenBudget(messages: Message[]): Message[] {
     });
   }
 
-  // Phase 3: If still over budget, drop oldest assistant+user pairs (keep first + last 4)
+  // Phase 2.5: Collapse old page-state results to compact summaries
+  if (estimateMessageChars(result) > maxChars * 0.8) {
+    result = collapseOldPageState(result);
+  }
+
+  // Phase 3: If still over budget, drop messages by importance (preserve tool calls, user messages, recency)
   if (estimateMessageChars(result) > maxChars && result.length > 6) {
-    const keep = 4; // Keep last N messages
-    const trimmed = [result[0], ...result.slice(-keep)];
-    console.log(
-      `[Orchestrator] Token budget exceeded, dropped ${result.length - trimmed.length} messages`,
-    );
-    result = trimmed;
+    const scored = result.map((m, i) => ({
+      msg: m, idx: i, score: scoreMessageImportance(m, i, result.length),
+    }));
+
+    // Sort by score ascending — lowest importance dropped first
+    const droppable = scored
+      .filter(s => s.score < 10) // score >= 10 means protected (first msg, last 4)
+      .sort((a, b) => a.score - b.score);
+
+    let currentChars = estimateMessageChars(result);
+    const dropIndices = new Set<number>();
+
+    for (const item of droppable) {
+      if (currentChars <= maxChars) break;
+      dropIndices.add(item.idx);
+      currentChars -= estimateMessageChars([item.msg]);
+    }
+
+    if (dropIndices.size > 0) {
+      // Build summary of what was dropped for context
+      const droppedToolNames = scored
+        .filter(s => dropIndices.has(s.idx) && Array.isArray(s.msg.content))
+        .flatMap(s => (s.msg.content as ContentBlock[])
+          .filter((b): b is ToolUseBlock => b.type === 'tool_use')
+          .map(b => b.name))
+        .filter(Boolean);
+
+      const lastTool = droppedToolNames.length > 0
+        ? droppedToolNames[droppedToolNames.length - 1]
+        : 'various actions';
+
+      const kept = result.filter((_, i) => !dropIndices.has(i));
+      const placeholder: Message = {
+        role: 'user',
+        content: `[Trimmed: ${dropIndices.size} messages removed to save context — last action was ${lastTool}]`,
+      };
+
+      // Insert placeholder after first message to maintain context
+      result = [kept[0], placeholder, ...kept.slice(1)];
+      console.log(
+        `[TokenBudget] Importance-weighted trim: dropped ${dropIndices.size} messages (${droppedToolNames.length} with tool calls)`,
+      );
+    }
   }
 
   return result;
+}
+
+/**
+ * Score a message's importance for trimming decisions.
+ * Higher score = more important = kept longer.
+ * Score >= 10 means protected (never dropped).
+ */
+function scoreMessageImportance(m: Message, idx: number, total: number): number {
+  let score = 0;
+
+  // First message always protected (original user request)
+  if (idx === 0) return 10;
+  // Last 4 messages always protected (current context)
+  if (idx >= total - 4) return 10;
+
+  // User messages are important
+  if (m.role === 'user') score += 3;
+
+  // Messages with tool calls are high priority — they represent actions taken
+  if (Array.isArray(m.content)) {
+    const blocks = m.content as ContentBlock[];
+    if (blocks.some(b => b.type === 'tool_use' || b.type === 'tool_result')) {
+      score += 4;
+    }
+  }
+
+  // Plain assistant text without tools is lower priority
+  if (m.role === 'assistant') {
+    if (typeof m.content === 'string') {
+      score += 1;
+    } else if (Array.isArray(m.content)) {
+      const hasTools = (m.content as ContentBlock[]).some(b => b.type === 'tool_use');
+      score += hasTools ? 4 : 1;
+    }
+  }
+
+  // Compaction summaries are lowest priority
+  if (typeof m.content === 'string' && m.content.includes('[Conversation compacted')) {
+    score = 0;
+  }
+
+  return score;
 }
