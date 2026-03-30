@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Globe,
   History,
+  LogOut,
   Minimize2,
   Plus,
   RefreshCw,
@@ -21,10 +22,12 @@ import { Outlet, useNavigate, useParams } from 'react-router-dom';
 import { HistoryDrawer } from '../components/HistoryDrawer.js';
 import { VoxelLogo } from '../components/VoxelLogo.js';
 import { TabBar, type Tab } from '../components/TabBar.js';
+import { useAuth } from '../contexts/auth.js';
 
 const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:3000';
 
 export function HubLayout() {
+  const { logout } = useAuth();
   const navigate = useNavigate();
   const params = useParams();
   const convId = params.conversationId;
@@ -219,6 +222,16 @@ export function HubLayout() {
                       className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-elevated"
                     >
                       <Settings size={12} strokeWidth={1.5} /> Settings
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGlobalMenuOpen(false);
+                        void logout();
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-elevated"
+                    >
+                      <LogOut size={12} strokeWidth={1.5} /> Log out
                     </button>
                     <div className="my-1 h-px bg-border" />
                     <button
