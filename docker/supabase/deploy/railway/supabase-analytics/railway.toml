@@ -8,6 +8,6 @@ dockerfilePath = "docker/supabase/deploy/docker/Dockerfile.analytics"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 
-# Logflare — 512 MiB balance (384 OOM’d before for some workloads). Stop service to save cost if unused.
+# Logflare (BEAM) — 768 MiB for stable deploys; raise toward 1 GiB only if OOM persists.
 [deploy.limitOverride.containers]
-memoryBytes = 536870912
+memoryBytes = 805306368

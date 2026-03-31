@@ -91,12 +91,24 @@ set_vars_meta() {
 }
 
 set_vars_analytics() {
+  require_db_host
   railway_set "$RAILWAY_SVC_ANALYTICS" \
     "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
     "DB_PASSWORD=$POSTGRES_PASSWORD" \
     "LOGFLARE_PUBLIC_ACCESS_TOKEN=$LOGFLARE_PUBLIC_ACCESS_TOKEN" \
     "LOGFLARE_PRIVATE_ACCESS_TOKEN=$LOGFLARE_PRIVATE_ACCESS_TOKEN" \
-    "POSTGRES_BACKEND_URL=$(build_postgres_backend_url)"
+    "POSTGRES_BACKEND_URL=$(build_postgres_backend_url)" \
+    "PORT=4000" \
+    "DB_HOSTNAME=$RAILWAY_DB_PRIVATE_HOST" \
+    "DB_DATABASE=_supabase" \
+    "DB_PORT=5432" \
+    "DB_USERNAME=supabase_admin" \
+    "DB_SCHEMA=_analytics" \
+    "LOGFLARE_FEATURE_FLAG_OVERRIDE=multibackend=true" \
+    "LOGFLARE_NODE_HOST=0.0.0.0" \
+    "LOGFLARE_SINGLE_TENANT=true" \
+    "LOGFLARE_SUPABASE_MODE=true" \
+    "POSTGRES_BACKEND_SCHEMA=_analytics"
 }
 
 set_vars_studio() {

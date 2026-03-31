@@ -48,7 +48,7 @@ Current caps are **balanced for stability vs ~\$20–\$40/mo** Railway RAM line 
 | **api** | 576 MiB | **768 MiB** under heavy API load. |
 | **web** | 576 MiB | Dashboard SSR/build; **768 MiB** if deploy/runtime OOM. |
 | **landing** | 512 MiB | Marketing Next site. |
-| **supabase-analytics** | 512 MiB | Logflare; **stop service** to save \~\$5+/mo if logs unused, or raise to **640 MiB** if OOM returns. |
+| **supabase-analytics** | 768 MiB | Logflare (BEAM); **stop** to save cost if unused. Re-apply analytics env: `./set-railway-variables-from-env.sh analytics` (needs `RAILWAY_DB_PRIVATE_HOST`). |
 | **supabase-kong** | 512 MiB | Image sets **`KONG_NGINX_WORKER_PROCESSES=1`** so small plans don’t spawn many workers and OOM-loop. |
 | **supabase-supavisor** | 384 MiB | Pooler; **512 MiB** if many concurrent DB clients. |
 | **supabase-meta** | 192 MiB | Light; **256 MiB** if Studio schema browser errors. |
