@@ -36,21 +36,24 @@ Railway bills **allocated** resources (roughly **~$10 / GB RAM / month** plus vC
 
 **Under ~$20/mo** with this full stack on Railway is usually **not realistic** unless you (a) **remove or sleep** services (e.g. stop **supabase-analytics** if you can live without Logflare logs), (b) move **Postgres** to a cheap external provider / single small VPS, or (c) run the **whole** Supabase stack on **one** small VM instead of nine Railway services.
 
-Current repo caps are a **budget-oriented** compromise (raise any service that OOMs or feels slow):
+**Log checks (recommended):** periodically  
+`railway logs -s <service> -n 500 --since 7d | grep -iE 'OOM|out of memory|heap|SIGKILL|Memory cgroup'` — nginx/Kong may log **`signal 9`** on **reload/redeploy** (normal); correlate with OOM only if restarts coincide with errors.
+
+Current caps are **balanced for stability vs ~\$20–\$40/mo** Railway RAM line (9 services add up; total limits ≈ **4.25 GiB**):
 
 | Service | Cap (approx.) | Note |
 |---------|----------------|------|
-| **supabase-db** | 512 MiB | Tight for Postgres; **768 MiB–1 GiB** is safer if you see restarts/OOM. |
-| **supabase-studio** | 512 MiB | Admin UI; raise to **768 MiB** if sluggish or OOM. |
-| **api** | 512 MiB | Raise to **768 MiB** under sustained load. |
-| **web** | 512 MiB | Next dashboard; bump if Railway build/SSR OOMs. |
-| **landing** | 384 MiB | Raise to **512 MiB** if marketing site build/runtime OOMs. |
-| **supabase-analytics** | 384 MiB | Logflare often wants more; **stop the service** to save cost, or raise memory. |
-| **supabase-kong** | 256 MiB | Usually enough for a gateway. |
-| **supabase-supavisor** | 256 MiB | Raise if connection pool errors appear. |
-| **supabase-meta** | 128 MiB | Light; raise slightly if Studio metadata calls fail. |
+| **supabase-db** | 768 MiB | Postgres + extensions; **1 GiB** if monitoring shows DB OOM. |
+| **supabase-studio** | 576 MiB | Admin Next app; **768 MiB** if Studio feels slow or OOM. |
+| **api** | 576 MiB | **768 MiB** under heavy API load. |
+| **web** | 576 MiB | Dashboard SSR/build; **768 MiB** if deploy/runtime OOM. |
+| **landing** | 512 MiB | Marketing Next site. |
+| **supabase-analytics** | 512 MiB | Logflare; **stop service** to save \~\$5+/mo if logs unused, or raise to **640 MiB** if OOM returns. |
+| **supabase-kong** | 256 MiB | Proxy; bump to **384 MiB** only if rare worker issues under load. |
+| **supabase-supavisor** | 384 MiB | Pooler; **512 MiB** if many concurrent DB clients. |
+| **supabase-meta** | 192 MiB | Light; **256 MiB** if Studio schema browser errors. |
 
-Tune from **Railway → Observability** and OOM logs; edit the matching `railway.toml` `memoryBytes` (bytes) and redeploy.
+Edit `memoryBytes` in each `railway.toml` and redeploy after changes.
 
 ## 3. Variables and secrets
 

@@ -8,6 +8,6 @@ dockerfilePath = "docker/supabase/deploy/docker/Dockerfile.meta"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 
-# Internal only; keep small. Raise slightly if Studio schema UI errors.
+# postgres-meta; 192 MiB avoids edge OOM on 128 MiB. Still cheap vs app containers.
 [deploy.limitOverride.containers]
-memoryBytes = 134217728
+memoryBytes = 201326592

@@ -12,6 +12,6 @@ watchPatterns = ["apps/web/**", "packages/shared/**", "package.json", "pnpm-lock
 [deploy]
 startCommand = "pnpm --filter @afe/web start"
 
-# Dashboard (Next). 512 MiB baseline; raise if deploy/runtime OOM.
+# Dashboard (Next) — 576 MiB for SSR/build headroom on Railway.
 [deploy.limitOverride.containers]
-memoryBytes = 536870912
+memoryBytes = 603979776

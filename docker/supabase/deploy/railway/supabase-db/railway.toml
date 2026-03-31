@@ -6,6 +6,6 @@
 builder = "DOCKERFILE"
 dockerfilePath = "docker/supabase/deploy/docker/Dockerfile.db"
 
-# Tight budget (~512 MiB). Risk of OOM — monitor; prefer 768MiB–1GiB if DB restarts.
+# Balanced: 768 MiB for Postgres + extensions (512 MiB was tight). Raise if OOM in logs.
 [deploy.limitOverride.containers]
-memoryBytes = 536870912
+memoryBytes = 805306368

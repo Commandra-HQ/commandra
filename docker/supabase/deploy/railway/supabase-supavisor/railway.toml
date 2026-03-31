@@ -4,6 +4,6 @@
 builder = "DOCKERFILE"
 dockerfilePath = "docker/supabase/deploy/docker/Dockerfile.supavisor"
 
-# Pooler; bump if API sees DB connection errors under load.
+# Pooler — 384 MiB for stable connections under API load (256 MiB minimal).
 [deploy.limitOverride.containers]
-memoryBytes = 268435456
+memoryBytes = 402653184
