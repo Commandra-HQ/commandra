@@ -28,7 +28,8 @@ if (!password) {
 }
 
 const host = process.env.MIGRATE_DB_DIRECT_HOST ?? 'supabase-db.railway.internal';
-const user = process.env.MIGRATE_DB_DIRECT_USER ?? 'postgres';
+// Pooler user is often `postgres.<tenant>` — same role exists on the DB; `postgres` alone may use a different password.
+const user = process.env.MIGRATE_DB_DIRECT_USER ?? decodeURIComponent(ref.username || 'postgres');
 const database = ref.pathname.replace(/^\//, '') || 'postgres';
 
 const sql = postgres({
