@@ -1,0 +1,12 @@
+# postgres-meta for Studio.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/supabase/deploy/docker/Dockerfile.meta"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+
+[deploy.limitOverride.containers]
+memoryBytes = 268435456

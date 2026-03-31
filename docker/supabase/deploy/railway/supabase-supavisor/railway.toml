@@ -1,0 +1,9 @@
+# Supavisor pooler. Expose 5432 (and session port 6543 if needed).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/supabase/deploy/docker/Dockerfile.supavisor"
+
+# Pooler: keep a bit above 512 MiB for many API connections without overspending.
+[deploy.limitOverride.containers]
+memoryBytes = 671088640

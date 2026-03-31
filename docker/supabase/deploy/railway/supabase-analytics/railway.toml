@@ -1,0 +1,13 @@
+# Logflare analytics.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/supabase/deploy/docker/Dockerfile.analytics"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+
+# Logflare is heavier than Kong/meta; 512 MiB commonly OOMs. Tier below db/studio.
+[deploy.limitOverride.containers]
+memoryBytes = 939524096

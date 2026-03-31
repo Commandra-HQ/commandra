@@ -1,2 +1,2 @@
-# Supavisor pooler. Same image for Fly, Railway, or any platform.
+# Supavisor pooler. Same image for Railway, VPS, or any platform.
 FROM supabase/supavisor:2.7.4

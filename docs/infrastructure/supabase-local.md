@@ -2,9 +2,9 @@
 
 Commandra uses **self-hosted Supabase** as the database instead of a standalone Postgres container. Same Drizzle ORM and schema; only the connection target changes. You get Supabase Studio to view and manage the database.
 
-**Same setup everywhere:** We use the **same** `docker/supabase` stack locally and in production (VPS, Fly, or customer infra). That keeps dev and prod identical, avoids vendor lock-in, and lets enterprises run the full product on their own infrastructure. Do not use managed/vendor Postgres (e.g. Fly’s Supabase extension) if you want full self-hosted parity.
+**Same setup everywhere:** We use the **same** `docker/supabase` stack locally and in production (VPS, Railway, or customer infra). That keeps dev and prod identical, avoids vendor lock-in, and lets enterprises run the full product on their own infrastructure. Do not use managed/vendor Postgres shortcuts if you want full self-hosted parity with this stack.
 
-**Production:** For deploying the same stack at **db.commandra.app** (or any server), see [supabase-production.md](supabase-production.md). For Fly.io, see [supabase-fly.md](supabase-fly.md) Option B.
+**Production:** For deploying the same stack at **db.commandra.app** (or any server), see [supabase-production.md](supabase-production.md). For Railway, see [supabase-railway.md](supabase-railway.md).
 
 ---
 
@@ -146,6 +146,7 @@ To remove data as well: `docker compose down -v` (and optionally delete `docker/
 ## References
 
 - [Production (db.commandra.app)](supabase-production.md)
+- [Railway / hosting](supabase-railway.md)
 - [Supabase self-hosting with Docker](https://supabase.com/docs/guides/self-hosting/docker)
 - [Configuring and securing Supabase](https://supabase.com/docs/guides/self-hosting/docker#configuring-and-securing-supabase)
 - [Accessing Postgres through Supavisor](https://supabase.com/docs/guides/self-hosting/docker#accessing-postgres-through-supavisor)

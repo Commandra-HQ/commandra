@@ -1,0 +1,10 @@
+# API gateway (Storage routes, Studio via Kong).
+# Custom domain must target container port 8000 (proxy). Do not use 8002 (Kong Manager).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/supabase/deploy/kong/Dockerfile"
+
+# User-facing gateway (Studio/API through Kong). Slightly above minimal proxy RAM.
+[deploy.limitOverride.containers]
+memoryBytes = 671088640

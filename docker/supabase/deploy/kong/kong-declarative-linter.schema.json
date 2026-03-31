@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "commandra/kong-declarative-linter",
+  "title": "Kong declarative config (permissive)",
+  "description": "Editor-only schema so acls, basicauth_credentials, consumers, services, etc. are not rejected.",
+  "type": "object",
+  "additionalProperties": true
+}

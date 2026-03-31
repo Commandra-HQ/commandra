@@ -2,7 +2,7 @@
 
 Deploy **the same self-hosted Supabase stack** you run locally (`docker/supabase`) so production and dev match. Commandra uses its own auth (no Supabase Auth). No vendor lock-in—enterprises can run this stack on their own VPS or on-prem.
 
-**Fly.io:** To run the same `docker/supabase` stack on Fly (multiple apps + private networking), see [supabase-fly.md](supabase-fly.md) Option B.
+**Railway:** To run the same `docker/supabase` stack on Railway, see [supabase-railway.md](supabase-railway.md).
 
 ## Prerequisites
 

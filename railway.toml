@@ -13,3 +13,7 @@ watchPatterns = ["apps/api/**", "packages/shared/**", "railway.toml"]
 [deploy]
 healthcheckPath = "/health"
 healthcheckTimeout = 30
+
+# Customer-facing API; avoid thrashing under concurrent requests.
+[deploy.limitOverride.containers]
+memoryBytes = 939524096

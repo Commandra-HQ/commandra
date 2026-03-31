@@ -1,2 +1,6 @@
-# Logflare analytics. Same image for Fly, Railway, or any platform.
+# Logflare analytics. Same image for Railway, VPS, or any platform.
 FROM supabase/logflare:1.31.2
+
+# Railway routes healthchecks to $PORT; Logflare uses PHX_HTTP_PORT (see runtime.exs).
+WORKDIR /opt/app/rel/logflare/bin
+CMD ["/bin/sh", "-c", "export PHX_HTTP_IP=${PHX_HTTP_IP:-0.0.0.0} PHX_HTTP_PORT=${PORT:-4000}; exec sh run.sh"]

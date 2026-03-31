@@ -1,91 +1,30 @@
-FLY.IO DEPLOY (same stack as local; Dockerfile-based, portable to Railway etc.)
-==============================================================================
+RAILWAY DEPLOY — self-hosted Supabase (same Dockerfiles as local)
+================================================================
+
+Primary guide: deploy/railway/PROVISION.md
+Secrets:       deploy/RAILWAY-SECRETS-CHECKLIST.md
+Variables CLI: deploy/set-railway-variables-from-env.sh (from deploy/, after railway link)
+DNS cutover:   deploy/DNS-CUTOVER.md
 
 Layout:
   deploy/
-    docker/          <- Dockerfiles (db, supavisor, meta, analytics, studio) — used by Fly & Railway
-    fly/             <- Fly-only: fly.toml per app, Kong Dockerfile + config
-    railway/         <- Railway notes (see README there)
-    set-secrets-from-env.sh   <- Sync docker/supabase/.env to Fly secrets
+    docker/     <- Dockerfiles (db, supavisor, meta, analytics, studio)
+    kong/       <- Kong Dockerfile + kong.yml (platform-agnostic)
+    railway/    <- railway.toml per service (paths from commandra repo root)
+    set-railway-variables-from-env.sh <- Railway variables from docker/supabase/.env
 
-Prereqs: flyctl installed, fly auth login, one org. Use region bom for all apps (FLY_ORG=commandra).
+Quick start (Railway):
+1. In Railway, add 6 services from the Commandra GitHub repo.
+2. For each service, set Config File Path to the matching file under deploy/railway/<name>/railway.toml (see PROVISION.md table).
+3. Add a volume on supabase-db; enable private networking across all 6.
+4. Set variables per RAILWAY-SECRETS-CHECKLIST.md + PROVISION.md “Non-secret env”.
+5. Edit deploy/kong/kong.yml upstream URLs for meta/studio; deploy supabase-kong; attach public domain (port 8000).
+6. Update commandra api env (DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY); railway up --service api.
 
---- 1. DB ---
-# From docker/supabase/:
-cd deploy/fly/db
-fly launch --no-deploy --copy-config --name commandra-db --region bom
-fly volumes create pgdata --size 10 --region bom
-cd ../..
-./set-secrets-from-env.sh db
-cd fly/db && FLY_ORG=commandra fly deploy -a commandra-db --primary-region bom
-cd ../..
-# Wait: fly status
+Commandra app (API + dashboard) deploy from repo root:
+  cd /path/to/commandra && railway up --service api && railway up --service web
 
---- 2. Supavisor ---
-cd fly/supavisor
-fly launch --no-deploy --copy-config --name commandra-supavisor --region bom
-cd ../..
-./set-secrets-from-env.sh supavisor
-cd fly/supavisor && FLY_ORG=commandra fly deploy -a commandra-supavisor && cd ../..
+Landing page (separate folder in monorepo):
+  cd /path/to/commandra-hq/landing-page && railway up --service <landing-service-name>
 
---- 3. Meta ---
-cd fly/meta
-fly launch --no-deploy --copy-config --name commandra-meta --region bom
-cd ../..
-./set-secrets-from-env.sh meta
-cd fly/meta && FLY_ORG=commandra fly deploy -a commandra-meta && cd ../..
-
---- 4. Analytics ---
-cd fly/analytics
-fly launch --no-deploy --copy-config --name commandra-analytics --region bom
-cd ../..
-./set-secrets-from-env.sh analytics
-cd fly/analytics && FLY_ORG=commandra fly deploy -a commandra-analytics && cd ../..
-
---- 5. Studio ---
-cd fly/studio
-fly launch --no-deploy --copy-config --name commandra-studio --region bom
-cd ../..
-./set-secrets-from-env.sh studio
-cd fly/studio && FLY_ORG=commandra fly deploy -a commandra-studio && cd ../..
-
---- 6. Kong ---
-cd fly/kong
-fly launch --no-deploy --copy-config --name commandra-kong --region bom
-cd ../..
-./set-secrets-from-env.sh kong
-cd fly/kong && FLY_ORG=commandra fly deploy -a commandra-kong && cd ../..
-
---- 7. Studio URL (Fly) and custom domain ---
-# Studio via Kong (basic-auth): https://commandra-kong.fly.dev
-# Login: DASHBOARD_USERNAME / DASHBOARD_PASSWORD from .env
-
-# To use your own URL db.commandra.app (cert already added; add DNS):
-# Add these DNS records for db.commandra.app:
-#   A    db.commandra.app → 66.241.125.189
-#   AAAA db.commandra.app → 2a09:8280:1::e4:d3f6:0
-# Or: fly certs setup db.commandra.app for CNAME. Then Studio: https://db.commandra.app (same login).
-# Check: FLY_ORG=commandra fly certs check db.commandra.app -a commandra-kong
-
---- 8. Commandra prod DATABASE_URL ---
-postgresql://postgres.commandra:YOUR_POSTGRES_PASSWORD@commandra-supavisor.flycast:5432/postgres
-(Use the same POSTGRES_PASSWORD as in docker/supabase/.env. Get host from: fly status -a commandra-supavisor.)
-
---- 9. Migrations ---
-# From repo root. Use fly proxy so your machine can reach Supavisor:
-# Terminal 1: FLY_ORG=commandra fly proxy 15432:5432 -a commandra-supavisor
-# Terminal 2: DATABASE_URL="postgresql://postgres.commandra:PASSWORD@127.0.0.1:15432/postgres" pnpm db:migrate
-# (PASSWORD = POSTGRES_PASSWORD from docker/supabase/.env).
-
---- 10. Studio ---
-https://commandra-kong.fly.dev (or https://db.commandra.app after step 7). Login: DASHBOARD_USERNAME / DASHBOARD_PASSWORD from .env.
-
-Secrets: run ./set-secrets-from-env.sh (from deploy/) or set in Fly UI per app — see SECRETS-FOR-UI.txt for the list.
-
---- High availability (2 machines) ---
-- DB: 1 machine only (single volume; for 2-node Postgres you’d need replication).
-- Kong: fly.toml has min_machines_running = 2.
-- Other stateless apps (supavisor, meta, studio, analytics): run when desired:
-  fly scale count 2 -a commandra-supavisor
-  fly scale count 2 -a commandra-meta
-  (etc.)
+Each deploy/railway/*/railway.toml sets conservative memory caps; raise supabase-db first if Postgres OOMs (see PROVISION.md).

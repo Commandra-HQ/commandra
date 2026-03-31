@@ -1,4 +1,7 @@
 #!/bin/bash
+export KONG_DECLARATIVE_CONFIG="${KONG_DECLARATIVE_CONFIG:-/usr/local/kong/declarative/kong.yml}"
+mkdir -p "$(dirname "$KONG_DECLARATIVE_CONFIG")"
+
 export LUA_AUTH_EXPR="\$((headers.authorization ~= nil and headers.authorization:sub(1, 10) ~= 'Bearer sb_' and headers.authorization) or headers.apikey)"
 export LUA_RT_WS_EXPR="\$(query_params.apikey)"
 awk '{

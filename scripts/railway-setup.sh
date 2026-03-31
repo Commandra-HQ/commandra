@@ -5,8 +5,8 @@
 set -e
 
 REPO_SLUG="Commandra-HQ/commandra"
-PROJECT_NAME="reliable-freedom"
-API_SERVICE="commandra"
+PROJECT_NAME="commandra"
+API_SERVICE="api"
 WEB_SERVICE="web"
 
 echo "==> Linking to Railway project: $PROJECT_NAME"
@@ -38,5 +38,6 @@ echo "  • Settings → Build → Config File Path = apps/web/railway.toml"
 echo "  • Generate domain."
 echo "  • Variable: NEXT_PUBLIC_API_URL = API domain (replace placeholder)."
 echo ""
-echo "Then deploy from the UI."
+echo "Deploy from CLI (from repo root): railway up --service api && railway up --service web"
+echo "Or use the Railway dashboard Deploy button."
 echo ""

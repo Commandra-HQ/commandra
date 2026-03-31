@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# Push variables from docker/supabase/.env to Railway (grouped per Supabase service).
+# Run from this directory (deploy/): ./set-railway-variables-from-env.sh [db|supavisor|meta|analytics|studio|kong|all]
+#
+# Prereqs: railway CLI, logged in, `railway link` from commandra/ (or pass RAILWAY_PROJECT).
+# Set service names to match your Railway project (defaults are suggestions):
+#   export RAILWAY_SVC_DB=supabase-db
+#   export RAILWAY_SVC_SUPAVISOR=supabase-supavisor
+#   ... etc.
+# For supavisor and analytics, set:
+#   export RAILWAY_DB_PRIVATE_HOST=<internal hostname of db service>
+#   export RAILWAY_META_URL=<https or http URL for meta>
+#   export RAILWAY_STUDIO_URL=<https or http URL for studio>
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+ENV_FILE="../.env"
+
+RAILWAY_SVC_DB="${RAILWAY_SVC_DB:-supabase-db}"
+RAILWAY_SVC_SUPAVISOR="${RAILWAY_SVC_SUPAVISOR:-supabase-supavisor}"
+RAILWAY_SVC_META="${RAILWAY_SVC_META:-supabase-meta}"
+RAILWAY_SVC_ANALYTICS="${RAILWAY_SVC_ANALYTICS:-supabase-analytics}"
+RAILWAY_SVC_STUDIO="${RAILWAY_SVC_STUDIO:-supabase-studio}"
+RAILWAY_SVC_KONG="${RAILWAY_SVC_KONG:-supabase-kong}"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Missing $ENV_FILE. Copy docker/supabase/.env.example to .env and run utils/generate-keys.sh --update-env."
+  exit 1
+fi
+
+while IFS= read -r line; do
+  if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+    key="${BASH_REMATCH[1]}"
+    value="${BASH_REMATCH[2]}"
+    eval "export $(printf '%q=%q' "$key" "$value")"
+  fi
+done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" || true)
+
+POOLER_TENANT_ID="${POOLER_TENANT_ID:-commandra}"
+SUPABASE_PUBLIC_URL="${SUPABASE_PUBLIC_URL:-https://db.commandra.app}"
+
+require_db_host() {
+  if [[ -z "${RAILWAY_DB_PRIVATE_HOST:-}" ]]; then
+    echo "Set RAILWAY_DB_PRIVATE_HOST to the Railway private hostname of the db service (required for supavisor/analytics/all)."
+    exit 1
+  fi
+}
+build_postgres_backend_url() {
+  require_db_host
+  echo "postgresql://supabase_admin:${POSTGRES_PASSWORD}@${RAILWAY_DB_PRIVATE_HOST}:5432/_supabase"
+}
+
+railway_set() {
+  local svc="$1"
+  shift
+  railway variable set --skip-deploys -s "$svc" "$@"
+}
+
+set_vars_db() {
+  railway_set "$RAILWAY_SVC_DB" \
+    "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
+    "JWT_SECRET=$JWT_SECRET" \
+    "JWT_EXP=${JWT_EXPIRY:-3600}" \
+    "POSTGRES_PORT=5432" \
+    "POSTGRES_DB=postgres" \
+    "PORT=5432"
+}
+
+set_vars_supavisor() {
+  require_db_host
+  railway_set "$RAILWAY_SVC_SUPAVISOR" \
+    "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
+    "SECRET_KEY_BASE=$SECRET_KEY_BASE" \
+    "VAULT_ENC_KEY=$VAULT_ENC_KEY" \
+    "API_JWT_SECRET=$JWT_SECRET" \
+    "METRICS_JWT_SECRET=$JWT_SECRET" \
+    "POOLER_TENANT_ID=$POOLER_TENANT_ID" \
+    "POSTGRES_DB=postgres" \
+    "POSTGRES_PORT=5432" \
+    "POSTGRES_HOST=$RAILWAY_DB_PRIVATE_HOST" \
+    "CLUSTER_POSTGRES=true" \
+    "POOLER_POOL_MODE=transaction" \
+    "PORT=4000"
+}
+
+set_vars_meta() {
+  railway_set "$RAILWAY_SVC_META" \
+    "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
+    "CRYPTO_KEY=$PG_META_CRYPTO_KEY"
+}
+
+set_vars_analytics() {
+  railway_set "$RAILWAY_SVC_ANALYTICS" \
+    "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
+    "DB_PASSWORD=$POSTGRES_PASSWORD" \
+    "LOGFLARE_PUBLIC_ACCESS_TOKEN=$LOGFLARE_PUBLIC_ACCESS_TOKEN" \
+    "LOGFLARE_PRIVATE_ACCESS_TOKEN=$LOGFLARE_PRIVATE_ACCESS_TOKEN" \
+    "POSTGRES_BACKEND_URL=$(build_postgres_backend_url)"
+}
+
+set_vars_studio() {
+  railway_set "$RAILWAY_SVC_STUDIO" \
+    "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
+    "PG_META_CRYPTO_KEY=$PG_META_CRYPTO_KEY" \
+    "SUPABASE_PUBLIC_URL=$SUPABASE_PUBLIC_URL" \
+    "SUPABASE_ANON_KEY=$ANON_KEY" \
+    "SUPABASE_SERVICE_KEY=$SERVICE_ROLE_KEY" \
+    "AUTH_JWT_SECRET=$JWT_SECRET" \
+    "LOGFLARE_PUBLIC_ACCESS_TOKEN=$LOGFLARE_PUBLIC_ACCESS_TOKEN" \
+    "LOGFLARE_PRIVATE_ACCESS_TOKEN=$LOGFLARE_PRIVATE_ACCESS_TOKEN" \
+    "STUDIO_DEFAULT_ORGANIZATION=${STUDIO_DEFAULT_ORGANIZATION:-Default}" \
+    "STUDIO_DEFAULT_PROJECT=${STUDIO_DEFAULT_PROJECT:-Default}"
+}
+
+set_vars_kong() {
+  railway_set "$RAILWAY_SVC_KONG" \
+    "DASHBOARD_USERNAME=${DASHBOARD_USERNAME:-admin}" \
+    "DASHBOARD_PASSWORD=$DASHBOARD_PASSWORD" \
+    "SUPABASE_ANON_KEY=$ANON_KEY" \
+    "SUPABASE_SERVICE_KEY=$SERVICE_ROLE_KEY" \
+    "KONG_DATABASE=off"
+}
+
+APP="${1:-all}"
+case "$APP" in
+  db)        set_vars_db ;;
+  supavisor) set_vars_supavisor ;;
+  meta)      set_vars_meta ;;
+  analytics) set_vars_analytics ;;
+  studio)    set_vars_studio ;;
+  kong)      set_vars_kong ;;
+  all)
+    require_db_host
+    set_vars_db
+    set_vars_supavisor
+    set_vars_meta
+    set_vars_analytics
+    set_vars_studio
+    set_vars_kong
+    ;;
+  *)
+    echo "Usage: $0 [db|supavisor|meta|analytics|studio|kong|all]"
+    exit 1
+    ;;
+esac
+
+echo "Railway variables set for: $APP (services prefixed: run from repo linked to project)"

@@ -11,3 +11,7 @@ watchPatterns = ["apps/web/**", "packages/shared/**", "package.json", "pnpm-lock
 
 [deploy]
 startCommand = "pnpm --filter @afe/web start"
+
+# Dashboard (customer-facing); align with API/Studio comfort zone.
+[deploy.limitOverride.containers]
+memoryBytes = 939524096
