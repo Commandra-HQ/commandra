@@ -82,7 +82,7 @@ Set these in Railway **Variables** when not covered by the shell scripts:
 - `POSTGRES_HOST` — private hostname of **supabase-db**
 - `POSTGRES_DB` = `postgres`
 - `POSTGRES_PORT` = `5432`
-- `HOSTNAME` = `::`
+- `HOSTNAME` = `0.0.0.0` (use **`0.0.0.0`**, not `::`, so Kong over **private IPv4** can reach Studio on Railway)
 - `EDGE_FUNCTIONS_MANAGEMENT_FOLDER` = `/app/edge-functions`
 - `LOGFLARE_URL` = `http://<supabase-analytics private host>:4000`
 - `NEXT_ANALYTICS_BACKEND_PROVIDER` = `postgres`
@@ -95,6 +95,15 @@ Set these in Railway **Variables** when not covered by the shell scripts:
 ## 4. Kong upstreams
 
 Edit [kong/kong.yml](../kong/kong.yml): set `services[].url` for **meta** and **studio** to URLs Kong can reach (private `http://supabase-meta.railway.internal:8080/` style, or public `https://…up.railway.app/` — must match how your project resolves services). Redeploy **supabase-kong** after changes.
+
+## 5a. Cloudflare **524** on `db.commandra.app`
+
+524 means Cloudflare gave up waiting for the **origin** (Kong). Typical causes:
+
+1. **Studio not reachable from Kong** — set **`HOSTNAME=0.0.0.0`** and **`PORT=3000`** on **supabase-studio**, and ensure `POSTGRES_HOST`, `LOGFLARE_URL`, `STUDIO_PG_META_URL`, `SUPABASE_PUBLIC_URL` match [§ Non-secret env](#3-variables-and-secrets). Re-run [set-railway-variables-from-env.sh](../set-railway-variables-from-env.sh) `studio` (with `RAILWAY_DB_PRIVATE_HOST`) or paste the same in Railway.
+2. **Kong cannot resolve private DNS** — service names must match `*.railway.internal` hosts in [kong/kong.yml](../kong/kong.yml); private networking enabled on all services.
+3. **Cloudflare SSL** — use **Full (strict)** toward Railway; avoid **Flexible** SSL with HTTPS origins.
+4. After code changes, redeploy **supabase-kong** (config) and **supabase-studio** (env).
 
 ## 5. Ports and domains
 

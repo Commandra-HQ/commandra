@@ -255,6 +255,9 @@ services:
 
   - name: meta
     url: http://supabase-meta.railway.internal:8080/
+    connect_timeout: 10000
+    write_timeout: 60000
+    read_timeout: 60000
     routes:
       - name: meta-all
         strip_path: true
@@ -296,8 +299,12 @@ services:
           status_code: 403
           message: "Access is forbidden."
 
+  # Studio / basic-auth dashboard. Tight connect_timeout avoids long hangs (Cloudflare 524) if upstream is down.
   - name: dashboard
     url: http://supabase-studio.railway.internal:3000/
+    connect_timeout: 10000
+    write_timeout: 90000
+    read_timeout: 90000
     routes:
       - name: dashboard-all
         strip_path: true
