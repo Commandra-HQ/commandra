@@ -49,7 +49,7 @@ Current caps are **balanced for stability vs ~\$20–\$40/mo** Railway RAM line 
 | **web** | 576 MiB | Dashboard SSR/build; **768 MiB** if deploy/runtime OOM. |
 | **landing** | 512 MiB | Marketing Next site. |
 | **supabase-analytics** | 512 MiB | Logflare; **stop service** to save \~\$5+/mo if logs unused, or raise to **640 MiB** if OOM returns. |
-| **supabase-kong** | 256 MiB | Proxy; bump to **384 MiB** only if rare worker issues under load. |
+| **supabase-kong** | 512 MiB | Image sets **`KONG_NGINX_WORKER_PROCESSES=1`** so small plans don’t spawn many workers and OOM-loop. |
 | **supabase-supavisor** | 384 MiB | Pooler; **512 MiB** if many concurrent DB clients. |
 | **supabase-meta** | 192 MiB | Light; **256 MiB** if Studio schema browser errors. |
 

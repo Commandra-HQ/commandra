@@ -5,6 +5,6 @@
 builder = "DOCKERFILE"
 dockerfilePath = "docker/supabase/deploy/kong/Dockerfile"
 
-# Proxy-only; low RAM is usually fine. Raise if Kong OOMs under spike traffic.
+# Kong defaults to many workers; use Dockerfile KONG_NGINX_WORKER_PROCESSES=1 + this headroom.
 [deploy.limitOverride.containers]
-memoryBytes = 268435456
+memoryBytes = 536870912
