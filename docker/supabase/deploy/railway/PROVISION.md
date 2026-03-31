@@ -30,19 +30,27 @@ Enable **private networking** between all six services (Railway dashboard → se
 
 For **supabase-db**, attach a **volume** for Postgres data. The stock image expects a data directory; align mount path with [Dockerfile.db](../docker/Dockerfile.db) / Supabase docs. If the container fails on an empty volume, use a dedicated PGDATA subdir per [Supabase self-hosting docs](https://supabase.com/docs/guides/self-hosting/docker).
 
-## 2b. Memory limits (cost control)
+## 2b. Memory limits and **Railway cost**
 
-Each service’s `railway.toml` sets **`[deploy.limitOverride.containers] memoryBytes`** (caps on billed RAM). Rough tiers:
+Railway bills **allocated** resources (roughly **~$10 / GB RAM / month** plus vCPU and egress). Your **Observability** “estimated” total mostly tracks **sum of per-service limits** (plus CPU). Nine always-on services add up fast: **~3 GB of RAM caps ≈ ~$30/month RAM alone** before CPU — which matches dashboards in the **~$60–$70/mo** range when vCPU is included.
 
-| Tier | Services | Rationale |
-|------|-----------|-----------|
-| **Data** | **supabase-db** (~1 GiB) | Postgres needs the most stable headroom. |
-| **User-facing / hot** | **api**, **web**, **studio**, **landing** (~896 MiB each) | Commandra app + Studio + marketing; avoid CPU/memory thrashing. |
-| **Edge + pooler** | **supabase-kong**, **supabase-supavisor** (~640 MiB each) | Throughput to Studio and `DATABASE_URL` without overspending. |
-| **Analytics** | **supabase-analytics** (~896 MiB) | Logflare is memory-heavy; 512 MiB often OOMs. Raise toward **1 GiB** only if logs still show OOM. |
-| **Internal light** | **supabase-meta** (~256 MiB) | postgres-meta only; increase if Studio schema browser degrades. |
+**Under ~$20/mo** with this full stack on Railway is usually **not realistic** unless you (a) **remove or sleep** services (e.g. stop **supabase-analytics** if you can live without Logflare logs), (b) move **Postgres** to a cheap external provider / single small VPS, or (c) run the **whole** Supabase stack on **one** small VM instead of nine Railway services.
 
-Raise **supabase-db** first if Postgres OOMs; then analytics; then tune others from Railway logs.
+Current repo caps are a **budget-oriented** compromise (raise any service that OOMs or feels slow):
+
+| Service | Cap (approx.) | Note |
+|---------|----------------|------|
+| **supabase-db** | 512 MiB | Tight for Postgres; **768 MiB–1 GiB** is safer if you see restarts/OOM. |
+| **supabase-studio** | 512 MiB | Admin UI; raise to **768 MiB** if sluggish or OOM. |
+| **api** | 512 MiB | Raise to **768 MiB** under sustained load. |
+| **web** | 512 MiB | Next dashboard; bump if Railway build/SSR OOMs. |
+| **landing** | 384 MiB | Raise to **512 MiB** if marketing site build/runtime OOMs. |
+| **supabase-analytics** | 384 MiB | Logflare often wants more; **stop the service** to save cost, or raise memory. |
+| **supabase-kong** | 256 MiB | Usually enough for a gateway. |
+| **supabase-supavisor** | 256 MiB | Raise if connection pool errors appear. |
+| **supabase-meta** | 128 MiB | Light; raise slightly if Studio metadata calls fail. |
+
+Tune from **Railway → Observability** and OOM logs; edit the matching `railway.toml` `memoryBytes` (bytes) and redeploy.
 
 ## 3. Variables and secrets
 

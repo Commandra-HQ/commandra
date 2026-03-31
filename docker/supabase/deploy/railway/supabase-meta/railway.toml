@@ -8,5 +8,6 @@ dockerfilePath = "docker/supabase/deploy/docker/Dockerfile.meta"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 
+# Internal only; keep small. Raise slightly if Studio schema UI errors.
 [deploy.limitOverride.containers]
-memoryBytes = 268435456
+memoryBytes = 134217728

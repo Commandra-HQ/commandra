@@ -8,6 +8,6 @@ dockerfilePath = "docker/supabase/deploy/docker/Dockerfile.analytics"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 
-# Logflare is heavier than Kong/meta; 512 MiB commonly OOMs. Tier below db/studio.
+# Logflare: cheap tier (~384 MiB). May OOM — stop this service in Railway to save ~$4/GB-mo or raise memory.
 [deploy.limitOverride.containers]
-memoryBytes = 939524096
+memoryBytes = 402653184

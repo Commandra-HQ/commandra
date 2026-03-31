@@ -8,6 +8,6 @@ dockerfilePath = "docker/supabase/deploy/docker/Dockerfile.studio"
 healthcheckPath = "/project/default"
 healthcheckTimeout = 120
 
-# Admin Studio via Kong; same band as dashboard Next apps.
+# Studio (Next). 512 MiB minimum practical; 768 MiB+ if admin UI OOMs.
 [deploy.limitOverride.containers]
-memoryBytes = 939524096
+memoryBytes = 536870912

@@ -5,6 +5,6 @@
 builder = "DOCKERFILE"
 dockerfilePath = "docker/supabase/deploy/kong/Dockerfile"
 
-# User-facing gateway (Studio/API through Kong). Slightly above minimal proxy RAM.
+# Proxy-only; low RAM is usually fine. Raise if Kong OOMs under spike traffic.
 [deploy.limitOverride.containers]
-memoryBytes = 671088640
+memoryBytes = 268435456
