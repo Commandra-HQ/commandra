@@ -23,8 +23,8 @@ if (!base) {
 const host = process.env.MIGRATE_POOLER_HOST ?? 'supabase-supavisor.railway.internal';
 const u = new URL(base);
 u.hostname = host;
-// Transaction mode (5432) often breaks DDL migrator; session pooler (6543) matches `POOLER_POOL_MODE=session` upstream.
-u.port = process.env.MIGRATE_POOLER_PORT ?? '6543';
+// Default 5432 (transaction); set MIGRATE_POOLER_PORT=6543 if Supavisor exposes session mode for DDL.
+u.port = process.env.MIGRATE_POOLER_PORT ?? '5432';
 // Public Railway TCP URLs often use ?sslmode=require; private *.railway.internal Postgres usually expects no TLS.
 for (const k of [...u.searchParams.keys()]) {
 	if (k.toLowerCase() === 'sslmode') u.searchParams.delete(k);

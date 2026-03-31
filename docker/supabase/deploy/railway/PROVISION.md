@@ -142,25 +142,28 @@ Migrations live in `apps/api/drizzle/`. Locally: from the `commandra/` repo root
 
 **Production (Railway), initial or ad-hoc run:**
 
-1. **Prefer private pooler DNS** so connections work from inside the project network. The API’s `DATABASE_URL` should use the **private** hostname for **supabase-supavisor** (from Railway → service → **Networking** / private address), not only the public TCP proxy URL. Public proxy endpoints often **time out** when used from `railway ssh` or from another service.
+Your API’s `DATABASE_URL` usually points at **Supavisor** (`postgres.<tenant>`). That user **does not** authenticate on the raw Postgres container, and the **transaction** pooler often **resets** connections during Drizzle DDL — so use **primary Postgres** for migrations.
 
-2. **One-off migrate inside the running API container** (uses the image’s compiled migrator and `DATABASE_URL`):
+**Recommended (automated):** from `commandra/`, after `railway link` to the project:
 
-   ```bash
-   cd commandra && railway ssh -s api -- node apps/api/dist/db/migrate.js
-   ```
+```bash
+./scripts/railway-drizzle-migrate-prod.sh
+```
 
-3. If that still cannot reach Postgres, run the helper that rewrites the pooler host to private DNS (default `supabase-supavisor.railway.internal`; override with `MIGRATE_POOLER_HOST` if your service name differs):
+This reads `POSTGRES_PASSWORD` from **supabase-db** via `railway ssh` and runs `node apps/api/dist/db/migrate.js` inside **api** with  
+`MIGRATE_DATABASE_URL=postgresql://postgres:…@supabase-db.railway.internal:5432/postgres`.
 
-   ```bash
-   railway ssh -s api -- node apps/api/scripts/run-migrate-with-private-pooler.mjs
-   ```
+Override host if your DB service name differs (`MIGRATE_DB_DIRECT_HOST` in the script or edit the script).
 
-4. **Optional env on service `api`:** `MIGRATE_DATABASE_URL` — if set, `dist/db/migrate.js` uses it instead of `DATABASE_URL` (e.g. direct `postgresql://supabase_admin:…@supabase-db.railway.internal:5432/postgres` for DDL when the transaction pooler rejects migrations). Remove after use if you want only `DATABASE_URL` long term.
+**Alternatives:**
 
-5. **From your laptop:** `railway run -s api pnpm db:migrate` only works if the URL in `DATABASE_URL` is reachable from your machine (often it is not for private-only DBs).
+- Set **`MIGRATE_DATABASE_URL`** on the **api** service in Railway (full URL with `postgres` user and **`POSTGRES_PASSWORD`**) and run:  
+  `railway ssh -s api -- env DRIZZLE_MIGRATE_SSL_DISABLE=1 node /app/apps/api/dist/db/migrate.js`
+- Pooler-only helpers (`run-migrate-with-private-pooler.mjs`) may **`ECONNRESET`** on transaction mode (**5432**) or require **session** port **6543** to be exposed on Supavisor.
 
-6. **CI/CD (later):** run `node apps/api/dist/db/migrate.js` with `DATABASE_URL` / `MIGRATE_DATABASE_URL` injected as a secret, after deploy.
+**Local laptop:** `railway run -s api pnpm db:migrate` only works if `DATABASE_URL` is reachable from your machine.
+
+**CI/CD:** run the same `migrate.js` with `MIGRATE_DATABASE_URL` or direct postgres URL as a secret after deploy.
 
 ## 7. Data migration
 
