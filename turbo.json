@@ -27,7 +27,12 @@
 			"cache": false
 		},
 		"db:migrate": {
-			"cache": false
+			"cache": false,
+			"passThroughEnv": [
+				"DATABASE_URL",
+				"MIGRATE_DATABASE_URL",
+				"DRIZZLE_MIGRATE_SSL_DISABLE"
+			]
 		},
 		"test": {
 			"dependsOn": ["^build"],

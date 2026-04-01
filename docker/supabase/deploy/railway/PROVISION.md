@@ -163,7 +163,7 @@ Override host if your DB service name differs (`MIGRATE_DB_DIRECT_HOST` in the s
   `railway ssh -s api -- env DRIZZLE_MIGRATE_SSL_DISABLE=1 node /app/apps/api/dist/db/migrate.js`
 - Pooler-only helpers (`run-migrate-with-private-pooler.mjs`) may **`ECONNRESET`** on transaction mode (**5432**) or require **session** port **6543** to be exposed on Supavisor.
 
-**Local laptop:** `railway run -s api pnpm db:migrate` only works if `DATABASE_URL` is reachable from your machine.
+**Local laptop:** `pnpm db:migrate` needs a **`DATABASE_URL` your laptop can reach**. On Railway, add a **TCP proxy** on **supabase-db** (see [SETUP-TWO-PROJECTS.md §7](SETUP-TWO-PROJECTS.md#7-commandra-api-against-dev-supabase-local-laptop) and `./scripts/railway-tcp-proxy-postgres.sh`). `railway run -s api pnpm db:migrate` only helps if the linked **api** service exists and exposes the same env.
 
 **CI/CD:** run the same `migrate.js` with `MIGRATE_DATABASE_URL` or direct postgres URL as a secret after deploy.
 

@@ -9,7 +9,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Prefer Railway / shell env. Only load repo .env when no DB URL is present (local dev).
 if (!process.env.DATABASE_URL && !process.env.MIGRATE_DATABASE_URL) {
-	config({ path: path.join(__dirname, '../../../.env') });
+	// Monorepo root `commandra/.env` (this file lives under `src/db/`, one level deeper than `src/env.ts`).
+	config({ path: path.join(__dirname, '../../../../.env') });
 }
 
 // Optional: direct Postgres (e.g. supabase-db private URL) when pooler/public proxy breaks DDL from the runtime network.

@@ -104,26 +104,62 @@ railway up --service supabase-supavisor
 railway up --service supabase-kong
 ```
 
-## 7. Commandra API against dev Supabase
+## 7. Commandra API against dev Supabase (local laptop)
 
-Point the **api** service (or a dev environment) at the **dev** stack:
+From **`commandra/`**, copy [`.env.example`](../../../../.env.example) to **`.env`** and set:
 
-- `DATABASE_URL` — Supavisor URL for the dev project.
-- `SUPABASE_URL` — dev Kong public URL (no trailing slash).
-- `SUPABASE_SERVICE_ROLE_KEY` — dev `SERVICE_ROLE_KEY` from `.env.dev`.
+- `SUPABASE_URL` — dev Kong public URL (HTTPS, no trailing slash), e.g. from `SUPABASE_PUBLIC_URL` in `.env.dev`.
+- `SUPABASE_SERVICE_ROLE_KEY` — dev `SERVICE_ROLE_KEY` from `docker/supabase/.env.dev`.
+- `DATABASE_URL` — Postgres reachable **from your machine** (see below).
 
-**Drizzle migrations** against dev DB use the same path as production: `railway ssh` runs `node …/dist/db/migrate.js` **inside the deployed `api` service** (private DNS to `supabase-db`). From the repo root:
+### 7a. Railway TCP proxy (required for `pnpm db:migrate` from a laptop)
+
+Railway’s default public hostname (`*.up.railway.app`) does **not** accept raw Postgres on port **5432** from the internet, so `DATABASE_URL` must use a **[TCP Proxy](https://docs.railway.com/reference/tcp-proxy)** on the **`supabase-db`** service (internal port **5432**). The proxy gives a hostname (often `*.proxy.rlwy.net`) and an **external port that is not 5432**.
+
+**Recommended URL shape** (direct Postgres through the proxy — matches [PROVISION.md](PROVISION.md) guidance for migrations):
+
+```text
+postgresql://postgres:<POSTGRES_PASSWORD>@<TCP_HOST>:<TCP_PORT>/postgres?sslmode=disable
+```
+
+Use **`postgres`** and **`POSTGRES_PASSWORD`** from `docker/supabase/.env.dev` for that stack.
+
+**Create or discover the proxy (CLI):** with `railway link` pointing at **Commandra Dev**:
+
+```bash
+./scripts/railway-tcp-proxy-postgres.sh
+# Optional: include password in output (avoid logging; paste into .env instead):
+# POSTGRES_PASSWORD="$(grep '^POSTGRES_PASSWORD=' docker/supabase/.env.dev | cut -d= -f2-)" \
+#   ./scripts/railway-tcp-proxy-postgres.sh
+```
+
+**Dashboard:** Project → **supabase-db** → **Settings** → **Networking** → **TCP Proxy** → map internal **5432**.
+
+**Note:** A TCP proxy to **supabase-supavisor** (pooler) can misbehave from some local clients; **supabase-db** is the reliable choice for local API + Drizzle.
+
+### 7b. Migrations and API (repo root)
+
+```bash
+pnpm db:migrate
+pnpm --filter @afe/api dev
+```
+
+`pnpm db:migrate` loads **`commandra/.env`** (see `apps/api/src/db/migrate.ts`). If you already export `DATABASE_URL` in the shell, that wins.
+
+### 7c. Alternatives (CI, no laptop DB access)
+
+**Deployed `api` + private network:** `railway ssh` runs migrate **inside** the **`api`** service. From the repo root:
 
 ```bash
 pnpm --filter @afe/api build
 ./scripts/railway-drizzle-migrate-commandra-dev.sh
 ```
 
-Optional: `RAILWAY_PROJECT_ID=…` if your Commandra Dev project is not the default `10125fe5-7a1b-4255-9d2b-5207092afe82` (see `railway list --json`).
+Optional: `RAILWAY_PROJECT_ID=…` if your Commandra Dev project is not linked (see `railway list --json`).
 
-If **`api` is not deployed** to the dev project yet, either add it (see [PROVISION.md §6](PROVISION.md)) or apply SQL manually: `./scripts/drizzle-sql-bundle.sh > /tmp/commandra-drizzle.sql` and run that file in **Supabase Studio → SQL Editor** against the dev DB.
+If **`api` is not deployed** to the dev project, apply SQL manually: `./scripts/drizzle-sql-bundle.sh > /tmp/commandra-drizzle.sql` and run it in **Supabase Studio → SQL Editor**.
 
-**Same script, linked prod project:** `RAILWAY_PROJECT="Commandra" ./scripts/railway-drizzle-migrate-prod.sh`
+**Production project:** `RAILWAY_PROJECT="Commandra" ./scripts/railway-drizzle-migrate-prod.sh`
 
 ## Cost
 
