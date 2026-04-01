@@ -35,9 +35,9 @@
 #           node-version: 22
 #           cache: pnpm
 #       - run: pnpm install --frozen-lockfile
-#       - run: pnpm --filter @afe/shared build
-#       - run: pnpm --filter @afe/api exec tsc --noEmit
-#       - run: pnpm --filter @afe/extension exec tsc --noEmit
+#       - run: pnpm --filter @commandra/shared build
+#       - run: pnpm --filter @commandra/api exec tsc --noEmit
+#       - run: pnpm --filter @commandra/extension exec tsc --noEmit
 
 #   test:
 #     name: Test
@@ -50,7 +50,7 @@
 #           node-version: 22
 #           cache: pnpm
 #       - run: pnpm install --frozen-lockfile
-#       - run: pnpm --filter @afe/shared build
+#       - run: pnpm --filter @commandra/shared build
 #       - run: pnpm test
 
 #   build:
@@ -65,9 +65,9 @@
 #           node-version: 22
 #           cache: pnpm
 #       - run: pnpm install --frozen-lockfile
-#       - run: pnpm --filter @afe/shared build
-#       - run: pnpm --filter @afe/api build
-#       - run: pnpm --filter @afe/extension build
+#       - run: pnpm --filter @commandra/shared build
+#       - run: pnpm --filter @commandra/api build
+#       - run: pnpm --filter @commandra/extension build
 #         # web build skipped — requires CLERK keys (validated via typecheck job)
 
 #   docker:
@@ -76,4 +76,4 @@
 #     needs: [build]
 #     steps:
 #       - uses: actions/checkout@v4
-#       - run: docker build -t afe-api ./apps/api
+#       - run: docker build -t commandra-api ./apps/api

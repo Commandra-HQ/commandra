@@ -3,7 +3,7 @@
  * Delegates rendering to message-blocks.tsx and streaming to use-chat-stream.ts.
  */
 
-import type { CrawlProgress, SelectedElement } from '@afe/shared';
+import type { CrawlProgress, SelectedElement } from '@commandra/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useActiveChats } from '../contexts/active-chats.js';
@@ -347,7 +347,7 @@ export function ChatTab() {
     if (externalConvId) {
       store.processSSEEvent(
         externalConvId,
-        { type: 'approval_resolved', requestId, approved } as unknown as import('@afe/shared').SSEEvent,
+        { type: 'approval_resolved', requestId, approved } as unknown as import('@commandra/shared').SSEEvent,
         navigate,
       );
     }

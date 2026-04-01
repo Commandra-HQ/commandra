@@ -17,8 +17,8 @@ COPY apps/api ./apps/api
 COPY tsconfig.json ./
 
 # Build
-RUN pnpm --filter @afe/shared build
-RUN pnpm --filter @afe/api build
+RUN pnpm --filter @commandra/shared build
+RUN pnpm --filter @commandra/api build
 
 EXPOSE 3001 3002
 

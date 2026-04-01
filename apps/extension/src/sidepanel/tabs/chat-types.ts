@@ -2,7 +2,7 @@
  * Types, constants, and formatters for the chat interface.
  */
 
-import type { SelectedElement } from '@afe/shared';
+import type { SelectedElement } from '@commandra/shared';
 import {
 	ArrowRight,
 	Camera,
@@ -16,7 +16,7 @@ import {
 	Pilcrow,
 	Table2,
 } from 'lucide-react';
-import type { SSEEvent } from '@afe/shared';
+import type { SSEEvent } from '@commandra/shared';
 
 // --- Types ---
 

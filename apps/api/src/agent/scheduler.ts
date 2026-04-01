@@ -9,7 +9,7 @@
  * - Jitter (0-30s random delay to prevent thundering herd)
  */
 
-import type { SSEEvent } from '@afe/shared';
+import type { SSEEvent } from '@commandra/shared';
 import { and, eq, lte, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import {

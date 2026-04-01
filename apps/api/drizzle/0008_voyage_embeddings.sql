@@ -1,7 +1,7 @@
 -- Migration: Switch embedding dimensions from 1536 (OpenAI) to 1024 (Voyage AI)
 -- and add per-user embedding provider settings.
 -- Existing embeddings must be regenerated after this migration.
--- Run: pnpm --filter @afe/api tsx src/scripts/backfill-embeddings.ts
+-- Run: pnpm --filter @commandra/api tsx src/scripts/backfill-embeddings.ts
 
 -- Drop existing embeddings (they're incompatible with new dimensions)
 TRUNCATE element_embeddings, flow_embeddings, memory_embeddings;

@@ -2,7 +2,7 @@
  * Layout sub-components for the ChatTab — context bar, plan panel, and input area.
  */
 
-import type { SelectedElement } from '@afe/shared';
+import type { SelectedElement } from '@commandra/shared';
 import {
   AlertCircle,
   ArrowLeft,

@@ -43,7 +43,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f inngest #
 Edit `apps/api` or `apps/web` on your host; changes are reflected in the containers. If you change `packages/shared`, rebuild inside the API container then restart (or rebuild the dev image):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml exec api pnpm --filter @afe/shared build
+docker compose -f docker-compose.yml -f docker-compose.dev.yml exec api pnpm --filter @commandra/shared build
 ```
 
 ### 3. Run the extension on the host (with hot reload)
@@ -51,7 +51,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml exec api pnpm --f
 The Chrome extension must be loaded from your filesystem, so run it **outside** Docker:
 
 ```bash
-pnpm --filter @afe/extension dev
+pnpm --filter @commandra/extension dev
 ```
 
 Then in Chrome: **Extensions** → **Manage** → **Load unpacked** → choose `apps/extension/dist`. Vite will rebuild on change; reload the extension (Extensions page → refresh icon) when the build updates.
@@ -100,9 +100,9 @@ This runs Turbo’s `dev` for all apps:
 
 ### 3. Run apps separately (e.g. separate terminals)
 
-- API: `pnpm --filter @afe/api dev`
-- Dashboard: `pnpm --filter @afe/web dev`
-- Extension: `pnpm --filter @afe/extension dev`
+- API: `pnpm --filter @commandra/api dev`
+- Dashboard: `pnpm --filter @commandra/web dev`
+- Extension: `pnpm --filter @commandra/extension dev`
 
 Load the extension from `apps/extension/dist` in Chrome. If the extension dev server runs on port 5173, you can use that for HMR; otherwise reload the extension after changes.
 

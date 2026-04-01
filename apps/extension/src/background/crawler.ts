@@ -1,5 +1,5 @@
-import type { PageIndex } from '@afe/shared';
-import type { CrawlProgress } from '@afe/shared';
+import type { PageIndex } from '@commandra/shared';
+import type { CrawlProgress } from '@commandra/shared';
 import { sendPageIndexed } from './ws-client.js';
 
 const CRAWL_DELAY_MS = 1500;

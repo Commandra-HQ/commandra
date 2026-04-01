@@ -141,7 +141,7 @@ Use **`postgres`** and **`POSTGRES_PASSWORD`** from `docker/supabase/.env.dev` f
 
 ```bash
 pnpm db:migrate
-pnpm --filter @afe/api dev
+pnpm --filter @commandra/api dev
 ```
 
 `pnpm db:migrate` loads **`commandra/.env`** (see `apps/api/src/db/migrate.ts`). If you already export `DATABASE_URL` in the shell, that wins.
@@ -151,7 +151,7 @@ pnpm --filter @afe/api dev
 **Deployed `api` + private network:** `railway ssh` runs migrate **inside** the **`api`** service. From the repo root:
 
 ```bash
-pnpm --filter @afe/api build
+pnpm --filter @commandra/api build
 ./scripts/railway-drizzle-migrate-commandra-dev.sh
 ```
 

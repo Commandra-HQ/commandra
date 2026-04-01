@@ -29,7 +29,7 @@ importers:
 
   apps/api:
     dependencies:
-      '@afe/shared':
+      '@commandra/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@anthropic-ai/sdk':
@@ -93,7 +93,7 @@ importers:
 
   apps/extension:
     dependencies:
-      '@afe/shared':
+      '@commandra/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@sentry/browser':
@@ -181,7 +181,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@afe/shared':
+      '@commandra/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@radix-ui/react-dialog':

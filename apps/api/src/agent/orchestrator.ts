@@ -6,7 +6,7 @@
  * Emits structured SSE events instead of raw text.
  */
 
-import type { AgentConfig, SSEEvent } from '@afe/shared';
+import type { AgentConfig, SSEEvent } from '@commandra/shared';
 import {
 	collectStream,
 	emptyTokenUsage,

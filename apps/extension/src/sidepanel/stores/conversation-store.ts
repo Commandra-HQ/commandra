@@ -6,7 +6,7 @@
  * SSE events are always scoped to a conversation ID, never shared refs.
  */
 
-import type { SSEEvent } from '@afe/shared';
+import type { SSEEvent } from '@commandra/shared';
 import { create } from 'zustand';
 import type {
 	ApprovalRequest,

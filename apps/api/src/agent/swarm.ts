@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { AgentConfig, SSEEvent } from '@afe/shared';
+import type { AgentConfig, SSEEvent } from '@commandra/shared';
 import { getFastModel, getProvider, getStrongModel } from '../llm/index.js';
 import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { logAction } from '../safety/audit.js';

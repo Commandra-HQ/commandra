@@ -16,7 +16,7 @@ Create a production `.env` (or set in your host/CI). Required:
 |----------|-------------|---------|
 | `LLM_PROVIDER` | `anthropic` or `openai` | `anthropic` |
 | `LLM_API_KEY` | Provider API key | `sk-ant-...` |
-| `DATABASE_URL` | Postgres connection string (must include pgvector) | `postgresql://user:pass@host:5432/afe` |
+| `DATABASE_URL` | Postgres connection string (must include pgvector) | `postgresql://user:pass@host:5432/postgres` |
 | `JWT_SECRET` | Secret for signing JWTs (use a long random value) | `openssl rand -base64 32` |
 | `PORT` | HTTP port | `3001` |
 | `WS_PORT` | WebSocket port | `3002` |
@@ -54,7 +54,7 @@ Then:
 Run migrations before or on first start:
 
 ```bash
-pnpm --filter @afe/api db:migrate
+pnpm --filter @commandra/api db:migrate
 ```
 
 With Docker, run the same in the API container or in a one-off migration job.
@@ -79,7 +79,7 @@ Railway gives each service **one public port**. The API supports **single-port m
 - Your existing **commandra** service that’s linked to GitHub is the API. Ensure it uses the **root** config (don’t set a custom Config File Path so it uses `railway.toml` at repo root).
 - **Variables**: `DATABASE_URL` (from Postgres), `JWT_SECRET`, `LLM_API_KEY`, `LLM_PROVIDER`, `PORT=3001`, `CORS_ORIGINS` (dashboard URL; set after you have the web domain).
 - **Settings** → **Networking** → **Generate Domain** for the API.
-- Deploy. Then run migrations once (CLI or one-off): `pnpm --filter @afe/api db:migrate`.
+- Deploy. Then run migrations once (CLI or one-off): `pnpm --filter @commandra/api db:migrate`.
 
 **3. Dashboard service (second service, same repo)**
 
@@ -122,9 +122,9 @@ pnpm start
 Or in the monorepo root:
 
 ```bash
-pnpm --filter @afe/shared build
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com pnpm --filter @afe/web build
-pnpm --filter @afe/web start
+pnpm --filter @commandra/shared build
+NEXT_PUBLIC_API_URL=https://api.yourdomain.com pnpm --filter @commandra/web build
+pnpm --filter @commandra/web start
 ```
 
 ### 2.3 Deploy to a host
@@ -146,8 +146,8 @@ The extension in `apps/extension` must be built with your **production API and W
 From the repo root, set the API and WS URLs and build:
 
 ```bash
-pnpm --filter @afe/shared build
-API_URL=https://api.yourdomain.com WS_URL=wss://api.yourdomain.com pnpm --filter @afe/extension build
+pnpm --filter @commandra/shared build
+API_URL=https://api.yourdomain.com WS_URL=wss://api.yourdomain.com pnpm --filter @commandra/extension build
 ```
 
 - **API_URL**: Same base URL the dashboard uses (e.g. `https://api.yourdomain.com`). No trailing slash.
@@ -183,7 +183,7 @@ The API already allows any `chrome-extension://` origin. No extra CORS config is
 
 - [ ] Postgres (with pgvector) provisioned and `DATABASE_URL` set.
 - [ ] API env set: `LLM_API_KEY`, `JWT_SECRET`, `DATABASE_URL`, `CORS_ORIGINS` (dashboard URL).
-- [ ] Migrations run: `pnpm --filter @afe/api db:migrate`.
+- [ ] Migrations run: `pnpm --filter @commandra/api db:migrate`.
 - [ ] API deployed (Docker or Node), HTTP and WS reachable (direct or via reverse proxy).
 - [ ] Dashboard built with `NEXT_PUBLIC_API_URL` and deployed; users can sign up and get a token.
 - [ ] Extension built with `API_URL` and `WS_URL`, zipped from `apps/extension/dist`, and submitted to Chrome Web Store with listing and policy (if required).

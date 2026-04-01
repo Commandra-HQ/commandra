@@ -2,7 +2,7 @@
  * System prompts for the agent.
  */
 
-import type { AgentConfig } from '@afe/shared';
+import type { AgentConfig } from '@commandra/shared';
 import { PLANNING_INSTRUCTIONS } from './planner.js';
 
 const IDENTITY_SECTION = `You are an AI assistant embedded in a Chrome extension called "Commandra." You help users understand and interact with web applications. You execute tasks in the user's own browser — they are already logged in, and you can see and interact with the page as they would.`;

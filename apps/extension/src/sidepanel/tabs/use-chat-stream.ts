@@ -2,7 +2,7 @@
  * Custom hook for SSE streaming — handles sendMessage, block accumulation, and rAF flushing.
  */
 
-import type { SSEEvent } from '@afe/shared';
+import type { SSEEvent } from '@commandra/shared';
 import { useCallback, useRef } from 'react';
 import type {
   ChatMessage,

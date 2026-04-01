@@ -5,7 +5,7 @@
  * Zero setup required for existing users.
  */
 
-import type { AgentAutonomy, AgentConfig } from '@afe/shared';
+import type { AgentAutonomy, AgentConfig } from '@commandra/shared';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { agents } from '../db/schema.js';

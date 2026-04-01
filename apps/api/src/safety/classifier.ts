@@ -1,4 +1,4 @@
-import type { SafetyLevel } from '@afe/shared';
+import type { SafetyLevel } from '@commandra/shared';
 
 const SAFE_LABELS =
 	/\b(next|back|previous|view|details|show|open|close|cancel|search|filter|sort|page|tab|expand|collapse|toggle|more|less|menu|nav|home|help|about|learn|read|see|go|visit|browse|explore|copy|download|print|refresh|reload)\b/i;

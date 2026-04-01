@@ -1,4 +1,4 @@
-import { normalizeUrlPattern } from '@afe/shared';
+import { normalizeUrlPattern } from '@commandra/shared';
 import { and, count, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/index.js';

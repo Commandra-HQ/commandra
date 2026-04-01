@@ -11,7 +11,7 @@ This phase also adds selector resilience: when a CSS selector breaks (DOM change
 - Remove `dexie` dependency from extension
 - Crawler and indexer push pages directly to backend via API
 - Extension fetches page data from backend when needed (cached in memory)
-- `StoredSite` / `StoredPage` types move to `@afe/shared` (they map to Postgres tables now)
+- `StoredSite` / `StoredPage` types move to `@commandra/shared` (they map to Postgres tables now)
 
 ### Page Sync: Extension → Backend
 - After indexing a page (single or crawl), extension sends the page data to the backend

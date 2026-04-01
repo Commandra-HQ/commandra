@@ -58,7 +58,7 @@ if [[ "$(echo "$EXISTING" | jq '.data.tcpProxies | length')" -gt 0 ]]; then
 		echo "DATABASE_URL=postgresql://postgres:YOUR_POSTGRES_PASSWORD@${HOST}:${PORT}/postgres?sslmode=disable"
 	fi
 	echo ""
-	echo "Then: pnpm db:migrate && pnpm --filter @afe/api dev"
+	echo "Then: pnpm db:migrate && pnpm --filter @commandra/api dev"
 	exit 0
 fi
 
@@ -98,4 +98,4 @@ else
 	echo "  DATABASE_URL=postgresql://postgres:YOUR_POSTGRES_PASSWORD@${HOST}:${PORT}/postgres?sslmode=disable"
 fi
 echo ""
-echo "Then from repo root: pnpm db:migrate && pnpm --filter @afe/api dev"
+echo "Then from repo root: pnpm db:migrate && pnpm --filter @commandra/api dev"

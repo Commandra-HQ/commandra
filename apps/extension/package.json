@@ -1,5 +1,5 @@
 {
-	"name": "@afe/extension",
+	"name": "@commandra/extension",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
@@ -11,7 +11,7 @@
 		"test:watch": "vitest"
 	},
 	"dependencies": {
-		"@afe/shared": "workspace:*",
+		"@commandra/shared": "workspace:*",
 		"@sentry/browser": "^10.45.0",
 		"@tailwindcss/typography": "^0.5.19",
 		"@tiptap/extension-mention": "^3.20.5",

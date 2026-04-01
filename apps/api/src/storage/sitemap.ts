@@ -8,7 +8,7 @@
  * S3 path: domains/{userId}/{domain}/SITEMAP.yaml
  */
 
-import { normalizeUrlPattern } from '@afe/shared';
+import { normalizeUrlPattern } from '@commandra/shared';
 import { and, eq } from 'drizzle-orm';
 import yaml from 'js-yaml';
 import { db } from '../db/index.js';

@@ -5,7 +5,7 @@
  * SSE streams are just "viewers" that subscribe/unsubscribe without affecting the run.
  */
 
-import type { SSEEvent } from '@afe/shared';
+import type { SSEEvent } from '@commandra/shared';
 import { eq, inArray } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { conversations, messages } from '../db/schema.js';

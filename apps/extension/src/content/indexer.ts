@@ -3,7 +3,7 @@ import {
 	type IndexedElement,
 	type PageIndex,
 	normalizeUrlPattern,
-} from '@afe/shared';
+} from '@commandra/shared';
 
 const INTERACTIVE_SELECTORS = [
 	'button',

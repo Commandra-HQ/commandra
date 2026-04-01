@@ -9,7 +9,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    command: sh -c "pnpm --filter @afe/shared build && pnpm --filter @afe/api dev"
+    command: sh -c "pnpm --filter @commandra/shared build && pnpm --filter @commandra/api dev"
     ports:
       - "3001:3001"
       - "3002:3002"
@@ -30,7 +30,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    command: pnpm --filter @afe/web dev
+    command: pnpm --filter @commandra/web dev
     ports:
       - "3000:3000"
     environment:

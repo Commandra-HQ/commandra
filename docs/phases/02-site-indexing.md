@@ -101,7 +101,7 @@ The user can always upgrade from page → site index later, or re-index anytime.
 
 - Content script ↔ background: `chrome.runtime.sendMessage` for page index results
 - Background ↔ side panel: `chrome.runtime.sendMessage` for crawl progress and completion
-- Message types added to `@afe/shared`: `INDEX_PAGE`, `CRAWL_START`, `CRAWL_PROGRESS`, `CRAWL_COMPLETE`, `CRAWL_STOP`
+- Message types added to `@commandra/shared`: `INDEX_PAGE`, `CRAWL_START`, `CRAWL_PROGRESS`, `CRAWL_COMPLETE`, `CRAWL_STOP`
 
 ## Technical Decisions
 

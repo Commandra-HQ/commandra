@@ -2,7 +2,7 @@
  * Browser tool execution — safety classification, approval gates, and WS-routed execution.
  */
 
-import type { AgentHooks, SSEEvent } from '@afe/shared';
+import type { AgentHooks, SSEEvent } from '@commandra/shared';
 import type { ImageBlock, TextBlock, ToolResultBlock, ToolUseBlock } from '../llm/types.js';
 import { getOrCreateSite, updateSiteTotals, upsertPage } from '../routes/sites.js';
 import { logAction } from '../safety/audit.js';

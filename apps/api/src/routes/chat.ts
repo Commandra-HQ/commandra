@@ -1,4 +1,4 @@
-import type { AgentConfig, SSEEvent } from '@afe/shared';
+import type { AgentConfig, SSEEvent } from '@commandra/shared';
 import { and, asc, count, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';

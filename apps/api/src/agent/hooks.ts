@@ -7,7 +7,7 @@
  * - LLM hooks: single fast-model call for verification. ~1s latency.
  */
 
-import type { AgentHooks, HookRule } from '@afe/shared';
+import type { AgentHooks, HookRule } from '@commandra/shared';
 import { getFastModel, getProvider } from '../llm/index.js';
 import { collectStream } from '../llm/types.js';
 

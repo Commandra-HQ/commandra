@@ -23,7 +23,7 @@ COPY apps/api ./apps/api
 COPY apps/web ./apps/web
 
 # Build shared so API and Web can consume it (mount can override packages/shared later)
-RUN pnpm --filter @afe/shared build
+RUN pnpm --filter @commandra/shared build
 
 # Default: no long-running process (compose overrides with dev commands)
 CMD ["pnpm", "run", "dev"]

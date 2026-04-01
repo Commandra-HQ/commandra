@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { CrawlProgress } from '@afe/shared';
+import type { CrawlProgress } from '@commandra/shared';
 import type { ChatMessage, MessageBlock, Plan, TOOL_LABELS as TL } from './chat-types.js';
 import {
 	TOOL_LABELS,

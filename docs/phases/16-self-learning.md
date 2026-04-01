@@ -79,7 +79,7 @@ Three levels controlling how much an agent can do without human approval:
 | `autonomous` | Auto-approve | Auto-approve | Auto-approve |
 
 **Implementation**:
-- `AgentAutonomy` type added to `@afe/shared`
+- `AgentAutonomy` type added to `@commandra/shared`
 - `autonomy` column added to `agents` table (default: `supervised`)
 - `partitionToolsBySafety()` respects autonomy — trusted agents skip review gates, autonomous agents skip everything
 - `handleToolCall()` respects autonomy — skips `sendApprovalRequest` for trusted/autonomous

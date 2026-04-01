@@ -6,11 +6,11 @@
 
 [build]
 builder = "RAILPACK"
-buildCommand = "pnpm install --frozen-lockfile && pnpm --filter @afe/shared build && pnpm --filter @afe/web build"
+buildCommand = "pnpm install --frozen-lockfile && pnpm --filter @commandra/shared build && pnpm --filter @commandra/web build"
 watchPatterns = ["apps/web/**", "packages/shared/**", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "apps/web/railway.toml"]
 
 [deploy]
-startCommand = "pnpm --filter @afe/web start"
+startCommand = "pnpm --filter @commandra/web start"
 
 # Dashboard (Next) — 576 MiB for SSR/build headroom on Railway.
 [deploy.limitOverride.containers]

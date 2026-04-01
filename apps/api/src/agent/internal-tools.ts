@@ -3,7 +3,7 @@
  * Handles: memory, knowledge, agents, plans, local storage.
  */
 
-import type { AgentConfig, SSEEvent } from '@afe/shared';
+import type { AgentConfig, SSEEvent } from '@commandra/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { agents, conversations, scheduledTasks } from '../db/schema.js';

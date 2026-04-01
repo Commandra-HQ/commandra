@@ -7,7 +7,7 @@
  * unbounded file growth.
  */
 
-import type { AgentConfig } from '@afe/shared';
+import type { AgentConfig } from '@commandra/shared';
 import type { ModelCapabilities, TokenUsage } from '../llm/types.js';
 import { db } from '../db/index.js';
 import { agentRuns } from '../db/schema.js';
