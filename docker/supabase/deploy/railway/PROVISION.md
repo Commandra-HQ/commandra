@@ -2,6 +2,8 @@
 
 Use this with the **commandra** GitHub repo (or your fork). Paths below are from the **monorepo root** [`commandra/`](../../..).
 
+**Two Railway projects (prod + dev):** See **[SETUP-TWO-PROJECTS.md](SETUP-TWO-PROJECTS.md)** for **Commandra** and **Commandra Dev** with `railway init`, `railway link`, `./scripts/railway-add-supabase-services.sh`, `ENV_FILE=../.env.dev ./set-railway-variables-from-env.sh`, and `RAILWAY_PROJECT=… ./scripts/railway-drizzle-migrate-prod.sh`.
+
 **CLI tip:** If the Railway dashboard is inconvenient, you can wire all six services’ **GitHub source + config file path** from a machine where `railway login` works and PTY is available:
 
 - [`scripts/railway-wire-supabase-services.py`](../../../../scripts/railway-wire-supabase-services.py)
@@ -28,7 +30,7 @@ Enable **private networking** between all six services (Railway dashboard → se
 
 ## 2. Volume (db)
 
-For **supabase-db**, attach a **volume** for Postgres data. The stock image expects a data directory; align mount path with [Dockerfile.db](../docker/Dockerfile.db) / Supabase docs. If the container fails on an empty volume, use a dedicated PGDATA subdir per [Supabase self-hosting docs](https://supabase.com/docs/guides/self-hosting/docker).
+For **supabase-db**, attach a **volume** at **`/var/lib/postgresql`** (not `/var/lib/postgresql/data`). On Railway (ext4), mounting at `.../data` puts `lost+found` next to where Postgres expects an empty PGDATA, which breaks `initdb`. The default **`PGDATA=/var/lib/postgresql/data`** is then a normal subdirectory inside the volume. See [set-railway-variables-from-env.sh](../set-railway-variables-from-env.sh).
 
 ## 2b. Memory limits and **Railway cost**
 

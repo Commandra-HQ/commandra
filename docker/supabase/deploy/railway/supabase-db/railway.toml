@@ -1,6 +1,7 @@
 # Supabase Postgres (Supabase image). In Railway: New Service → GitHub → same repo as Commandra.
 # Settings → Build → Config File Path: docker/supabase/deploy/railway/supabase-db/railway.toml
-# Add a volume mounted at /var/lib/postgresql/data (or path required by image; see PROVISION.md).
+# Mount the Railway volume at /var/lib/postgresql (parent), not .../data — default PGDATA
+# /var/lib/postgresql/data then lives inside the volume and avoids ext4 lost+found on the mount root.
 
 [build]
 builder = "DOCKERFILE"

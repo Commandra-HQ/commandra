@@ -13,7 +13,7 @@ Config-as-code for six services lives in subfolders here; each contains a `railw
 
 **How to use**
 
-1. Read **[PROVISION.md](PROVISION.md)** (step-by-step).
+1. Read **[PROVISION.md](PROVISION.md)** (step-by-step). For **two** stacks (**Commandra** + **Commandra Dev**), read **[SETUP-TWO-PROJECTS.md](SETUP-TWO-PROJECTS.md)**.
 2. Secrets + env: **[RAILWAY-SECRETS-CHECKLIST.md](../RAILWAY-SECRETS-CHECKLIST.md)** and [set-railway-variables-from-env.sh](../set-railway-variables-from-env.sh).
 3. Kong config: [kong/kong.yml](../kong/kong.yml) (relative to `deploy/`).
 4. DNS cutover / decommissioning old hosts: [DNS-CUTOVER.md](../DNS-CUTOVER.md).

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Push variables from docker/supabase/.env to Railway (grouped per Supabase service).
+# Push variables from docker/supabase/.env (or ENV_FILE) to Railway (grouped per Supabase service).
 # Run from this directory (deploy/): ./set-railway-variables-from-env.sh [db|supavisor|meta|analytics|studio|kong|all]
+#
+# Optional: ENV_FILE=../.env.dev  (path relative to this script's directory, or absolute)
 #
 # Prereqs: railway CLI, logged in, `railway link` from commandra/ (or pass RAILWAY_PROJECT).
 # Set service names to match your Railway project (defaults are suggestions):
@@ -14,8 +16,14 @@
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-ENV_FILE="../.env"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+ENV_FILE_REL="${ENV_FILE:-../.env}"
+if [[ "$ENV_FILE_REL" = /* ]]; then
+  ENV_FILE="$ENV_FILE_REL"
+else
+  ENV_FILE="$(cd "$SCRIPT_DIR" && pwd)/$ENV_FILE_REL"
+fi
+cd "$REPO_ROOT"
 
 RAILWAY_SVC_DB="${RAILWAY_SVC_DB:-supabase-db}"
 RAILWAY_SVC_SUPAVISOR="${RAILWAY_SVC_SUPAVISOR:-supabase-supavisor}"
@@ -25,7 +33,7 @@ RAILWAY_SVC_STUDIO="${RAILWAY_SVC_STUDIO:-supabase-studio}"
 RAILWAY_SVC_KONG="${RAILWAY_SVC_KONG:-supabase-kong}"
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "Missing $ENV_FILE. Copy docker/supabase/.env.example to .env and run utils/generate-keys.sh --update-env."
+  echo "Missing $ENV_FILE. Copy docker/supabase/.env.example to .env (or set ENV_FILE for .env.dev) and run utils/generate-keys.sh --update-env."
   exit 1
 fi
 
@@ -51,6 +59,17 @@ build_postgres_backend_url() {
   echo "postgresql://supabase_admin:${POSTGRES_PASSWORD}@${RAILWAY_DB_PRIVATE_HOST}:5432/_supabase"
 }
 
+# Supavisor Ecto repo (metadata); must match docker-compose DATABASE_URL pattern.
+build_supavisor_database_url() {
+  require_db_host
+  POSTGRES_PASSWORD="$POSTGRES_PASSWORD" RAILWAY_DB_PRIVATE_HOST="$RAILWAY_DB_PRIVATE_HOST" python3 - <<'PY'
+import os, urllib.parse
+pw = urllib.parse.quote(os.environ["POSTGRES_PASSWORD"], safe="")
+h = os.environ["RAILWAY_DB_PRIVATE_HOST"]
+print(f"ecto://supabase_admin:{pw}@{h}:5432/_supabase", end="")
+PY
+}
+
 railway_set() {
   local svc="$1"
   shift
@@ -58,6 +77,8 @@ railway_set() {
 }
 
 set_vars_db() {
+  # Mount the Railway volume at /var/lib/postgresql (not .../data) so PGDATA=/var/lib/postgresql/data
+  # is a clean directory inside the volume (avoids ext4 lost+found on the mount root). See PROVISION.md.
   railway_set "$RAILWAY_SVC_DB" \
     "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
     "JWT_SECRET=$JWT_SECRET" \
@@ -69,7 +90,11 @@ set_vars_db() {
 
 set_vars_supavisor() {
   require_db_host
+  local region="${REGION:-stub}"
+  local db_url
+  db_url="$(build_supavisor_database_url)"
   railway_set "$RAILWAY_SVC_SUPAVISOR" \
+    "DATABASE_URL=$db_url" \
     "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
     "SECRET_KEY_BASE=$SECRET_KEY_BASE" \
     "VAULT_ENC_KEY=$VAULT_ENC_KEY" \
@@ -81,7 +106,9 @@ set_vars_supavisor() {
     "POSTGRES_HOST=$RAILWAY_DB_PRIVATE_HOST" \
     "CLUSTER_POSTGRES=true" \
     "POOLER_POOL_MODE=transaction" \
-    "PORT=4000"
+    "PORT=4000" \
+    "REGION=$region" \
+    "ERL_AFLAGS=-proto_dist inet_tcp"
 }
 
 set_vars_meta() {
@@ -125,8 +152,8 @@ set_vars_studio() {
     "AUTH_JWT_SECRET=$JWT_SECRET"
     "LOGFLARE_PUBLIC_ACCESS_TOKEN=$LOGFLARE_PUBLIC_ACCESS_TOKEN"
     "LOGFLARE_PRIVATE_ACCESS_TOKEN=$LOGFLARE_PRIVATE_ACCESS_TOKEN"
-    "STUDIO_DEFAULT_ORGANIZATION=${STUDIO_DEFAULT_ORGANIZATION:-Default}"
-    "STUDIO_DEFAULT_PROJECT=${STUDIO_DEFAULT_PROJECT:-Default}"
+    "STUDIO_DEFAULT_ORGANIZATION=${STUDIO_DEFAULT_ORGANIZATION:-Commandra}"
+    "STUDIO_DEFAULT_PROJECT=${STUDIO_DEFAULT_PROJECT:-Commandra}"
     "HOSTNAME=0.0.0.0"
     "PORT=3000"
     "EDGE_FUNCTIONS_MANAGEMENT_FOLDER=/app/edge-functions"
@@ -179,4 +206,4 @@ case "$APP" in
     ;;
 esac
 
-echo "Railway variables set for: $APP (services prefixed: run from repo linked to project)"
+echo "Railway variables set for: $APP (using env file: $ENV_FILE; cwd: $REPO_ROOT — ensure \`railway link\` points at this stack's project)"

@@ -38,7 +38,7 @@ Commandra uses this folder to run **self-hosted Supabase** (Postgres + Studio). 
 ## Production (db.commandra.app)
 
 - **VPS / your server:** [docs/supabase-production.md](../../docs/supabase-production.md) — self-host the full stack, HTTPS at db.commandra.app.
-- **Railway:** [docs/supabase-railway.md](../../docs/supabase-railway.md) — deploy the self-hosted stack via **docker/supabase/deploy/** (Dockerfile-based; same secrets as `.env`; use `deploy/set-railway-variables-from-env.sh`). See **deploy/DEPLOY-STEPS.txt** for steps.
+- **Railway:** [docs/supabase-railway.md](../../docs/supabase-railway.md) — deploy the self-hosted stack via **docker/supabase/deploy/** (Dockerfile-based; same secrets as `.env`; use `deploy/set-railway-variables-from-env.sh`). See **deploy/DEPLOY-STEPS.txt** for steps. For **two** stacks (prod **Commandra** + dev **Commandra Dev**), see **deploy/railway/SETUP-TWO-PROJECTS.md** (`railway init`, `ENV_FILE=../.env.dev`, etc.).
 - **Env:** See [env.production.example](./env.production.example) for URL and auth-disabled overrides; generate secrets with `sh ./utils/generate-keys.sh --update-env`, then set production URLs and the variables in the example file.
 
 ## Auth

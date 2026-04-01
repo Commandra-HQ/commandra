@@ -10,6 +10,7 @@ Replace **`RAILWAY_DB_PRIVATE_HOST`** / **`RAILWAY_META_URL`** / **`RAILWAY_STUD
 
 | Variable | Notes |
 |----------|--------|
+| Volume mount | **`/var/lib/postgresql`** on `supabase-db` (not `.../data`); avoids ext4 `lost+found` vs `initdb` |
 | `POSTGRES_PASSWORD` | From `.env` |
 | `JWT_SECRET` | Same as stack / Commandra API signing for Supabase JWTs |
 | `POSTGRES_PORT` | `5432` |
@@ -31,6 +32,9 @@ Replace **`RAILWAY_DB_PRIVATE_HOST`** / **`RAILWAY_META_URL`** / **`RAILWAY_STUD
 | `POSTGRES_DB` | `postgres` |
 | `POSTGRES_PORT` | `5432` |
 | `POSTGRES_HOST` | **Private hostname of db service** (e.g. from Railway networking) |
+| `DATABASE_URL` | Ecto URL to `_supabase` DB on the main Postgres, e.g. `ecto://supabase_admin:…@supabase-db…:5432/_supabase` (script sets this) |
+| `ERL_AFLAGS` | `-proto_dist inet_tcp` (matches docker-compose) |
+| `REGION` | Required by Supavisor runtime (e.g. `stub` from `.env`); omitting it can crash boot |
 | `CLUSTER_POSTGRES` | `true` |
 | `POOLER_POOL_MODE` | `transaction` |
 | `PORT` | `4000` (if required by image) |
@@ -65,8 +69,8 @@ Expose **5432** (and 6543 if you use session pool) on the service.
 | `AUTH_JWT_SECRET` | stack `JWT_SECRET` |
 | `LOGFLARE_PUBLIC_ACCESS_TOKEN` | |
 | `LOGFLARE_PRIVATE_ACCESS_TOKEN` | |
-| `STUDIO_DEFAULT_ORGANIZATION` | optional |
-| `STUDIO_DEFAULT_PROJECT` | optional |
+| `STUDIO_DEFAULT_ORGANIZATION` | optional; e.g. `Commandra` |
+| `STUDIO_DEFAULT_PROJECT` | optional; e.g. `Commandra` (prod) or `Commandra Dev` (dev stack) |
 
 ## Service: `supabase-kong`
 

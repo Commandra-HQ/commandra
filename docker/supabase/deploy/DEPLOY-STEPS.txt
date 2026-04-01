@@ -2,6 +2,7 @@ RAILWAY DEPLOY — self-hosted Supabase (same Dockerfiles as local)
 ================================================================
 
 Primary guide: deploy/railway/PROVISION.md
+Two projects (Commandra + Commandra Dev): deploy/railway/SETUP-TWO-PROJECTS.md
 Secrets:       deploy/RAILWAY-SECRETS-CHECKLIST.md
 Variables CLI: deploy/set-railway-variables-from-env.sh (from deploy/, after railway link)
 DNS cutover:   deploy/DNS-CUTOVER.md

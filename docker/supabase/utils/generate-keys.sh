@@ -8,6 +8,7 @@
 # Usage:
 #   sh generate-keys.sh              # Interactive: prints keys, prompts to update .env
 #   sh generate-keys.sh --update-env # Prints keys and writes them to .env
+#   SUPABASE_ENV_FILE=.env.dev sh generate-keys.sh --update-env  # write to another file (run from docker/supabase)
 #   sh generate-keys.sh | tee keys   # Non-interactive: prints keys only
 #
 # Portions of this code are derived from Inder Singh's setup.sh shell script.
@@ -115,7 +116,8 @@ if [ "$update_env" != "true" ]; then
     exit 0
 fi
 
-echo "Updating .env..."
+ENV_TARGET="${SUPABASE_ENV_FILE:-.env}"
+echo "Updating ${ENV_TARGET}..."
 
 sed \
     -i.old \
@@ -132,4 +134,4 @@ sed \
     -e "s|^MINIO_ROOT_PASSWORD=.*$|MINIO_ROOT_PASSWORD=${minio_root_password}|" \
     -e "s|^POSTGRES_PASSWORD=.*$|POSTGRES_PASSWORD=${postgres_password}|" \
     -e "s|^DASHBOARD_PASSWORD=.*$|DASHBOARD_PASSWORD=${dashboard_password}|" \
-    .env
+    "$ENV_TARGET"

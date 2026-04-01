@@ -1,25 +1,24 @@
 #!/usr/bin/env bash
-# Run Drizzle migrations against production Postgres (Railway).
-# Uses POSTGRES_PASSWORD from supabase-db and connects as user `postgres` on the
-# private hostname (transaction pooler user `postgres.<tenant>` cannot auth directly on DB).
+# Run Drizzle migrations against Commandra Dev Postgres on Railway.
+# Same mechanism as railway-drizzle-migrate-prod.sh: runs migrate.js inside the
+# deployed api container (paths /app/apps/api/...). Requires an api service in
+# the dev project with a build that includes apps/api/dist and apps/api/drizzle.
 #
-# Prereqs: railway CLI, logged in, linked to project; service names match Railway.
-# From repo root: ./scripts/railway-drizzle-migrate-prod.sh
+# Prereqs: railway CLI, logged in; api deployed to this project.
+# From repo root:
+#   ./scripts/railway-drizzle-migrate-commandra-dev.sh
 #
-# Optional: RAILWAY_PROJECT="Commandra Dev" to target that project without changing link.
-# Or: railway link -p "Commandra Dev" then run this script with no extra env.
+# Optional: RAILWAY_PROJECT_ID to override (defaults to Commandra Dev project id).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+RAILWAY_PROJECT_ID="${RAILWAY_PROJECT_ID:-10125fe5-7a1b-4255-9d2b-5207092afe82}"
 RAILWAY_SVC_DB="${RAILWAY_SVC_DB:-supabase-db}"
 RAILWAY_SVC_API="${RAILWAY_SVC_API:-api}"
 MIGRATE_DB_HOST="${MIGRATE_DB_DIRECT_HOST:-supabase-db.railway.internal}"
 
-SSH_EXTRA=()
-if [[ -n "${RAILWAY_PROJECT:-}" ]]; then
-  SSH_EXTRA+=(-p "$RAILWAY_PROJECT")
-fi
+SSH_EXTRA=(-p "$RAILWAY_PROJECT_ID")
 
 PW="$(railway ssh "${SSH_EXTRA[@]}" -s "$RAILWAY_SVC_DB" -- printenv POSTGRES_PASSWORD | tr -d '\r\n')"
 if [[ -z "$PW" ]]; then
