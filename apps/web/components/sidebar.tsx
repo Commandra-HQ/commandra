@@ -285,7 +285,10 @@ export function Sidebar() {
 
             {/* Logout */}
             <button
-              onClick={logout}
+              type="button"
+              onClick={() => {
+                void logout();
+              }}
               className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
               title="Sign out"
             >

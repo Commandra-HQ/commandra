@@ -3,18 +3,25 @@
 import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
 import { useAuth } from '@/lib/auth-context';
+import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
 	const { user, loading } = useAuth();
+	const { isSignedIn, isLoaded: clerkLoaded } = useUser();
 	const router = useRouter();
 
 	useEffect(() => {
-		if (!loading && !user) {
-			router.push('/login');
+		if (loading) return;
+		if (user) return;
+		if (!clerkLoaded) return;
+		if (isSignedIn) {
+			router.replace('/auth/clerk-bridge');
+			return;
 		}
-	}, [loading, user, router]);
+		router.push('/sign-in');
+	}, [loading, user, clerkLoaded, isSignedIn, router]);
 
 	if (loading || !user) {
 		return (

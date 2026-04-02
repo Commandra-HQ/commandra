@@ -9,7 +9,7 @@ function CallbackHandler() {
 	useEffect(() => {
 		const token = searchParams.get('token');
 		if (!token) {
-			window.location.href = '/login';
+			window.location.href = '/sign-in';
 			return;
 		}
 

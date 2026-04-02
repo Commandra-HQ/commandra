@@ -1,7 +1,11 @@
 import { AuthProvider } from '@/lib/auth-context';
+import { ThemedClerkProvider } from '@/components/themed-clerk-provider';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Providers } from './providers';
 import './globals.css';
+
+/** Avoid static prerender of routes wrapped by Clerk (invalid placeholder keys fail validation at build). */
+export const dynamic = 'force-dynamic';
 
 export const metadata = {
 	title: 'Commandra',
@@ -20,7 +24,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 			<body className="min-h-screen bg-background font-sans antialiased overflow-x-hidden">
 				<Providers>
 					<ThemeProvider>
-						<AuthProvider>{children}</AuthProvider>
+						<ThemedClerkProvider>
+							<AuthProvider>{children}</AuthProvider>
+						</ThemedClerkProvider>
 					</ThemeProvider>
 				</Providers>
 			</body>

@@ -68,7 +68,8 @@
 #       - run: pnpm --filter @commandra/shared build
 #       - run: pnpm --filter @commandra/api build
 #       - run: pnpm --filter @commandra/extension build
-#         # web build skipped — requires CLERK keys (validated via typecheck job)
+#       - run: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ secrets.CLERK_PUBLISHABLE_KEY }} CLERK_SECRET_KEY=${{ secrets.CLERK_SECRET_KEY }} NEXT_PUBLIC_API_URL=http://127.0.0.1:3001 pnpm --filter @commandra/web build
+#         # web uses Clerk; point secrets at your Clerk test keys (or same vars as local .env.local)
 
 #   docker:
 #     name: Docker Build

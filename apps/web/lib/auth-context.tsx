@@ -1,5 +1,6 @@
 'use client';
 
+import { useClerk } from '@clerk/nextjs';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -17,19 +18,18 @@ interface AuthContextValue {
 	user: AuthUser | null;
 	token: string | null;
 	loading: boolean;
-	login: (email: string, password: string) => Promise<void>;
-	register: (email: string, password: string) => Promise<void>;
-	logout: () => void;
+	/** Clears app JWT and ends the Clerk session (awaited so sign-out finishes). */
+	logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+	const { signOut } = useClerk();
 	const [user, setUser] = useState<AuthUser | null>(null);
 	const [token, setToken] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
 
-	// On mount, check for stored token
 	useEffect(() => {
 		const stored = localStorage.getItem('afe_token');
 		if (stored) {
@@ -65,46 +65,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 		}
 	}
 
-	const login = useCallback(async (email: string, password: string) => {
-		const res = await fetch(`${API_URL}/api/auth/login`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ email, password }),
-		});
-		if (!res.ok) {
-			const data = await res.json();
-			throw new Error(data.error || 'Login failed');
-		}
-		const data = await res.json();
-		localStorage.setItem('afe_token', data.token);
-		setToken(data.token);
-		setUser({ id: data.userId, email: data.email });
-	}, []);
-
-	const register = useCallback(async (email: string, password: string) => {
-		const res = await fetch(`${API_URL}/api/auth/register`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ email, password }),
-		});
-		if (!res.ok) {
-			const data = await res.json();
-			throw new Error(data.error || 'Registration failed');
-		}
-		const data = await res.json();
-		localStorage.setItem('afe_token', data.token);
-		setToken(data.token);
-		setUser({ id: data.userId, email: data.email });
-	}, []);
-
-	const logout = useCallback(() => {
+	const logout = useCallback(async () => {
 		localStorage.removeItem('afe_token');
 		setToken(null);
 		setUser(null);
-	}, []);
+		await signOut({ redirectUrl: '/sign-in' });
+	}, [signOut]);
 
 	return (
-		<AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+		<AuthContext.Provider value={{ user, token, loading, logout }}>
 			{children}
 		</AuthContext.Provider>
 	);
