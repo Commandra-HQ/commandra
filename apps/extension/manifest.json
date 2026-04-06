@@ -1,7 +1,7 @@
 {
 	"manifest_version": 3,
 	"name": "Commandra",
-	"version": "0.0.1",
+	"version": "1.0.0",
 	"description": "Chat with any web application. Automate what you do every day.",
 	"permissions": ["activeTab", "sidePanel", "storage", "tabs", "scripting", "alarms"],
 	"host_permissions": ["<all_urls>"],
